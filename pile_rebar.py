@@ -431,7 +431,10 @@ def main() -> int:
         print('Все варианты имеют неопределённый результат. Основные причины:', file=sys.stderr)
         for reason, count in reasons.most_common(5):
             print(f'  {count} x {reason}', file=sys.stderr)
-    print('ВНИМАНИЕ: пока не проверяются трещины, поперечная сила, устойчивость и полный конструктив.')
+    if result['calculation_scope'].startswith('section_uls_plus_unverified'):
+        print('ВНИМАНИЕ: расчёт трещин экспериментальный; НЕ проверены поперечная сила, устойчивость и конструктив.')
+    else:
+        print('ВНИМАНИЕ: пока не проверяются трещины, поперечная сила, устойчивость и полный конструктив.')
     print(f'Результаты: {args.output}, {args.csv}')
     return 0
 
