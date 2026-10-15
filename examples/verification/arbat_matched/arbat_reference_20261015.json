@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "method": "ARBAT v23.1.1.1; SP 63.13330.2018 amendments 1,2; user-provided RTF and SAV originals, verified joint N/My/Q",
+  "metrics": "Moment ratio is ARBAT fixed-N section moment utilization, not CScore AllFactor. Q and crack metrics are independent checks.",
+  "note": "P1000 E04 extreme shear strip 180266.5 is an ARBAT report value, not validated independently.",
+  "groups": {
+    "P800": {
+      "diameter_mm": 800,
+      "a1_mm": 70,
+      "bars": "12x25",
+      "concrete": "B30",
+      "longitudinal_steel": "A500",
+      "stirrups": "1x12@200",
+      "member_length_m": 3,
+      "concrete_gamma_b1": 0.9,
+      "cases": [
+        {
+          "id": "P800_E01",
+          "n_kn": -800,
+          "my_knm": 180,
+          "qz_kn": 80,
+          "moment_utilization": 0.199,
+          "concrete_strain_utilization": 0.142,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": 0.285,
+          "overall_utilization": 0.285
+        },
+        {
+          "id": "P800_E02",
+          "n_kn": -1700,
+          "my_knm": 550,
+          "qz_kn": 180,
+          "moment_utilization": 0.571,
+          "concrete_strain_utilization": 0.425,
+          "long_crack_utilization": 0.716,
+          "shear_inclined_utilization": 0.609,
+          "overall_utilization": 0.716
+        },
+        {
+          "id": "P800_E03",
+          "n_kn": -2400,
+          "my_knm": 900,
+          "qz_kn": 250,
+          "moment_utilization": 0.941,
+          "concrete_strain_utilization": 0.81,
+          "long_crack_utilization": 1.475,
+          "shear_inclined_utilization": 0.814,
+          "overall_utilization": 1.475
+        },
+        {
+          "id": "P800_E04",
+          "n_kn": -800,
+          "my_knm": 1200,
+          "qz_kn": 350,
+          "moment_utilization": 1.488,
+          "concrete_strain_utilization": 3.715,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": 1.247,
+          "overall_utilization": 3.715
+        },
+        {
+          "id": "P800_E05",
+          "n_kn": 250,
+          "my_knm": 300,
+          "qz_kn": 80,
+          "moment_utilization": 0.499,
+          "concrete_strain_utilization": 0.209,
+          "long_crack_utilization": 1.533,
+          "shear_inclined_utilization": 0.34,
+          "overall_utilization": 1.533
+        },
+        {
+          "id": "P800_E06",
+          "n_kn": -1600,
+          "my_knm": -550,
+          "qz_kn": -180,
+          "moment_utilization": 0.57,
+          "concrete_strain_utilization": 0.424,
+          "long_crack_utilization": 0.776,
+          "shear_inclined_utilization": 0.613,
+          "overall_utilization": 0.776
+        },
+        {
+          "id": "P800_E07",
+          "n_kn": -1700,
+          "my_knm": 550,
+          "qz_kn": 0,
+          "moment_utilization": 0.571,
+          "concrete_strain_utilization": 0.425,
+          "long_crack_utilization": 0.716,
+          "shear_inclined_utilization": null,
+          "overall_utilization": 0.716
+        },
+        {
+          "id": "P800_E08",
+          "n_kn": -1700,
+          "my_knm": 550,
+          "qz_kn": 450,
+          "moment_utilization": 0.571,
+          "concrete_strain_utilization": 0.425,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": 1.523,
+          "overall_utilization": 1.523
+        }
+      ]
+    },
+    "P1000": {
+      "diameter_mm": 1000,
+      "a1_mm": 70,
+      "bars": "16x28",
+      "concrete": "B30",
+      "longitudinal_steel": "A500",
+      "stirrups": "1x12@200",
+      "member_length_m": 3,
+      "concrete_gamma_b1": 0.9,
+      "cases": [
+        {
+          "id": "P1000_E01",
+          "n_kn": -2000,
+          "my_knm": 300,
+          "qz_kn": 100,
+          "moment_utilization": 0.211,
+          "concrete_strain_utilization": 0.138,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": 0.227,
+          "overall_utilization": 0.227
+        },
+        {
+          "id": "P1000_E02",
+          "n_kn": -3500,
+          "my_knm": 900,
+          "qz_kn": 200,
+          "moment_utilization": 0.497,
+          "concrete_strain_utilization": 0.35,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": 0.427,
+          "overall_utilization": 0.497
+        },
+        {
+          "id": "P1000_E03",
+          "n_kn": -4800,
+          "my_knm": 1450,
+          "qz_kn": 350,
+          "moment_utilization": 0.763,
+          "concrete_strain_utilization": 0.573,
+          "long_crack_utilization": 0.576,
+          "shear_inclined_utilization": 0.735,
+          "overall_utilization": 0.763
+        },
+        {
+          "id": "P1000_E04",
+          "n_kn": 1500,
+          "my_knm": 1900,
+          "qz_kn": 450,
+          "moment_utilization": 1.516,
+          "concrete_strain_utilization": 3.95,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": 6.811,
+          "overall_utilization": 180266.5
+        },
+        {
+          "id": "P1000_E05",
+          "n_kn": 300,
+          "my_knm": 400,
+          "qz_kn": 80,
+          "moment_utilization": 0.316,
+          "concrete_strain_utilization": 0.128,
+          "long_crack_utilization": 0.938,
+          "shear_inclined_utilization": 0.22,
+          "overall_utilization": 0.938
+        },
+        {
+          "id": "P1000_E06",
+          "n_kn": -3000,
+          "my_knm": -1000,
+          "qz_kn": -180,
+          "moment_utilization": 0.513,
+          "concrete_strain_utilization": 0.375,
+          "long_crack_utilization": 0.456,
+          "shear_inclined_utilization": 0.392,
+          "overall_utilization": 0.513
+        },
+        {
+          "id": "P1000_E07",
+          "n_kn": -3500,
+          "my_knm": 900,
+          "qz_kn": 0,
+          "moment_utilization": 0.497,
+          "concrete_strain_utilization": 0.35,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": null,
+          "overall_utilization": 0.497
+        },
+        {
+          "id": "P1000_E08",
+          "n_kn": -3500,
+          "my_knm": 900,
+          "qz_kn": 600,
+          "moment_utilization": 0.497,
+          "concrete_strain_utilization": 0.35,
+          "long_crack_utilization": null,
+          "shear_inclined_utilization": 1.282,
+          "overall_utilization": 1.282
+        }
+      ]
+    }
+  }
+}
