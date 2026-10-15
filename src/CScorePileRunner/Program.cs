@@ -82,6 +82,10 @@ internal static class Program
         }
     }
 
+    // CScore eagerly creates material diagrams for all four internal calculation states.
+    private static readonly CalcType[] MaterialModes =
+        [CalcType.C, CalcType.CL, CalcType.N, CalcType.NL];
+
     private static CrossSection MakeSection(BatchInput input, Candidate candidate)
     {
         double radiusM = input.Pile.DiameterMm / 2000.0;
@@ -97,7 +101,11 @@ internal static class Program
             Id = 1, Tag = "concrete-user-properties", Type = MatType.Concrete,
             E = material.ConcreteEKpa
         };
-        concrete.MaterialChars = [new MaterialChars(CalcType.C)
+        // CScore.Material.GetD2L() builds diagrams for C, CL, N and NL unconditionally.
+        // In this exploratory ULS-only runner CL/N/NL are technical placeholders
+        // containing copies of C input. They are NOT valid serviceability or
+        // long-term material definitions and must never be used for SLS/CL design.
+        concrete.MaterialChars = MaterialModes.Select(mode => new MaterialChars(mode)
         {
             Type = MatType.Concrete,
             Fc = -material.ConcreteRbKpa,
@@ -107,13 +115,13 @@ internal static class Program
             Ec2 = material.ConcreteEc2,
             Et1Red = material.ConcreteEt1,
             Et2 = material.ConcreteEt2
-        }];
+        }).ToList();
         var rebar = new Material
         {
             Id = 2, Tag = "reinforcement-user-properties", Type = MatType.ReSteelF,
             E = material.RebarEKpa
         };
-        rebar.MaterialChars = [new MaterialChars(CalcType.C)
+        rebar.MaterialChars = MaterialModes.Select(mode => new MaterialChars(mode)
         {
             Type = MatType.ReSteelF,
             Fc = -material.RebarRsKpa,
@@ -121,7 +129,7 @@ internal static class Program
             E = material.RebarEKpa,
             Ec2 = material.RebarEc2,
             Et2 = material.RebarEt2
-        }];
+        }).ToList();
 
         var xs = new List<double>();
         var ys = new List<double>();
