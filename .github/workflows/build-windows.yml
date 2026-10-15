@@ -82,6 +82,25 @@ jobs:
           }
           python tools/compare_arbat.py --results-dir results --output results/arbat_comparison.csv
           if ($LASTEXITCODE -ne 0) { throw 'ARBAT/CScore comparison failed' }
+      - name: Explain ARBAT/CScore discrepancies (geometry, gamma, eccentricity, factor)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tools/diagnose_arbat_inputs.py
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic input generation failed' }
+          New-Item -ItemType Directory results/diagnostics -Force | Out-Null
+          Copy-Item examples/verification/diagnostics/manifest.json results/diagnostics/
+          $cases = Get-ChildItem examples/verification/diagnostics/P*.json
+          foreach ($entry in $cases) {
+            python pile_rebar.py $entry.FullName `
+              --runner publish/CScorePileRunner.exe `
+              --output "results/diagnostics/$($entry.BaseName).json" `
+              --csv "results/diagnostics/$($entry.BaseName).csv"
+            if ($LASTEXITCODE -ne 0) { throw "Diagnostic $($entry.Name) failed" }
+          }
+          python tools/diagnose_arbat_compare.py
+          if ($LASTEXITCODE -ne 0) { throw 'Discrepancy analysis incomplete' }
       - name: Pack deliverables
         shell: pwsh
         run: |
@@ -89,6 +108,9 @@ jobs:
           Copy-Item publish/* release/ -Recurse
           Copy-Item pile_rebar.py release/
           Copy-Item tools/compare_arbat.py release/
+          Copy-Item tools/diagnose_arbat_inputs.py release/
+          Copy-Item tools/diagnose_arbat_compare.py release/
+          Copy-Item tools/arbat_sav_export.py release/
           Copy-Item examples/demo_bns.json release/
           Copy-Item examples/geometry_preview.csv release/
           Copy-Item README.md release/
@@ -96,6 +118,8 @@ jobs:
           Copy-Item examples/verification/* release/verification/ -Recurse
           Copy-Item results/*.json release/
           Copy-Item results/*.csv release/
+          New-Item -ItemType Directory release/diagnostics -Force | Out-Null
+          Copy-Item results/diagnostics/* release/diagnostics/
           Compress-Archive -Path release/* -DestinationPath cscore-pile-windows.zip -Force
       - name: Windows EXE and numerical results
         uses: actions/upload-artifact@v4
@@ -115,5 +139,7 @@ jobs:
             results/P800_*.csv
             results/P1000_*.json
             results/P1000_*.csv
+            results/diagnostics/*.json
+            results/diagnostics/*.csv
           if-no-files-found: ignore
           retention-days: 7
