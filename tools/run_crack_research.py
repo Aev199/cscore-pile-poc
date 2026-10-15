@@ -139,6 +139,22 @@ def check_answer(section: str, reference: dict, answer: dict) -> list[dict]:
             "sigma_rebar_at_crack_MPa": (case.get("sigma_rebar_at_crack_kpa") / 1000.0
                                        if valid and isinstance(case.get("sigma_rebar_at_crack_kpa"), (float, int)) else None),
             "psi_s": case.get("psi_s") if valid else None,
+            "width_long_psi_one_mm": case.get("width_long_psi_one_mm") if valid else None,
+            "util_long_psi_one": case.get("utilization_long_psi_one") if valid else None,
+            "psi_one_relative_difference_pct": (
+                100 * (case["utilization_long_psi_one"] / ref["arbat_crack_long_util"] - 1)
+                if valid and ref["arbat_crack_long_util"] and ref["arbat_crack_long_util"] > 0
+                and isinstance(case.get("utilization_long_psi_one"), (int,float))
+                and math.isfinite(case["utilization_long_psi_one"])
+                else None
+            ),
+            "psi_one_vs_arbat_verdict_diff": (
+                (case["utilization_long_psi_one"] <= 1) != (ref["arbat_crack_long_util"] <= 1)
+                if valid and ref["arbat_crack_long_util"] is not None
+                and isinstance(case.get("utilization_long_psi_one"), (int,float))
+                and math.isfinite(case["utilization_long_psi_one"])
+                else None
+            ),
             "sigma_precrack_rebar_MPa": (case.get("sigma_rebar_precrack_kpa") / 1000.0
                                       if valid and isinstance(case.get("sigma_rebar_precrack_kpa"), (float, int)) else None),
             "psi_precrack_hypothesis": case.get("psi_s_precrack_hypothesis") if valid else None,
@@ -216,6 +232,13 @@ def run(runner: Path, output_dir: Path, timeout: int = 900) -> list[dict]:
             print(f"{section}: long crack benchmark {len(comparable)} comparable cases, "
                   f"mean abs relative error = {mean_err:.1f}%, "
                   f"PASS/FAIL disagreements = {len(mismatches)}")
+            psi1 = [x for x in comparable if x["psi_one_relative_difference_pct"] is not None]
+            if psi1:
+                mae_psi1 = sum(abs(x["psi_one_relative_difference_pct"]) for x in psi1) / len(psi1)
+                psi1_diff = sum(bool(x["psi_one_vs_arbat_verdict_diff"]) for x in psi1)
+                print(f"{section}: SP63 psi_s=1 conservative screening (not final SLS): "
+                      f"{len(psi1)} cases, MAPE={mae_psi1:.1f}%, "
+                      f"verdict discrepancies={psi1_diff}")
             alt = [x for x in comparable if x["precrack_hypothesis_delta_pct"] is not None]
             if alt:
                 mae_alt = sum(abs(x["precrack_hypothesis_delta_pct"]) for x in alt) / len(alt)
