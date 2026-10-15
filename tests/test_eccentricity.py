@@ -51,20 +51,20 @@ class EccentricityTests(unittest.TestCase):
         self.assertEqual(self.data["loads"][0]["mx_knm"],200)
         self.assertEqual(audit[0]["original"]["mx_knm"],200)
         self.assertAlmostEqual(audit[0]["effective"]["mx_knm"],effective[0]["mx_knm"])
-        self.assertTrue(opt["preliminary_eccentricity_verified"])
+        self.assertTrue(opt["eccentricity_accounted_for"])
 
     def test_no_double_count_when_already_in_loads(self):
         self.data["eccentricity"]={"mode":"already_in_loads"}
         effective,audit,opt=app.prepare_design_loads(self.data)
         self.assertEqual(effective,self.data["loads"])
         self.assertEqual(audit[0]["ea_mm"],0)
-        self.assertTrue(opt["preliminary_eccentricity_verified"])
+        self.assertTrue(opt["eccentricity_accounted_for"])
 
     def test_research_only_mode_blocks_preselection(self):
         self.data["eccentricity"]={"mode":"research_none"}
-        self.assertFalse(app.prepare_design_loads(self.data)[2]["preliminary_eccentricity_verified"])
+        self.assertFalse(app.prepare_design_loads(self.data)[2]["eccentricity_accounted_for"])
         self.data.pop("eccentricity")
-        self.assertFalse(app.prepare_design_loads(self.data)[2]["preliminary_eccentricity_verified"])
+        self.assertFalse(app.prepare_design_loads(self.data)[2]["eccentricity_accounted_for"])
 
     def test_centric_compression_requires_explicit_direction(self):
         self.data["loads"]=[{"id":"centric","n_kn":-1000,"mx_knm":0,"my_knm":0}]
@@ -110,7 +110,7 @@ class EccentricityTests(unittest.TestCase):
                         for x in req["candidates"]]}))
             with patch.object(app.subprocess,"run",side_effect=runner_fake):
                 r=app.run(inp,base/"fake.exe",result,table)
-            self.assertTrue(r["eccentricity"]["preliminary_eccentricity_verified"])
+            self.assertTrue(r["eccentricity"]["eccentricity_accounted_for"])
             self.assertEqual(r["selected_uls_candidate"],"8x20@0deg")
             self.assertEqual(r["forces_audit"][0]["original"]["mx_knm"],200)
             self.assertGreater(r["forces_audit"][0]["effective"]["mx_knm"],200)
