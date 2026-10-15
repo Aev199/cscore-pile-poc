@@ -143,6 +143,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Experimental crack probe failed to complete' }
           python -c "import csv; p='results/crack_probe/crack_width_comparison.csv'; r=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); assert len(r)==16; assert all(x['design_status']=='NOT_VERIFIED' for x in r); print('crack probe records',len(r),'research only')"
           if ($LASTEXITCODE -ne 0) { throw 'Incomplete or unsafe crack probe output' }
+      - name: Conservative SLS default available in regular pile_rebar workflow
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python pile_rebar.py examples/verification/P800_sls_preselection_example.json `
+            --runner publish/CScorePileRunner.exe `
+            --output results/P800_sls_research.json `
+            --csv results/P800_sls_research.csv
+          if ($LASTEXITCODE -ne 0) { throw 'Ordinary BNS + optional SLS mode failed' }
+          python -c "import json; a=json.load(open('results/P800_sls_research.json',encoding='utf-8')); assert a['cases'] and len(a['cases'][0]['sls_probe'])==4; s=a['cases'][0]['sls_probe']; assert all(x['design_status']=='NOT_VERIFIED' for x in s); assert all(x.get('preliminary_method')=='arbat_conservative' for x in s if x['status']=='research_calculated'); print('preliminary SLS cases',len(s))"
+          if ($LASTEXITCODE -ne 0) { throw 'SLS mode default or fail-closed contract invalid' }
       - name: Multi-geometry SLS research matrix (rectangles and circular sections)
         shell: pwsh
         env:
