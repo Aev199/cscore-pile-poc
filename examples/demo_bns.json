@@ -22,13 +22,46 @@
     "rebar_et2": 0.025
   },
   "loads": [
-    {"id": "pile1_stage1_z0_uls", "n_kn": -600, "mx_knm": 140, "my_knm": 0},
-    {"id": "pile1_stage2_z5_uls", "n_kn": -950, "mx_knm": 210, "my_knm": 60},
-    {"id": "pile1_stage3_z10_uls", "n_kn": -500, "mx_knm": -185, "my_knm": 35}
+    {
+      "id": "pile1_stage1_z0_uls",
+      "n_kn": -600,
+      "mx_knm": 140,
+      "my_knm": 0
+    },
+    {
+      "id": "pile1_stage2_z5_uls",
+      "n_kn": -950,
+      "mx_knm": 210,
+      "my_knm": 60
+    },
+    {
+      "id": "pile1_stage3_z10_uls",
+      "n_kn": -500,
+      "mx_knm": -185,
+      "my_knm": 35
+    }
   ],
   "search": {
-    "bar_counts": [8, 10, 12, 14],
-    "bar_diameters_mm": [20, 22, 25, 28],
-    "rotation_deg": [0, 11.25]
+    "bar_counts": [
+      8,
+      10,
+      12,
+      14
+    ],
+    "bar_diameters_mm": [
+      20,
+      22,
+      25,
+      28
+    ],
+    "rotation_deg": [
+      0,
+      11.25
+    ]
+  },
+  "eccentricity": {
+    "mode": "sp63_stat_determinate",
+    "static_scheme": "statically_determinate",
+    "effective_length_mm": 3000
   }
 }
