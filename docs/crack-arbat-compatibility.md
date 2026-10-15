@@ -108,6 +108,56 @@ results. If the sensitivity test explains the gap, research the
 compatibility mode beyond diagnostics. No hidden calibrated multiplier
 may be introduced. Keep ARBAT final SLS verification mandatory.
 
+## Separate code-permitted conservative screening: ψs=1
+
+SP63.13330.2018 §8.2.15 explicitly permits initially taking
+`psi_s=1`. When a section does not satisfy the crack-width limitation
+on that check, the code provides for a refined computation of ψs. This
+provides a **methodologically defensible preliminary screen**, not an
+arbitrarily calibrated multiplier.
+
+Keeping all original CScore terms (σs, ls, Es, φ1/2/3) and changing only
+ψs to 1, the *existing run 38747007374* can be analyzed exactly:
+`K_psi1 = K_CScore / psi_s_CScore` for cracked records only.
+
+| RTF case | ARBAT Klong | CScore default Klong | SP63 ψs=1 screen Klong |
+|---|---:|---:|---:|
+| P800 T01 | 0.660 | 0.324 | 0.782 |
+| P800 T02 | 2.202 | 1.869 | 2.328 |
+| P800 T04 | 1.378 | 1.284 | 1.459 |
+| P800 T06 | 0.705 | 0.667 | 0.763 |
+| P800 T07 | 1.360 | 0.695 | 1.509 |
+| P800 T08 | 2.666 | 1.987 | 2.800 |
+| P1000 T02 | 0.989 | 0.671 | 1.106 |
+| P1000 T04 | 0.519 | 0.367 | 0.607 |
+| P1000 T08 | 1.508 | 0.980 | 1.658 |
+
+Mean absolute relative error for these rows: P800 **9.05%**
+(vs original 25.4%) and P1000 **12.92%** (vs original 32.1%).
+No false-pass vs ARBAT among these nine cases when using ψs=1, but
+one **conservative false-fail** P1000 T02 (1.106 vs 0.989). No guarantee
+outside this sample, and none of the values certify SLS compliance
+because service material diagrams/hidden solver fallback remain
+incompletely validated.
+
+New runner research fields:
+- `width_long_psi_one_mm`, `utilization_long_psi_one`
+- original upstream result (untouched)
+- legacy pre-cracking stress sensitivity result (independent, separate)
+
+The ψs=1 screen is particularly useful for *early candidate ranking*:
+if it passes (and stresses/force model validated), it is conservative
+relative to the same CScore expression with ψs≤1. If it fails, one
+can request the more detailed calculation and ARBAT verification.
+**This is not authorization to omit ARBAT in our current workflow.**
+
+Source references:
+- https://files.stroyinf.ru/Data2/1/4293732/4293732352.pdf (SP63 §8.2.15)
+- https://github.com/rumata-ap/OpenCS/commit/04c2a9435fe653806389468cb2ff65ddbadc0d4c
+
+The new code implementing both research contrasts has not yet run
+through GitHub CI: do not report these new output fields as verified.
+
 ## Limitations
 
 - The nine ARBAT RTF rows contain only utilization factors, not internal
