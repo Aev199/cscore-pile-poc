@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "pile": {
+    "diameter_mm": 800,
+    "cover_mm": 45.5,
+    "ties_diameter_mm": 12,
+    "min_clear_spacing_mm": 40,
+    "mesh_resolution": 41,
+    "polygon_sides": 96
+  },
+  "materials": {
+    "concrete_rb_kpa": 17000,
+    "concrete_rbt_kpa": 1150,
+    "concrete_e_kpa": 32500000,
+    "concrete_ec1": -0.0015,
+    "concrete_ec2": -0.0035,
+    "concrete_et1": 0.00008,
+    "concrete_et2": 0.00015,
+    "rebar_rs_kpa": 435000,
+    "rebar_e_kpa": 200000000,
+    "rebar_ec2": -0.025,
+    "rebar_et2": 0.025
+  },
+  "loads": [
+    {
+      "id": "P800_E01",
+      "n_kn": -800,
+      "mx_knm": 180,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_E02",
+      "n_kn": -1700,
+      "mx_knm": 550,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_E03",
+      "n_kn": -2400,
+      "mx_knm": 900,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_E04",
+      "n_kn": -800,
+      "mx_knm": 1200,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_E05",
+      "n_kn": 250,
+      "mx_knm": 300,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_E06",
+      "n_kn": -1600,
+      "mx_knm": -550,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_E07",
+      "n_kn": -1700,
+      "mx_knm": 550,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_E08",
+      "n_kn": -1700,
+      "mx_knm": 550,
+      "my_knm": 0
+    }
+  ],
+  "search": {
+    "bar_counts": [
+      12
+    ],
+    "bar_diameters_mm": [
+      25
+    ],
+    "rotation_deg": [
+      0
+    ]
+  }
+}
