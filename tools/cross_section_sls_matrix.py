@@ -46,6 +46,17 @@ def section_definitions() -> list[dict]:
          "bars": bars_rectangle(w, h, phi, c, side, top)}
         for label, w, h, phi, c, side, top in rectangular
     ]
+    # Replace the last perimeter layout with a genuine two-layer bar scheme:
+    # 4 outer face bars and 4 inward bars on the opposite bending side.
+    # This tests differential stress levels, not only multiple edge positions.
+    last = result[-1]
+    if last["id"] == "R400x400_8d16_cover35":
+        last["id"] = "R400x400_8d16_two_layers_cover35"
+        last["bars"] = [
+            {"x_mm": x, "y_mm": y, "diameter_mm": 16}
+            for y in (-157, -115, 115, 157)
+            for x in (-157, 157)
+        ]
     for d, phi, count, cover in (
         (600, 20, 8, 50), (800, 25, 16, 55),
         (1000, 28, 20, 70),
