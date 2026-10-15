@@ -136,7 +136,10 @@ internal static class Program
                         section,
                         calcCrc: CalcType.N,
                         calcService: CalcType.N,
-                        calcServiceLong: CalcType.NL,
+                        // SP63 6.1.26: crack opening uses the SHORT-TERM concrete
+                        // constitutive diagram even for sustained actions.
+                        // Upstream Example47 explicitly uses N for both parts.
+                        calcServiceLong: CalcType.N,
                         phi2: probe.Phi2,
                         acrcUltLong: probe.AcrcUltLongMm,
                         acrcUltShort: probe.AcrcUltShortMm);
@@ -167,6 +170,22 @@ internal static class Program
                         cracked = (bool?)r.Cracked,
                         crc_converged = r.CrcConverged,
                         mcrc_knm = finite ? (double?)r.Mcrc : null,
+                        // Audit diagnostics of SP63 8.2.15 and 8.2.18.
+                        // These do not themselves certify a correct crack result.
+                        sigma_rebar_kpa = validated && double.IsFinite(r.SigmaS) ? (double?)r.SigmaS : null,
+                        sigma_rebar_at_crack_kpa = validated && double.IsFinite(r.SigmaSCrc) ? (double?)r.SigmaSCrc : null,
+                        psi_s = validated && double.IsFinite(r.PsiS) ? (double?)r.PsiS : null,
+                        psi_s2 = validated && double.IsFinite(r.PsiS2) ? (double?)r.PsiS2 : null,
+                        crack_spacing_m = validated && double.IsFinite(r.Ls) ? (double?)r.Ls : null,
+                        tensile_rebar_area_m2 = validated && double.IsFinite(r.AsTens) ? (double?)r.AsTens : null,
+                        equivalent_rebar_diameter_m = validated && double.IsFinite(r.DsEq) ? (double?)r.DsEq : null,
+                        tensile_concrete_area_m2 = validated && double.IsFinite(r.Abt) ? (double?)r.Abt : null,
+                        effective_height_m = validated && double.IsFinite(r.H0) ? (double?)r.H0 : null,
+                        phi1_long_times_phi2 = 1.4 * probe.Phi2,
+                        phi2 = probe.Phi2,
+                        a_crc_1_mm = validated && double.IsFinite(r.Acrc1) ? (double?)r.Acrc1 : null,
+                        a_crc_2_mm = validated && double.IsFinite(r.Acrc2) ? (double?)r.Acrc2 : null,
+                        a_crc_3_mm = validated && double.IsFinite(r.Acrc3) ? (double?)r.Acrc3 : null,
                         width_long_mm = validated ? (double?)r.AcrcLong : null,
                         width_short_mm = validated ? (double?)r.AcrcShort : null,
                         utilization_long = validated ? (double?)r.UtilLong : null,
