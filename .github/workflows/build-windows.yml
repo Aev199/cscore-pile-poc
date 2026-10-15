@@ -42,6 +42,8 @@ jobs:
             -o publish
       - name: End-to-end numerical run (real CScore, no mocks)
         shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           python pile_rebar.py examples/demo_bns.json `
             --runner publish/CScorePileRunner.exe `
@@ -66,3 +68,13 @@ jobs:
           name: cscore-pile-windows
           path: cscore-pile-windows.zip
           retention-days: 14
+      - name: Save diagnostic calculation results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cscore-diagnostic-results
+          path: |
+            results/pile_results.json
+            results/pile_results.csv
+          if-no-files-found: ignore
+          retention-days: 7
