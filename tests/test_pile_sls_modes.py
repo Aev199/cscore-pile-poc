@@ -107,6 +107,43 @@ class PileSlsOptionTests(unittest.TestCase):
         self.assertEqual(result[0]["design_status"],"NOT_VERIFIED")
         self.assertEqual(result[0]["status"],"indeterminate")
 
+    def test_end_to_end_research_cage_requires_all_sls_below_review_band(self):
+        import tempfile
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        for trial in (0.91, 0.989):
+            with tempfile.TemporaryDirectory() as temp:
+                folder=Path(temp)
+                inp=folder/"input.json"
+                inp.write_text(json.dumps(self.example),encoding="utf-8")
+                def fake_run(argv, **kwargs):
+                    req=json.loads(kwargs["input"])
+                    sls = self.fake_rows(
+                        utilization=trial,native=0.85,mode="arbat_conservative"
+                    )
+                    return SimpleNamespace(
+                        returncode=0,stderr="",
+                        stdout=json.dumps({
+                            "schema_version":1,
+                            "cases":[{
+                                "id":c["id"],
+                                "loads":[{
+                                    "id":l["id"],"converged":True,"error":None,
+                                    "factor":2.0,"utilization":0.5,
+                                } for l in req["loads"]],
+                                "sls_probe":sls,
+                            } for c in req["candidates"]]
+                        })
+                    )
+                with patch.object(main.subprocess,"run",side_effect=fake_run):
+                    result=main.run(inp,folder/"fake.exe",folder/"out.json",folder/"out.csv")
+                self.assertIsNotNone(result["selected_uls_candidate"])
+                self.assertEqual(result["cases"][0]["sls_probe"][0]["design_status"],"NOT_VERIFIED")
+                if trial==0.91:
+                    self.assertIsNotNone(result["selected_preliminary_uls_sls_research_candidate"])
+                else:
+                    self.assertIsNone(result["selected_preliminary_uls_sls_research_candidate"])
+
     def test_upstream_cannot_claim_design_approval(self):
         rows=self.fake_rows()
         rows[0]["verified_for_design"]=True
