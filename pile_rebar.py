@@ -29,9 +29,89 @@ def positive(value: Any, name: str, *, allow_zero: bool = False) -> float:
     return number
 
 
+
+# Accidental eccentricity is a member-level assumption, not an intrinsic property
+# of a PLAXIS force tuple. Explicit configuration prevents double counting.
+ECC_MODES = {'sp63_stat_determinate', 'already_in_loads', 'research_none'}
+ZERO_MOMENT_AXES = {
+    'mx_positive': (1.0, 0.0), 'mx_negative': (-1.0, 0.0),
+    'my_positive': (0.0, 1.0), 'my_negative': (0.0, -1.0),
+}
+
+
+def eccentricity_settings(data: dict) -> dict:
+    raw = data.get('eccentricity')
+    if raw is None:
+        return {'mode': 'unspecified_legacy'}
+    if not isinstance(raw, dict) or raw.get('mode') not in ECC_MODES:
+        raise InputError('eccentricity.mode: sp63_stat_determinate, already_in_loads или research_none')
+    mode = raw['mode']
+    if mode == 'sp63_stat_determinate':
+        if raw.get('static_scheme') != 'statically_determinate':
+            raise InputError('Автоматический e_a пока поддерживает только статически определимую схему')
+        length = positive(raw.get('effective_length_mm'), 'eccentricity.effective_length_mm')
+        axis = raw.get('zero_moment_axis')
+        if axis is not None and axis not in ZERO_MOMENT_AXES:
+            raise InputError('eccentricity.zero_moment_axis: mx_positive/mx_negative/my_positive/my_negative')
+        return {'mode': mode, 'static_scheme': 'statically_determinate',
+                'effective_length_mm': length, 'zero_moment_axis': axis}
+    if set(raw) != {'mode'}:
+        raise InputError('Параметры длины и направления применимы только к sp63_stat_determinate')
+    return {'mode': mode}
+
+
+def prepare_design_loads(data: dict) -> tuple[list[dict], list[dict], dict]:
+    """Preserve original joint loads; add e_a to the vector of bending moments on compression.
+
+    e_a=max(l0/600,D/30,10mm), only for explicit statically determinate mode.
+    Biaxial direction is an engineering hypothesis requiring separate validation.
+    Pure concentric compression requires the user to specify a direction.
+    """
+    settings = eccentricity_settings(data)
+    mode = settings['mode']
+    ea_mm = (max(settings['effective_length_mm'] / 600,
+                 data['pile']['diameter_mm'] / 30, 10.0)
+             if mode == 'sp63_stat_determinate' else None)
+    result, audit = [], []
+    for load in data['loads']:
+        original = {k: load[k] for k in ('id', 'n_kn', 'mx_knm', 'my_knm')}
+        effective = original.copy()
+        added_x = added_y = 0.0
+        if mode == 'sp63_stat_determinate' and original['n_kn'] < 0:
+            mx, my = original['mx_knm'], original['my_knm']
+            magnitude = math.hypot(mx, my)
+            if magnitude > 1e-12:
+                ux, uy = mx / magnitude, my / magnitude
+            else:
+                axis = settings.get('zero_moment_axis')
+                if axis is None:
+                    raise InputError(
+                        f"{original['id']}: при центральном сжатии нужно задать eccentricity.zero_moment_axis"
+                    )
+                ux, uy = ZERO_MOMENT_AXES[axis]
+            delta = abs(original['n_kn']) * ea_mm / 1000.0
+            added_x, added_y = delta * ux, delta * uy
+            effective['mx_knm'] += added_x
+            effective['my_knm'] += added_y
+        if not all(math.isfinite(effective[k]) for k in ('n_kn', 'mx_knm', 'my_knm')):
+            raise InputError(f"{original['id']}: переполнение при добавлении эксцентриситета")
+        result.append(effective)
+        audit.append({'id': original['id'], 'original': original,
+                      'effective': effective.copy(),
+                      'delta_mx_knm': added_x, 'delta_my_knm': added_y,
+                      'ea_mm': ea_mm if original['n_kn'] < 0 and mode == 'sp63_stat_determinate' else 0.0})
+    config = {**settings, 'ea_mm': ea_mm,
+              'preliminary_eccentricity_verified': mode in ('sp63_stat_determinate', 'already_in_loads'),
+              'note': ('Experimental uniaxial calibration to ARBAT; biaxial and zero-moment handling not independently validated'
+                       if mode == 'sp63_stat_determinate' else
+                       'No accidental eccentricity applied in this stage')}
+    return result, audit, config
+
+
 def validate_input(data: dict) -> None:
     if not isinstance(data, dict) or data.get('schema_version') != 1:
         raise InputError('schema_version должен быть равен 1')
+    eccentricity_settings(data)
     pile = data.get('pile')
     materials = data.get('materials')
     search = data.get('search')
@@ -170,7 +250,9 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
     permitted, rejected = make_candidates(data)
     if not permitted:
         raise InputError('Нет геометрически допустимых кандидатов для расчёта')
-    request = build_engine_request(data, permitted)
+    effective_loads, forces_audit, eccentricity = prepare_design_loads(data)
+    engine_data = {**data, 'loads': effective_loads}
+    request = build_engine_request(engine_data, permitted)
     if runner.suffix.lower() == '.dll':
         argv = ['dotnet', str(runner.resolve())]
     else:
@@ -182,7 +264,9 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
     passes = [x for x in calculated if x['status'] == 'pass_uls']
     result = {'schema_version': 1, 'purpose': 'research_prototype_not_for_design',
               'calculation_scope': 'section_uls_only_no_eta_no_shear_no_crack_no_code_detailing',
-              'selected_uls_candidate': passes[0]['id'] if passes else None,
+              'eccentricity': eccentricity, 'forces_audit': forces_audit,
+              'selected_uls_candidate': (passes[0]['id'] if passes else None)
+                 if eccentricity['preliminary_eccentricity_verified'] else None,
               'engine_commit': '4ae6aa077be5b29145930ec093ba1c9eb7776222',
               'cases': calculated, 'rejected_geometry': rejected,
               'note': 'pass_uls означает только проверку нормального сечения; НЕ готовность КЖ'}
@@ -191,10 +275,16 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with csv_path.open('w', encoding='utf-8-sig', newline='') as h:
         wr = csv.writer(h, delimiter=';')
-        wr.writerow(['candidate','steel_area_mm2','clearance_mm','status','max_utilization','load_id','load_status','utilization','factor','converged','error','moment_utilization','moment_factor','moment_converged','moment_error'])
+        wr.writerow(['candidate','steel_area_mm2','clearance_mm','status','max_utilization','load_id','load_status','utilization','factor','converged','error','moment_utilization','moment_factor','moment_converged','moment_error','original_n_kn','original_mx_knm','original_my_knm',
+                     'effective_n_kn','effective_mx_knm','effective_my_knm','ea_mm','delta_mx_knm','delta_my_knm'])
+        force_by_id = {item['id']: item for item in forces_audit}
         for c in calculated:
             for l in c['loads']:
-                wr.writerow([c['id'], round(c['steel_area_mm2'], 2), round(c['clearance_mm'],2),c['status'],c['max_utilization'],l['id'],l['decision'],l.get('utilization'),l.get('factor'),l.get('converged'),l.get('error'),l.get('moment_utilization'),l.get('moment_factor'),l.get('moment_converged'),l.get('moment_error')])
+                force = force_by_id[l['id']]
+                wr.writerow([c['id'], round(c['steel_area_mm2'], 2), round(c['clearance_mm'],2),c['status'],c['max_utilization'],l['id'],l['decision'],l.get('utilization'),l.get('factor'),l.get('converged'),l.get('error'),l.get('moment_utilization'),l.get('moment_factor'),l.get('moment_converged'),l.get('moment_error'),
+                             force['original']['n_kn'],force['original']['mx_knm'],force['original']['my_knm'],
+                             force['effective']['n_kn'],force['effective']['mx_knm'],force['effective']['my_knm'],
+                             force['ea_mm'],force['delta_mx_knm'],force['delta_my_knm']])
     return result
 
 
@@ -212,6 +302,12 @@ def main() -> int:
         return 2
     print(f'Кандидатов: {len(result["cases"])}, прошли только прочность нормального сечения: {sum(c["status"] == "pass_uls" for c in result["cases"])}')
     print(f'Предварительно минимальный по площади: {result["selected_uls_candidate"] or "не найден"}')
+    if not result['eccentricity']['preliminary_eccentricity_verified']:
+        print('ВНИМАНИЕ: e_a не подтверждён. Подбор не выдаётся; настройте eccentricity.mode.',
+              file=sys.stderr)
+    elif result['eccentricity']['mode'] == 'sp63_stat_determinate':
+        print(f"Случайный эксцентриситет: e_a={result['eccentricity']['ea_mm']:.2f} мм "
+              "(только при сжатии; исходные усилия сохранены в отчёте)")
     # Provide actionable diagnostics in CI logs, not only in downloaded JSON artifacts.
     if all(c['status'] == 'indeterminate' for c in result['cases']):
         from collections import Counter
