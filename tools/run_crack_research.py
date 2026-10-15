@@ -139,6 +139,27 @@ def check_answer(section: str, reference: dict, answer: dict) -> list[dict]:
             "sigma_rebar_at_crack_MPa": (case.get("sigma_rebar_at_crack_kpa") / 1000.0
                                        if valid and isinstance(case.get("sigma_rebar_at_crack_kpa"), (float, int)) else None),
             "psi_s": case.get("psi_s") if valid else None,
+            "sigma_precrack_rebar_MPa": (case.get("sigma_rebar_precrack_kpa") / 1000.0
+                                      if valid and isinstance(case.get("sigma_rebar_precrack_kpa"), (float, int)) else None),
+            "psi_precrack_hypothesis": case.get("psi_s_precrack_hypothesis") if valid else None,
+            "width_long_precrack_hypothesis_mm": case.get("width_long_precrack_hypothesis_mm") if valid else None,
+            "util_long_precrack_hypothesis": case.get("utilization_long_precrack_hypothesis") if valid else None,
+            "precrack_hypothesis_error": case.get("compatibility_error"),
+            "precrack_hypothesis_delta_pct": (
+                100 * (case["utilization_long_precrack_hypothesis"] / ref["arbat_crack_long_util"] - 1)
+                if valid and ref["arbat_crack_long_util"] and ref["arbat_crack_long_util"] > 0
+                and isinstance(case.get("utilization_long_precrack_hypothesis"), (int,float))
+                and math.isfinite(case["utilization_long_precrack_hypothesis"])
+                else None
+            ),
+            # INFERRED from ARBAT width under CScore sigma, ls, phi assumptions:
+            # NOT claimed to be the psi actually implemented by ARBAT.
+            "psi_implied_by_arbat_if_sigma_ls_equal": (
+                case["psi_s"] * ref["arbat_crack_long_util"] / case["utilization_long"]
+                if valid and ref["arbat_crack_long_util"] and case["utilization_long"] > 0
+                and isinstance(case.get("psi_s"), (int,float))
+                else None
+            ),
             "crack_spacing_mm": (case.get("crack_spacing_m") * 1000.0
                                  if valid and isinstance(case.get("crack_spacing_m"), (float, int)) else None),
             "tensile_rebar_area_mm2": (case.get("tensile_rebar_area_m2") * 1e6
@@ -186,6 +207,15 @@ def run(runner: Path, output_dir: Path, timeout: int = 900) -> list[dict]:
             print(f"{section}: long crack benchmark {len(comparable)} comparable cases, "
                   f"mean abs relative error = {mean_err:.1f}%, "
                   f"PASS/FAIL disagreements = {len(mismatches)}")
+            alt = [x for x in comparable if x["precrack_hypothesis_delta_pct"] is not None]
+            if alt:
+                mae_alt = sum(abs(x["precrack_hypothesis_delta_pct"]) for x in alt) / len(alt)
+                trial_disagreement = sum(
+                    (x["util_long_precrack_hypothesis"] <= 1) != (x["ARBAT_width_long_util"] <= 1)
+                    for x in alt)
+                print(f"{section}: legacy pre-cracking-stress sensitivity (NOT verified ARBAT): "
+                      f"{len(alt)} cases, MAPE={mae_alt:.1f}%, "
+                      f"verdict discrepancies={trial_disagreement}")
         for problem in mismatches:
             print(f"  CAUTION: {problem['case']} - ARBAT long crack "
                   f"{problem['ARBAT_width_long_util']} vs experimental CScore "
