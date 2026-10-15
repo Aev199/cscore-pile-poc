@@ -65,17 +65,35 @@ jobs:
             python -c "import json,sys,collections; d=json.load(open(sys.argv[1],encoding='utf-8')); c=collections.Counter(x['status'] for x in d['cases']); print(sys.argv[1], dict(c)); assert c['pass_uls']+c['fail_uls']>0, 'No valid CScore calculation'" "results/$case.json"
             if ($LASTEXITCODE -ne 0) { throw "Benchmark $case has no valid numerical result" }
           }
+      - name: ARBAT-matched reference cases (two material-strength assumptions)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          foreach ($d in @('P800', 'P1000')) {
+            foreach ($mode in @('nominal', 'gamma09_sensitivity')) {
+              $case = "${d}_${mode}"
+              python pile_rebar.py "examples/verification/arbat_matched/$case.json" `
+                --runner publish/CScorePileRunner.exe `
+                --output "results/$case.json" `
+                --csv "results/$case.csv"
+              if ($LASTEXITCODE -ne 0) { throw "ARBAT benchmark $case failed" }
+            }
+          }
+          python tools/compare_arbat.py --results-dir results --output results/arbat_comparison.csv
+          if ($LASTEXITCODE -ne 0) { throw 'ARBAT/CScore comparison failed' }
       - name: Pack deliverables
         shell: pwsh
         run: |
           New-Item -ItemType Directory release -Force | Out-Null
           Copy-Item publish/* release/ -Recurse
           Copy-Item pile_rebar.py release/
+          Copy-Item tools/compare_arbat.py release/
           Copy-Item examples/demo_bns.json release/
           Copy-Item examples/geometry_preview.csv release/
           Copy-Item README.md release/
           New-Item -ItemType Directory release/verification -Force | Out-Null
-          Copy-Item examples/verification/* release/verification/
+          Copy-Item examples/verification/* release/verification/ -Recurse
           Copy-Item results/*.json release/
           Copy-Item results/*.csv release/
           Compress-Archive -Path release/* -DestinationPath cscore-pile-windows.zip -Force
