@@ -82,6 +82,18 @@ jobs:
           }
           python tools/compare_arbat.py --results-dir results --output results/arbat_comparison.csv
           if ($LASTEXITCODE -ne 0) { throw 'ARBAT/CScore comparison failed' }
+      - name: Pure bending and fixed-axial checks prepared for companion ARBAT SAV reports
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          foreach ($section in @('P800', 'P1000')) {
+            python pile_rebar.py "examples/verification/diagnostic_forces/${section}_NM8.json" `
+              --runner publish/CScorePileRunner.exe `
+              --output "results/${section}_NM8.json" `
+              --csv "results/${section}_NM8.csv"
+            if ($LASTEXITCODE -ne 0) { throw "N-M diagnostic $section failed" }
+          }
       - name: Explain ARBAT/CScore discrepancies (geometry, gamma, eccentricity, factor)
         shell: pwsh
         env:
