@@ -21,7 +21,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.28,
           "arbat_axial_util": null,
-          "arbat_crack_long_util": 0.66
+          "arbat_crack_long_util": 0.66,
+          "arbat_crack_short_util": 0.495
         },
         {
           "id": "P800_T02",
@@ -30,7 +31,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.839,
           "arbat_axial_util": null,
-          "arbat_crack_long_util": 2.202
+          "arbat_crack_long_util": 2.202,
+          "arbat_crack_short_util": 1.652
         },
         {
           "id": "P800_T03",
@@ -39,7 +41,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.229,
           "arbat_axial_util": 0.1,
-          "arbat_crack_long_util": null
+          "arbat_crack_long_util": null,
+          "arbat_crack_short_util": null
         },
         {
           "id": "P800_T04",
@@ -48,7 +51,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.655,
           "arbat_axial_util": 0.1,
-          "arbat_crack_long_util": 1.378
+          "arbat_crack_long_util": 1.378,
+          "arbat_crack_short_util": 1.034
         },
         {
           "id": "P800_T05",
@@ -57,7 +61,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.317,
           "arbat_axial_util": 0.199,
-          "arbat_crack_long_util": null
+          "arbat_crack_long_util": null,
+          "arbat_crack_short_util": null
         },
         {
           "id": "P800_T06",
@@ -66,7 +71,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.627,
           "arbat_axial_util": 0.199,
-          "arbat_crack_long_util": 0.705
+          "arbat_crack_long_util": 0.705,
+          "arbat_crack_short_util": 0.529
         },
         {
           "id": "P800_T07",
@@ -75,7 +81,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.446,
           "arbat_axial_util": 0.195,
-          "arbat_crack_long_util": 1.36
+          "arbat_crack_long_util": 1.36,
+          "arbat_crack_short_util": 1.02
         },
         {
           "id": "P800_T08",
@@ -84,7 +91,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.998,
           "arbat_axial_util": 0.195,
-          "arbat_crack_long_util": 2.666
+          "arbat_crack_long_util": 2.666,
+          "arbat_crack_short_util": 1.999
         }
       ]
     },
@@ -106,7 +114,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.131,
           "arbat_axial_util": null,
-          "arbat_crack_long_util": null
+          "arbat_crack_long_util": null,
+          "arbat_crack_short_util": null
         },
         {
           "id": "P1000_T02",
@@ -115,7 +124,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.393,
           "arbat_axial_util": null,
-          "arbat_crack_long_util": 0.989
+          "arbat_crack_long_util": 0.989,
+          "arbat_crack_short_util": 0.742
         },
         {
           "id": "P1000_T03",
@@ -124,7 +134,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.122,
           "arbat_axial_util": 0.063,
-          "arbat_crack_long_util": null
+          "arbat_crack_long_util": null,
+          "arbat_crack_short_util": null
         },
         {
           "id": "P1000_T04",
@@ -133,7 +144,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.3,
           "arbat_axial_util": 0.063,
-          "arbat_crack_long_util": 0.519
+          "arbat_crack_long_util": 0.519,
+          "arbat_crack_short_util": 0.389
         },
         {
           "id": "P1000_T05",
@@ -142,7 +154,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.182,
           "arbat_axial_util": 0.125,
-          "arbat_crack_long_util": null
+          "arbat_crack_long_util": null,
+          "arbat_crack_short_util": null
         },
         {
           "id": "P1000_T06",
@@ -151,7 +164,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.316,
           "arbat_axial_util": 0.125,
-          "arbat_crack_long_util": null
+          "arbat_crack_long_util": null,
+          "arbat_crack_short_util": null
         },
         {
           "id": "P1000_T07",
@@ -160,7 +174,8 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.234,
           "arbat_axial_util": 0.117,
-          "arbat_crack_long_util": null
+          "arbat_crack_long_util": null,
+          "arbat_crack_short_util": null
         },
         {
           "id": "P1000_T08",
@@ -169,9 +184,11 @@
           "qz_kn": 0,
           "arbat_moment_util": 0.484,
           "arbat_axial_util": 0.117,
-          "arbat_crack_long_util": 1.508
+          "arbat_crack_long_util": 1.508,
+          "arbat_crack_short_util": 1.131
         }
       ]
     }
-  }
+  },
+  "sls_note": "RTF reported factor for sustained load share is 1.0 in every listed combination; for experimental comparison assume N/M sustained = total. Missing RTF crack utilization is null (not zero)."
 }
