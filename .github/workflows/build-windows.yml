@@ -143,6 +143,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Experimental crack probe failed to complete' }
           python -c "import csv; p='results/crack_probe/crack_width_comparison.csv'; r=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); assert len(r)==16; assert all(x['design_status']=='NOT_VERIFIED' for x in r); print('crack probe records',len(r),'research only')"
           if ($LASTEXITCODE -ne 0) { throw 'Incomplete or unsafe crack probe output' }
+      - name: Multi-geometry SLS research matrix (rectangles and circular sections)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tools/cross_section_sls_matrix.py --runner publish/CScorePileRunner.exe --out results/sls_matrix
+          if ($LASTEXITCODE -ne 0) { throw 'Multi-geometry SLS matrix failed' }
+          python -c "import csv; p='results/sls_matrix/cross_section_sls_matrix.csv'; r=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); assert len(r)==70, len(r); assert len({x['section_id'] for x in r})==7; assert all(x['final_design_status']=='NOT_VERIFIED' and x['arbat_report_status']=='NOT_PROVIDED' for x in r); print('SLS experimental cases:',len(r),'rectangular:',sum(x['section_kind']=='rectangle' for x in r))"
+          if ($LASTEXITCODE -ne 0) { throw 'SLS research matrix output validation failed' }
       - name: Pack deliverables
         shell: pwsh
         run: |
@@ -155,6 +164,7 @@ jobs:
           Copy-Item tools/arbat_sav_export.py release/
           Copy-Item tools/arbat_v2_benchmark.py release/
           Copy-Item tools/run_crack_research.py release/
+          Copy-Item tools/cross_section_sls_matrix.py release/
           New-Item -ItemType Directory release/config -Force | Out-Null
           Copy-Item config/opencs.lock.json release/config/
           Copy-Item examples/demo_bns.json release/
@@ -170,6 +180,8 @@ jobs:
           Copy-Item results/diagnostics/* release/diagnostics/
           New-Item -ItemType Directory release/crack_probe -Force | Out-Null
           Copy-Item results/crack_probe/* release/crack_probe/
+          New-Item -ItemType Directory release/sls_matrix -Force | Out-Null
+          Copy-Item results/sls_matrix/* release/sls_matrix/
           Compress-Archive -Path release/* -DestinationPath cscore-pile-windows.zip -Force
       - name: Windows EXE and numerical results
         uses: actions/upload-artifact@v4
@@ -193,5 +205,7 @@ jobs:
             results/diagnostics/*.csv
             results/crack_probe/*.json
             results/crack_probe/*.csv
+            results/sls_matrix/*.json
+            results/sls_matrix/*.csv
           if-no-files-found: ignore
           retention-days: 7
