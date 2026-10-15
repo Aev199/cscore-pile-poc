@@ -134,6 +134,15 @@ jobs:
           }
           python tools/arbat_v2_benchmark.py --results-dir results --output-csv results/arbat_v2_comparison.csv
           if ($LASTEXITCODE -ne 0) { throw 'ARBAT v2 numerical benchmark incomplete' }
+      - name: Experimental circular pile crack-width probe (never design-approved)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tools/run_crack_research.py --runner publish/CScorePileRunner.exe --output-dir results/crack_probe
+          if ($LASTEXITCODE -ne 0) { throw 'Experimental crack probe failed to complete' }
+          python -c "import csv; p='results/crack_probe/crack_width_comparison.csv'; r=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); assert len(r)==16; assert all(x['design_status']=='NOT_VERIFIED' for x in r); print('crack probe records',len(r),'research only')"
+          if ($LASTEXITCODE -ne 0) { throw 'Incomplete or unsafe crack probe output' }
       - name: Pack deliverables
         shell: pwsh
         run: |
@@ -145,6 +154,7 @@ jobs:
           Copy-Item tools/diagnose_arbat_compare.py release/
           Copy-Item tools/arbat_sav_export.py release/
           Copy-Item tools/arbat_v2_benchmark.py release/
+          Copy-Item tools/run_crack_research.py release/
           New-Item -ItemType Directory release/config -Force | Out-Null
           Copy-Item config/opencs.lock.json release/config/
           Copy-Item examples/demo_bns.json release/
@@ -158,6 +168,8 @@ jobs:
           Copy-Item results/*.csv release/
           New-Item -ItemType Directory release/diagnostics -Force | Out-Null
           Copy-Item results/diagnostics/* release/diagnostics/
+          New-Item -ItemType Directory release/crack_probe -Force | Out-Null
+          Copy-Item results/crack_probe/* release/crack_probe/
           Compress-Archive -Path release/* -DestinationPath cscore-pile-windows.zip -Force
       - name: Windows EXE and numerical results
         uses: actions/upload-artifact@v4
@@ -179,5 +191,7 @@ jobs:
             results/P1000_*.csv
             results/diagnostics/*.json
             results/diagnostics/*.csv
+            results/crack_probe/*.json
+            results/crack_probe/*.csv
           if-no-files-found: ignore
           retention-days: 7
