@@ -385,12 +385,10 @@ internal static class Program
 
     private static CrossSection MakeSection(BatchInput input, Candidate candidate)
     {
-        double radiusM = input.Pile.DiameterMm / 2000.0;
-        double barRadiusM = candidate.BarAxisRadiusMm / 1000.0;
-        double barDiameterM = candidate.BarDiameterMm / 1000.0;
-        int count = candidate.BarCount;
-        int polygonSides = input.Pile.PolygonSides;
-        int mesh = input.Pile.MeshResolution;
+        // Explicit rectangular section is a research-only route. The ordinary
+        // Python pile selector still sends only circular pile geometries.
+        var rectangle = input.ResearchRectangle;
+        int mesh = rectangle?.MeshResolution ?? input.Pile.MeshResolution;
         var material = input.Materials;
         var serviceShort = input.SlsProbe?.ShortMaterials ?? material;
         var serviceLong = input.SlsProbe?.LongMaterials ?? material;
@@ -443,15 +441,28 @@ internal static class Program
 
         var xs = new List<double>();
         var ys = new List<double>();
-        for (int i = 0; i < polygonSides; i++)
+        if (rectangle is not null)
         {
-            double angle = 2.0 * Math.PI * i / polygonSides;
-            xs.Add(radiusM * Math.Cos(angle));
-            ys.Add(radiusM * Math.Sin(angle));
+            double hx = rectangle.WidthMm / 2000.0;
+            double hy = rectangle.HeightMm / 2000.0;
+            xs.AddRange([-hx, hx, hx, -hx, -hx]);
+            ys.AddRange([-hy, -hy, hy, hy, -hy]);
         }
-        xs.Add(xs[0]);
-        ys.Add(ys[0]);
-        var contour = new Contour(xs, ys, "pile-concrete-contour") { Type = ContourType.Hull };
+        else
+        {
+            double radius = input.Pile.DiameterMm / 2000.0;
+            for (int i = 0; i < input.Pile.PolygonSides; i++)
+            {
+                double angle = 2.0 * Math.PI * i / input.Pile.PolygonSides;
+                xs.Add(radius * Math.Cos(angle));
+                ys.Add(radius * Math.Sin(angle));
+            }
+            xs.Add(xs[0]);
+            ys.Add(ys[0]);
+        }
+        var contour = new Contour(xs, ys,
+            rectangle is null ? "pile-concrete-contour" : "rectangular-research-contour")
+            { Type = ContourType.Hull };
         var region = new MaterialArea
         {
             Id = 1, Tag = "concrete", Category = AreaCategory.Region,
@@ -461,14 +472,25 @@ internal static class Program
         region.ResolveAndBuildDiagramms();
         region.SliceXY(mesh, mesh);
 
-        double rotationRadians = candidate.RotationDeg * Math.PI / 180.0;
-        var bars = Enumerable.Range(0, count)
-            .Select(i =>
-            {
-                double angle = rotationRadians + 2.0 * Math.PI * i / count;
-                return Fiber.CreatePoint(barDiameterM,
-                    barRadiusM * Math.Cos(angle), barRadiusM * Math.Sin(angle));
-            }).ToArray();
+        Fiber[] bars;
+        if (rectangle is not null)
+        {
+            bars = rectangle.Bars.Select(b => Fiber.CreatePoint(
+                b.DiameterMm / 1000.0, b.XMm / 1000.0, b.YMm / 1000.0)).ToArray();
+        }
+        else
+        {
+            double rotationRadians = candidate.RotationDeg * Math.PI / 180.0;
+            double barRadiusM = candidate.BarAxisRadiusMm / 1000.0;
+            double barDiameterM = candidate.BarDiameterMm / 1000.0;
+            bars = Enumerable.Range(0, candidate.BarCount)
+                .Select(i =>
+                {
+                    double angle = rotationRadians + 2.0 * Math.PI * i / candidate.BarCount;
+                    return Fiber.CreatePoint(barDiameterM,
+                        barRadiusM * Math.Cos(angle), barRadiusM * Math.Sin(angle));
+                }).ToArray();
+        }
         var rebarRegion = MaterialArea.CreateRebarArea(bars, rebar, DiagrammType.L2, region);
         return new CrossSection { Tag = candidate.Id, Areas = [region, rebarRegion] };
     }
@@ -490,9 +512,30 @@ internal static class Program
             input.Loads is null || input.Candidates is null ||
             input.Loads.Count == 0 || input.Candidates.Count == 0)
             throw new ArgumentException("Некорректная схема JSON");
-        if (input.Pile.DiameterMm <= 0 || input.Pile.MeshResolution < 10 ||
-            input.Pile.PolygonSides < 32)
+        bool rectMode = input.ResearchRectangle is not null;
+        if (!rectMode && (input.Pile.DiameterMm <= 0 || input.Pile.MeshResolution < 10 ||
+                          input.Pile.PolygonSides < 32))
             throw new ArgumentException("Некорректная геометрия сваи");
+        if (input.ResearchRectangle is { } rect)
+        {
+            if (!double.IsFinite(rect.WidthMm) || !double.IsFinite(rect.HeightMm)
+                || rect.WidthMm <= 0 || rect.HeightMm <= 0
+                || rect.MeshResolution < 10 || rect.MeshResolution > 200
+                || rect.Bars.Count < 2 || input.Candidates.Count != 1
+                || string.IsNullOrWhiteSpace(input.Candidates[0].Id))
+                throw new ArgumentException("Invalid rectangular research geometry");
+            if (rect.Bars.Any(b => !double.IsFinite(b.XMm) || !double.IsFinite(b.YMm)
+                    || !double.IsFinite(b.DiameterMm) || b.DiameterMm <= 0
+                    || Math.Abs(b.XMm) + b.DiameterMm / 2 >= rect.WidthMm / 2
+                    || Math.Abs(b.YMm) + b.DiameterMm / 2 >= rect.HeightMm / 2))
+                throw new ArgumentException("Rebar outside rectangular concrete face");
+            for (int i = 0; i < rect.Bars.Count; i++)
+                for (int j = i + 1; j < rect.Bars.Count; j++)
+                    if (Math.Sqrt(Math.Pow(rect.Bars[i].XMm - rect.Bars[j].XMm, 2)
+                                 + Math.Pow(rect.Bars[i].YMm - rect.Bars[j].YMm, 2))
+                        <= (rect.Bars[i].DiameterMm + rect.Bars[j].DiameterMm) / 2)
+                        throw new ArgumentException("Overlapping rectangular reinforcement bars");
+        }
         if (input.SlsProbe is { } probe)
         {
             if (probe.ShortMaterials is null || probe.LongMaterials is null
@@ -513,12 +556,15 @@ internal static class Program
                         .Any(v => !double.IsFinite(v))))
                 throw new ArgumentException("Nonfinite or duplicate SLS force tuples");
         }
-        foreach (var candidate in input.Candidates)
+        if (!rectMode)
         {
-            if (candidate.BarCount < 6 || candidate.BarDiameterMm <= 0 ||
-                candidate.BarAxisRadiusMm <= 0 ||
-                candidate.BarAxisRadiusMm + candidate.BarDiameterMm / 2 >= input.Pile.DiameterMm / 2)
-                throw new ArgumentException("Недопустимый кандидат " + candidate.Id);
+            foreach (var candidate in input.Candidates)
+            {
+                if (candidate.BarCount < 6 || candidate.BarDiameterMm <= 0 ||
+                    candidate.BarAxisRadiusMm <= 0 ||
+                    candidate.BarAxisRadiusMm + candidate.BarDiameterMm / 2 >= input.Pile.DiameterMm / 2)
+                    throw new ArgumentException("Недопустимый кандидат " + candidate.Id);
+            }
         }
     }
 }
@@ -531,6 +577,7 @@ internal sealed class BatchInput
     [JsonPropertyName("loads")] public List<LoadCase> Loads { get; init; } = [];
     [JsonPropertyName("candidates")] public List<Candidate> Candidates { get; init; } = [];
     [JsonPropertyName("sls_probe")] public SlsProbe? SlsProbe { get; init; }
+    [JsonPropertyName("research_rectangle")] public ResearchRectangle? ResearchRectangle { get; init; }
 }
 
 internal sealed class Pile
@@ -561,6 +608,20 @@ internal sealed class LoadCase
     [JsonPropertyName("n_kn")] public double NKn { get; init; }
     [JsonPropertyName("mx_knm")] public double MxKnm { get; init; }
     [JsonPropertyName("my_knm")] public double MyKnm { get; init; }
+}
+
+internal sealed class ResearchRectangle
+{
+    [JsonPropertyName("width_mm")] public double WidthMm { get; init; }
+    [JsonPropertyName("height_mm")] public double HeightMm { get; init; }
+    [JsonPropertyName("mesh_resolution")] public int MeshResolution { get; init; }
+    [JsonPropertyName("bars")] public List<ResearchBar> Bars { get; init; } = [];
+}
+internal sealed class ResearchBar
+{
+    [JsonPropertyName("x_mm")] public double XMm { get; init; }
+    [JsonPropertyName("y_mm")] public double YMm { get; init; }
+    [JsonPropertyName("diameter_mm")] public double DiameterMm { get; init; }
 }
 
 internal sealed class SlsProbe
