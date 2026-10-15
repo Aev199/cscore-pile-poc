@@ -172,12 +172,18 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
         calculated = status == "research_calculated" and item.get("error") is None
         primary = item.get("preliminary_utilization_long")
         native = item.get("utilization_long")
+        primary_short = item.get("preliminary_utilization_short")
+        native_short = item.get("utilization_short")
+        governing = item.get("preliminary_governing_utilization")
         if calculated:
             if not all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0
-                       for v in (primary, native)):
+                       for v in (primary, native, primary_short, native_short, governing)):
                 raise ValueError("CScore marked a case as computed but gave no finite result")
-            if req["sls_probe"]["preliminary_method"] == "arbat_conservative" and \
-               primary + 1e-9 < native:
+            if not math.isclose(governing, max(primary,primary_short),rel_tol=1e-8,abs_tol=1e-8):
+                raise ValueError("Incorrect governing long/short SLS coefficient")
+            if req["sls_probe"]["preliminary_method"] == "arbat_conservative" and (
+                primary + 1e-9 < native or primary_short + 1e-9 < native_short
+            ):
                 raise ValueError("Default preliminary screening is less conservative than native")
         # A failed solver may omit preliminary fields, but it must remain indeterminate.
         if item.get("verified_for_design") is not False or (
@@ -197,8 +203,13 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
             "preliminary_status": item.get("preliminary_decision"),
             "preliminary_width_mm": item.get("preliminary_width_long_mm"),
             "preliminary_utilization": primary if calculated else None,
+            "preliminary_width_short_mm": item.get("preliminary_width_short_mm") if calculated else None,
+            "preliminary_utilization_short": primary_short if calculated else None,
+            "governing_preliminary_utilization": governing if calculated else None,
             "native_width_mm": item.get("width_long_mm") if calculated else None,
             "native_utilization": native if calculated else None,
+            "native_width_short_mm": item.get("width_short_mm") if calculated else None,
+            "native_utilization_short": native_short if calculated else None,
             "compatibility_width_mm": item.get("width_long_precrack_hypothesis_mm") if calculated else None,
             "psi_one_width_mm": item.get("width_long_psi_one_mm") if calculated else None,
             "crack_spacing_mm": item.get("crack_spacing_m")*1000
