@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "description": "User supplied original ARBAT v2 RTF reports. Eight concurrent N/My/Q tuples per section. Values printed by ARBAT to 3 decimals. RTF/SAV originals are not stored in this repository.",
+  "reported_code": "SP 63.13330.2018 amendments 1,2",
+  "groups": {
+    "P800": {
+      "diameter_mm": 800,
+      "bar_count": 12,
+      "bar_diameter_mm": 25,
+      "a1_mm": 70,
+      "concrete": "B30",
+      "steel": "A500",
+      "gamma_b1": 0.9,
+      "length_m": 3,
+      "source": "отчет_800_v2.rtf",
+      "cases": [
+        {
+          "id": "P800_T01",
+          "n_kn": 0,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.28,
+          "arbat_axial_util": null,
+          "arbat_crack_long_util": 0.66
+        },
+        {
+          "id": "P800_T02",
+          "n_kn": 0,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.839,
+          "arbat_axial_util": null,
+          "arbat_crack_long_util": 2.202
+        },
+        {
+          "id": "P800_T03",
+          "n_kn": -1000,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.229,
+          "arbat_axial_util": 0.1,
+          "arbat_crack_long_util": null
+        },
+        {
+          "id": "P800_T04",
+          "n_kn": -1000,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.655,
+          "arbat_axial_util": 0.1,
+          "arbat_crack_long_util": 1.378
+        },
+        {
+          "id": "P800_T05",
+          "n_kn": -2000,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.317,
+          "arbat_axial_util": 0.199,
+          "arbat_crack_long_util": null
+        },
+        {
+          "id": "P800_T06",
+          "n_kn": -2000,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.627,
+          "arbat_axial_util": 0.199,
+          "arbat_crack_long_util": 0.705
+        },
+        {
+          "id": "P800_T07",
+          "n_kn": 500,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.446,
+          "arbat_axial_util": 0.195,
+          "arbat_crack_long_util": 1.36
+        },
+        {
+          "id": "P800_T08",
+          "n_kn": 500,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.998,
+          "arbat_axial_util": 0.195,
+          "arbat_crack_long_util": 2.666
+        }
+      ]
+    },
+    "P1000": {
+      "diameter_mm": 1000,
+      "bar_count": 16,
+      "bar_diameter_mm": 28,
+      "a1_mm": 70,
+      "concrete": "B30",
+      "steel": "A500",
+      "gamma_b1": 0.9,
+      "length_m": 3,
+      "source": "отчет_1000_v2.rtf",
+      "cases": [
+        {
+          "id": "P1000_T01",
+          "n_kn": 0,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.131,
+          "arbat_axial_util": null,
+          "arbat_crack_long_util": null
+        },
+        {
+          "id": "P1000_T02",
+          "n_kn": 0,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.393,
+          "arbat_axial_util": null,
+          "arbat_crack_long_util": 0.989
+        },
+        {
+          "id": "P1000_T03",
+          "n_kn": -1000,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.122,
+          "arbat_axial_util": 0.063,
+          "arbat_crack_long_util": null
+        },
+        {
+          "id": "P1000_T04",
+          "n_kn": -1000,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.3,
+          "arbat_axial_util": 0.063,
+          "arbat_crack_long_util": 0.519
+        },
+        {
+          "id": "P1000_T05",
+          "n_kn": -2000,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.182,
+          "arbat_axial_util": 0.125,
+          "arbat_crack_long_util": null
+        },
+        {
+          "id": "P1000_T06",
+          "n_kn": -2000,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.316,
+          "arbat_axial_util": 0.125,
+          "arbat_crack_long_util": null
+        },
+        {
+          "id": "P1000_T07",
+          "n_kn": 500,
+          "my_knm": 200,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.234,
+          "arbat_axial_util": 0.117,
+          "arbat_crack_long_util": null
+        },
+        {
+          "id": "P1000_T08",
+          "n_kn": 500,
+          "my_knm": 600,
+          "qz_kn": 0,
+          "arbat_moment_util": 0.484,
+          "arbat_axial_util": 0.117,
+          "arbat_crack_long_util": 1.508
+        }
+      ]
+    }
+  }
+}
