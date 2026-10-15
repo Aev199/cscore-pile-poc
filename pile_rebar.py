@@ -356,6 +356,13 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
         raise RuntimeError(f'CScore завершился с ошибкой ({p.returncode}): {p.stderr.strip()[:2000]}')
     calculated = parse_runner_results(request, json.loads(p.stdout, parse_constant=lambda x: (_ for _ in ()).throw(InputError(f'Ядро вернуло {x}'))))
     passes = [x for x in calculated if x['status'] == 'pass_uls']
+    sls_candidates = (
+        [c for c in passes
+         if c.get('sls_probe')
+         and all(row.get('preliminary_decision') == 'preliminary_below_limit'
+                 for row in c['sls_probe'])]
+        if 'sls_probe' in request else []
+    )
     result = {'schema_version': 1, 'purpose': 'research_prototype_not_for_design',
               'calculation_scope': ('section_uls_plus_unverified_research_sls_no_eta_no_shear_no_code_detailing'
                                     if 'sls_probe' in request else
@@ -363,6 +370,9 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
               'eccentricity': eccentricity, 'forces_audit': forces_audit,
               'selected_uls_candidate': (passes[0]['id'] if passes else None)
                  if eccentricity['eccentricity_accounted_for'] else None,
+              'selected_preliminary_uls_sls_research_candidate': (
+                  sls_candidates[0]['id'] if sls_candidates else None
+              ) if eccentricity['eccentricity_accounted_for'] else None,
               'engine_commit': '4ae6aa077be5b29145930ec093ba1c9eb7776222',
               'cases': calculated, 'rejected_geometry': rejected,
               'note': 'pass_uls означает только прочность нормального сечения; SLS исследовательский; НЕ готовность КЖ'}
@@ -398,6 +408,11 @@ def main() -> int:
         return 2
     print(f'Кандидатов: {len(result["cases"])}, прошли только прочность нормального сечения: {sum(c["status"] == "pass_uls" for c in result["cases"])}')
     print(f'Предварительно минимальный по площади: {result["selected_uls_candidate"] or "не найден"}')
+    if result['calculation_scope'].startswith('section_uls_plus_unverified'):
+        print('Проверка раскрытия трещин: ИССЛЕДОВАТЕЛЬСКАЯ (не для КЖ).')
+        print(f'Кандидат по ULS + предварительному SLS: '
+              f'{result["selected_preliminary_uls_sls_research_candidate"] or "не найден / требует проверки"}')
+        print('Результат АРБАТ обязателен для окончательного решения.')
     if not result['eccentricity']['eccentricity_accounted_for']:
         print('ВНИМАНИЕ: e_a не подтверждён. Подбор не выдаётся; настройте eccentricity.mode.',
               file=sys.stderr)
