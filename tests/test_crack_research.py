@@ -82,6 +82,19 @@ class CrackResearchTests(unittest.TestCase):
         self.assertAlmostEqual(row["precrack_hypothesis_delta_pct"],(1.37/1.36-1)*100)
         self.assertTrue(row["disagrees_on_long_term_pass_fail"])
 
+    def test_sp63_psi_one_screening_is_a_separate_nonapproving_result(self):
+        result=self.fake_answer("P800")
+        record=next(v for v in result["cases"][0]["sls_probe"] if v["id"]=="P800_T07")
+        record["width_long_psi_one_mm"]=0.45
+        record["utilization_long_psi_one"]=1.5
+        rows=research.check_answer("P800",self.reference,result)
+        row=next(v for v in rows if v["case"]=="P800_T07")
+        self.assertEqual(row["CScore_status"],"computed_experimental")
+        self.assertEqual(row["design_status"],"NOT_VERIFIED")
+        self.assertAlmostEqual(row["util_long_psi_one"],1.5)
+        self.assertFalse(row["psi_one_vs_arbat_verdict_diff"])
+        self.assertTrue(row["disagrees_on_long_term_pass_fail"])
+
     def test_solver_nonconvergence_never_yields_result(self):
         rows=research.check_answer("P1000",self.reference,self.fake_answer("P1000",converged=False))
         self.assertTrue(all(r["CScore_status"]=="indeterminate_requires_arbat" for r in rows))
