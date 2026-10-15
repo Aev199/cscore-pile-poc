@@ -148,6 +148,8 @@ internal static class Program
                         load.MyLongKnm, load.MyTotalKnm);
                     var mLong = Math.Sqrt(load.MxLongKnm * load.MxLongKnm
                                           + load.MyLongKnm * load.MyLongKnm);
+                    var mTotal = Math.Sqrt(load.MxTotalKnm * load.MxTotalKnm
+                                           + load.MyTotalKnm * load.MyTotalKnm);
                     // An ARBAT-oriented RESEARCH contrast: pre-cracking rebar
                     // stress (historical OpenCS technique, superseded upstream).
                     // We keep upstream's post-crack algorithm entirely unchanged.
@@ -244,8 +246,12 @@ internal static class Program
                     // crack threshold search and a sustained moment below Mcrc.
                     // Otherwise the upstream solver may have returned its
                     // misleading zero-valued fallback object.
+                    // A short-term TOTAL force above Mcrc cannot be
+                    // categorized uncracked solely because LONG part is below it.
+                    // Upstream's early zero return is ambiguous in that case.
                     bool plausibleNoCrack = !r.Cracked
-                        && mLong <= r.Mcrc + 1e-9;
+                        && mLong <= r.Mcrc + 1e-9
+                        && mTotal <= r.Mcrc + 1e-9;
                     bool validated = r.CrcConverged && finite
                         && (r.Cracked ? r.PlaneLong.HasValue : plausibleNoCrack);
                     // SP63 8.2.15 permits psi_s=1 for a conservative initial
@@ -266,51 +272,77 @@ internal static class Program
                     // the pre-crack stress approximation is not normatively
                     // established for arbitrary loads or geometries.
                     // Keep the native refined result as a separate, unchanged option.
-                    double? primaryWidth = null;
+                    double? primaryWidth = null, primaryShortWidth = null;
                     string primaryBasis = "not_computed";
                     if (validated)
                     {
                         if (!r.Cracked)
                         {
                             primaryWidth = 0.0;
-                            primaryBasis = "uncracked_checked_threshold";
+                            primaryShortWidth = 0.0;
+                            primaryBasis = "uncracked_checked_both_long_and_total_thresholds";
                         }
                         else if (probe.PreliminaryMethod == "native_refined")
                         {
                             primaryWidth = r.AcrcLong;
+                            primaryShortWidth = r.AcrcShort;
                             primaryBasis = "native_refined_postcrack";
                         }
-                        else if (widthPreMm.HasValue
-                                 && preError is null)
+                        else
                         {
-                            // Never claim an ARBAT-like screen is LESS
-                            // conservative than CScore's native numerical width.
-                            primaryWidth = Math.Max(widthPreMm.Value, r.AcrcLong);
-                            primaryBasis = "precrack_compatibility_envelope_with_native";
-                        }
-                        else if (widthPsiOne.HasValue)
-                        {
-                            // For unequal sustained/total actions the pre-crack
-                            // comparison is not validated. SP63 psi_s=1 supplies
-                            // a transparent conservative preliminary upper bound
-                            // relative to the same CScore crack expression.
-                            primaryWidth = Math.Max(widthPsiOne.Value, r.AcrcLong);
-                            primaryBasis = "psi_s_one_fallback_compat_not_applicable";
+                            // Long: ARBAT-oriented pre-crack reference stress,
+                            // if applicable, but never below native CScore.
+                            if (widthPreMm.HasValue && preError is null)
+                            {
+                                primaryWidth = Math.Max(widthPreMm.Value, r.AcrcLong);
+                                primaryBasis = "precrack_compatibility_envelope_with_native";
+                            }
+                            else if (widthPsiOne.HasValue)
+                            {
+                                primaryWidth = Math.Max(widthPsiOne.Value, r.AcrcLong);
+                                primaryBasis = "psi_s_one_fallback_compat_not_applicable";
+                            }
+
+                            // Short: separate SP63 psi_s=1 upper-bound screening,
+                            // because historical precrack correction has NOT
+                            // been validated for short/partial load components.
+                            // a_short = a1 + a2 - a3, so setting both psi terms
+                            // to one gives (a1-a3)/psi_long + a2/psi_short.
+                            double? shortPsiOne = null;
+                            if (double.IsFinite(r.PsiS) && r.PsiS > 0.0
+                                && double.IsFinite(r.PsiS2) && r.PsiS2 > 0.0
+                                && double.IsFinite(r.Acrc1) && double.IsFinite(r.Acrc2)
+                                && double.IsFinite(r.Acrc3))
+                            {
+                                double estimate = (r.Acrc1 - r.Acrc3) / r.PsiS
+                                                  + r.Acrc2 / r.PsiS2;
+                                if (double.IsFinite(estimate) && estimate >= 0.0)
+                                    shortPsiOne = estimate;
+                            }
+                            if (shortPsiOne.HasValue)
+                                primaryShortWidth = Math.Max(shortPsiOne.Value, r.AcrcShort);
                         }
                     }
+
                     double? primaryUtilization = primaryWidth.HasValue
                         ? primaryWidth.Value / probe.AcrcUltLongMm : null;
+                    double? primaryShortUtilization = primaryShortWidth.HasValue
+                        ? primaryShortWidth.Value / probe.AcrcUltShortMm : null;
+                    double? governingUtilization = primaryUtilization.HasValue
+                        && primaryShortUtilization.HasValue
+                            ? Math.Max(primaryUtilization.Value, primaryShortUtilization.Value)
+                            : null;
                     double reviewBand = probe.ReviewBand;
-                    string preliminaryDecision = primaryUtilization is null
+                    string preliminaryDecision = governingUtilization is null
                         ? "indeterminate"
-                        : Math.Abs(primaryUtilization.Value - 1.0) <= reviewBand
+                        : Math.Abs(governingUtilization.Value - 1.0) <= reviewBand
                             ? "engineering_review"
-                            : primaryUtilization.Value > 1.0
+                            : governingUtilization.Value > 1.0
                                 ? "preliminary_exceeds_limit"
                                 : "preliminary_below_limit";
-                    bool preliminaryCalculated = validated && primaryUtilization.HasValue;
+                    bool preliminaryCalculated = validated && governingUtilization.HasValue;
                     if (!preliminaryCalculated && error is null)
-                        error = "preliminary_crack_screen_not_available";
+                        error = "preliminary_long_or_short_crack_screen_not_available";
                     return (object)new {
                         id = load.Id,
                         status = preliminaryCalculated ? "research_calculated" : "indeterminate",
@@ -319,6 +351,9 @@ internal static class Program
                         preliminary_basis = primaryBasis,
                         preliminary_width_long_mm = primaryWidth,
                         preliminary_utilization_long = primaryUtilization,
+                        preliminary_width_short_mm = primaryShortWidth,
+                        preliminary_utilization_short = primaryShortUtilization,
+                        preliminary_governing_utilization = governingUtilization,
                         preliminary_decision = preliminaryDecision,
                         preliminary_review_band = reviewBand,
                         preliminary_is_final_approval = false,
