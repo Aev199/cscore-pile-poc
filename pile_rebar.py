@@ -171,13 +171,19 @@ def check_sls_results(result_rows: list, expected: dict, mode: str, band: float)
             if row.get('error') is not None or row.get('preliminary_method') != mode:
                 raise InputError('SLS: ошибочный режим/статус')
             a, n = row.get('preliminary_utilization_long'), row.get('utilization_long')
+            a_short = row.get('preliminary_utilization_short')
+            native_short = row.get('utilization_short')
+            governing = row.get('preliminary_governing_utilization')
             if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                       and math.isfinite(v) and v >= 0 for v in (a, n)):
-                raise InputError('SLS: отсутствуют конечные коэффициенты')
-            if mode == 'arbat_conservative' and a + 1e-9 < n:
+                       and math.isfinite(v) and v >= 0
+                       for v in (a, n, a_short, native_short, governing)):
+                raise InputError('SLS: отсутствуют конечные коэффициенты длительной/кратковременной проверки')
+            if not math.isclose(governing, max(a, a_short), rel_tol=1e-8, abs_tol=1e-8):
+                raise InputError('SLS: неверный управляющий коэффициент')
+            if mode == 'arbat_conservative' and (a + 1e-9 < n or a_short + 1e-9 < native_short):
                 raise InputError('SLS: основной результат менее консервативен, чем CScore')
-            expected_decision = ('engineering_review' if abs(a - 1) <= band else
-                                 'preliminary_exceeds_limit' if a > 1 else
+            expected_decision = ('engineering_review' if abs(governing - 1) <= band else
+                                 'preliminary_exceeds_limit' if governing > 1 else
                                  'preliminary_below_limit')
             if row.get('preliminary_decision') != expected_decision or (
                 row.get('preliminary_is_final_approval') is not False
