@@ -110,6 +110,85 @@ def prepare_design_loads(data: dict) -> tuple[list[dict], list[dict], dict]:
     return result, audit, config
 
 
+def validate_sls_probe(probe: dict) -> None:
+    """Validate explicit SLS forces/materials; it remains research-only."""
+    if not isinstance(probe, dict):
+        raise InputError("sls_probe должен быть объектом")
+    allowed = {'short_materials', 'long_materials', 'phi2',
+               'acrc_ult_long_mm', 'acrc_ult_short_mm',
+               'preliminary_method', 'review_band', 'loads'}
+    if set(probe) - allowed:
+        raise InputError("Неизвестные параметры sls_probe")
+    mode = probe.get('preliminary_method', 'arbat_conservative')
+    if mode not in {'arbat_conservative', 'native_refined'}:
+        raise InputError("sls_probe.preliminary_method: arbat_conservative или native_refined")
+    band = positive(probe.get('review_band', 0.03), 'sls_probe.review_band')
+    if band >= .25:
+        raise InputError("sls_probe.review_band должен быть меньше 0.25")
+    for key in ('phi2', 'acrc_ult_long_mm', 'acrc_ult_short_mm'):
+        positive(probe.get(key, {'phi2': 0.5, 'acrc_ult_long_mm': 0.3,
+                                  'acrc_ult_short_mm': 0.4}[key]), f'sls_probe.{key}')
+    for name in ('short_materials', 'long_materials'):
+        values = probe.get(name)
+        if not isinstance(values, dict):
+            raise InputError(f'sls_probe.{name} обязателен')
+        for key in ('concrete_rb_kpa', 'concrete_rbt_kpa', 'concrete_e_kpa',
+                    'rebar_rs_kpa', 'rebar_e_kpa', 'concrete_et1',
+                    'concrete_et2', 'rebar_et2'):
+            positive(values.get(key), f'sls_probe.{name}.{key}')
+        for key in ('concrete_ec1', 'concrete_ec2', 'rebar_ec2'):
+            if finite_number(values.get(key), f'sls_probe.{name}.{key}') >= 0:
+                raise InputError(f'sls_probe.{name}.{key} должен быть отрицательным')
+    actions = probe.get('loads')
+    if not isinstance(actions, list) or not actions or len(actions) > 1000:
+        raise InputError('sls_probe.loads: непустой массив максимум 1000 загружений')
+    ids = set()
+    for i, action in enumerate(actions):
+        if not isinstance(action, dict) or not isinstance(action.get('id'), str) or not action['id'].strip():
+            raise InputError(f'sls_probe.loads[{i}]: не указан ID')
+        if action['id'] in ids:
+            raise InputError(f'sls_probe.loads[{i}]: дублированный ID')
+        ids.add(action['id'])
+        for key in ('n_kn', 'mx_total_knm', 'my_total_knm',
+                    'mx_long_knm', 'my_long_knm'):
+            finite_number(action.get(key), f'sls_probe.loads[{i}].{key}')
+
+
+def check_sls_results(result_rows: list, expected: dict, mode: str, band: float) -> list:
+    """Reject missing/duplicated/implausible SLS output; NEVER approve for design."""
+    expected_ids = {x['id'] for x in expected['loads']}
+    if not isinstance(result_rows, list) or len(result_rows) != len(expected_ids):
+        raise InputError('SLS: неполный набор результатов')
+    seen = set()
+    audited = []
+    for row in result_rows:
+        if not isinstance(row, dict) or row.get('id') not in expected_ids or row['id'] in seen:
+            raise InputError('SLS: повторяющиеся/неизвестные загружения')
+        seen.add(row['id'])
+        if row.get('verified_for_design') is not False or row.get('preliminary_is_final_approval') is True:
+            raise InputError('SLS: ядро попыталось выдать непроверенный расчёт как утверждённый')
+        if row.get('status') == 'research_calculated':
+            if row.get('error') is not None or row.get('preliminary_method') != mode:
+                raise InputError('SLS: ошибочный режим/статус')
+            a, n = row.get('preliminary_utilization_long'), row.get('utilization_long')
+            if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                       and math.isfinite(v) and v >= 0 for v in (a, n)):
+                raise InputError('SLS: отсутствуют конечные коэффициенты')
+            if mode == 'arbat_conservative' and a + 1e-9 < n:
+                raise InputError('SLS: основной результат менее консервативен, чем CScore')
+            expected_decision = ('engineering_review' if abs(a - 1) <= band else
+                                 'preliminary_exceeds_limit' if a > 1 else
+                                 'preliminary_below_limit')
+            if row.get('preliminary_decision') != expected_decision or (
+                row.get('preliminary_is_final_approval') is not False
+            ):
+                raise InputError('SLS: некорректный статус предварительной проверки')
+        elif row.get('status') != 'indeterminate' or row.get('preliminary_decision') not in (None, 'indeterminate'):
+            raise InputError('SLS: неподтверждённое заключение')
+        audited.append({**row, 'design_status': 'NOT_VERIFIED'})
+    return audited
+
+
 def validate_input(data: dict) -> None:
     if not isinstance(data, dict) or data.get('schema_version') != 1:
         raise InputError('schema_version должен быть равен 1')
@@ -149,6 +228,8 @@ def validate_input(data: dict) -> None:
         seen.add(load['id'])
         for key in ('n_kn', 'mx_knm', 'my_knm'):
             finite_number(load.get(key), f'loads[{idx}].{key}')
+    if 'sls_probe' in data:
+        validate_sls_probe(data['sls_probe'])
     counts = search.get('bar_counts')
     diameters = search.get('bar_diameters_mm')
     rotations = search.get('rotation_deg')
@@ -188,13 +269,16 @@ def make_candidates(data: dict) -> tuple[list[dict], list[dict]]:
 
 
 def build_engine_request(data: dict, candidates: list[dict]) -> dict:
-    return {'schema_version': 1,
+    request = {'schema_version': 1,
             'pile': {'diameter_mm': data['pile']['diameter_mm'],
                      'mesh_resolution': data['pile']['mesh_resolution'],
                      'polygon_sides': data['pile']['polygon_sides']},
             'materials': data['materials'],
             'loads': data['loads'],
             'candidates': candidates}
+    if 'sls_probe' in data:
+        request['sls_probe'] = data['sls_probe']
+    return request
 
 
 def parse_runner_results(request: dict, raw: Any) -> list[dict]:
@@ -239,6 +323,14 @@ def parse_runner_results(request: dict, raw: Any) -> list[dict]:
         validated = expected_candidates[name].copy()
         validated['status'] = overall
         validated['loads'] = decisions
+        if 'sls_probe' in request:
+            opts = request['sls_probe']
+            sls_rows = check_sls_results(
+                item.get('sls_probe'), opts,
+                opts.get('preliminary_method', 'arbat_conservative'),
+                opts.get('review_band', 0.03)
+            )
+            validated['sls_probe'] = sls_rows
         validated['max_utilization'] = max((l['utilization'] for l in decisions if l['decision'] != 'indeterminate'), default=None)
         result.append(validated)
     if seen != set(expected_candidates):
@@ -265,13 +357,15 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
     calculated = parse_runner_results(request, json.loads(p.stdout, parse_constant=lambda x: (_ for _ in ()).throw(InputError(f'Ядро вернуло {x}'))))
     passes = [x for x in calculated if x['status'] == 'pass_uls']
     result = {'schema_version': 1, 'purpose': 'research_prototype_not_for_design',
-              'calculation_scope': 'section_uls_only_no_eta_no_shear_no_crack_no_code_detailing',
+              'calculation_scope': ('section_uls_plus_unverified_research_sls_no_eta_no_shear_no_code_detailing'
+                                    if 'sls_probe' in request else
+                                    'section_uls_only_no_eta_no_shear_no_crack_no_code_detailing'),
               'eccentricity': eccentricity, 'forces_audit': forces_audit,
               'selected_uls_candidate': (passes[0]['id'] if passes else None)
                  if eccentricity['eccentricity_accounted_for'] else None,
               'engine_commit': '4ae6aa077be5b29145930ec093ba1c9eb7776222',
               'cases': calculated, 'rejected_geometry': rejected,
-              'note': 'pass_uls означает только проверку нормального сечения; НЕ готовность КЖ'}
+              'note': 'pass_uls означает только прочность нормального сечения; SLS исследовательский; НЕ готовность КЖ'}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False), encoding='utf-8')
     csv_path.parent.mkdir(parents=True, exist_ok=True)
