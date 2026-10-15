@@ -51,6 +51,20 @@ jobs:
             --csv results/pile_results.csv
           if ($LASTEXITCODE -ne 0) { throw 'Integration run failed' }
           python -c "import json; r=json.load(open('results/pile_results.json', encoding='utf-8')); assert r['cases'] and all(c['status'] in ('pass_uls','fail_uls','indeterminate') for c in r['cases']); assert any(c['status'] != 'indeterminate' for c in r['cases']), 'All CScore cases are indeterminate'; print('cases', len(r['cases']))"
+      - name: Independent benchmark BNS 800 and 1000 (ULS section only)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          foreach ($case in @('P800_reference', 'P1000_reference', 'P800_search', 'P1000_search')) {
+            python pile_rebar.py "examples/verification/$case.json" `
+              --runner publish/CScorePileRunner.exe `
+              --output "results/$case.json" `
+              --csv "results/$case.csv"
+            if ($LASTEXITCODE -ne 0) { throw "Benchmark $case failed" }
+            python -c "import json,sys,collections; d=json.load(open(sys.argv[1],encoding='utf-8')); c=collections.Counter(x['status'] for x in d['cases']); print(sys.argv[1], dict(c)); assert c['pass_uls']+c['fail_uls']>0, 'No valid CScore calculation'" "results/$case.json"
+            if ($LASTEXITCODE -ne 0) { throw "Benchmark $case has no valid numerical result" }
+          }
       - name: Pack deliverables
         shell: pwsh
         run: |
@@ -60,7 +74,10 @@ jobs:
           Copy-Item examples/demo_bns.json release/
           Copy-Item examples/geometry_preview.csv release/
           Copy-Item README.md release/
-          Copy-Item results/pile_results.* release/
+          New-Item -ItemType Directory release/verification -Force | Out-Null
+          Copy-Item examples/verification/* release/verification/
+          Copy-Item results/*.json release/
+          Copy-Item results/*.csv release/
           Compress-Archive -Path release/* -DestinationPath cscore-pile-windows.zip -Force
       - name: Windows EXE and numerical results
         uses: actions/upload-artifact@v4
@@ -76,5 +93,9 @@ jobs:
           path: |
             results/pile_results.json
             results/pile_results.csv
+            results/P800_*.json
+            results/P800_*.csv
+            results/P1000_*.json
+            results/P1000_*.csv
           if-no-files-found: ignore
           retention-days: 7
