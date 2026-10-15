@@ -248,6 +248,17 @@ internal static class Program
                         && mLong <= r.Mcrc + 1e-9;
                     bool validated = r.CrcConverged && finite
                         && (r.Cracked ? r.PlaneLong.HasValue : plausibleNoCrack);
+                    // SP63 8.2.15 permits psi_s=1 for a conservative initial
+                    // screening. It preserves CScore's sigma_s, Es, ls, phi's
+                    // and changes ONLY psi_s, with no ARBAT fitting.
+                    // Cracked cases only: never turn an uncertain upstream
+                    // zero-width fallback into a valid upper bound.
+                    double? widthPsiOne = validated && r.Cracked
+                        && double.IsFinite(r.PsiS) && r.PsiS > 0
+                        ? r.AcrcLong / r.PsiS : null;
+                    if (widthPsiOne.HasValue
+                        && (!double.IsFinite(widthPsiOne.Value) || widthPsiOne.Value < 0))
+                        widthPsiOne = null;
                     string? error = validated ? null :
                         "indeterminate_crack_solver_or_upstream_silent_fallback";
                     return (object)new {
@@ -282,6 +293,10 @@ internal static class Program
                         a_crc_2_mm = validated && double.IsFinite(r.Acrc2) ? (double?)r.Acrc2 : null,
                         a_crc_3_mm = validated && double.IsFinite(r.Acrc3) ? (double?)r.Acrc3 : null,
                         width_long_mm = validated ? (double?)r.AcrcLong : null,
+                        screening_psi_one_basis = "SP63_8.2.15_psi_s_equal_one_no_upstream_changes",
+                        width_long_psi_one_mm = widthPsiOne,
+                        utilization_long_psi_one = widthPsiOne.HasValue
+                            ? (double?)(widthPsiOne.Value / probe.AcrcUltLongMm) : null,
                         width_short_mm = validated ? (double?)r.AcrcShort : null,
                         utilization_long = validated ? (double?)r.UtilLong : null,
                         utilization_short = validated ? (double?)r.UtilShort : null,
