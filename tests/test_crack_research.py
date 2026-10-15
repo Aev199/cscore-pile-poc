@@ -63,6 +63,25 @@ class CrackResearchTests(unittest.TestCase):
         self.assertEqual(row["CScore_status"],"computed_experimental")
         self.assertEqual(row["design_status"],"NOT_VERIFIED")
 
+    def test_precrack_compatibility_is_study_only_and_inferred_psi_is_not_assumed(self):
+        result=self.fake_answer("P800")
+        load=next(row for row in result["cases"][0]["sls_probe"] if row["id"]=="P800_T07")
+        load["psi_s"]=0.4609227937888848
+        load["sigma_rebar_kpa"]=269388.6114121997
+        load["utilization_long"]=0.6953371677673083
+        load["sigma_rebar_precrack_kpa"]=30000
+        load["psi_s_precrack_hypothesis"]=0.91
+        load["width_long_precrack_hypothesis_mm"]=0.411
+        load["utilization_long_precrack_hypothesis"]=1.37
+        load["compatibility_error"]=None
+        rows=research.check_answer("P800",self.reference,result)
+        row=next(item for item in rows if item["case"]=="P800_T07")
+        self.assertEqual(row["design_status"],"NOT_VERIFIED")
+        self.assertAlmostEqual(row["psi_implied_by_arbat_if_sigma_ls_equal"],0.902,places=2)
+        self.assertAlmostEqual(row["sigma_s_crc_MPa_implied_if_other_terms_equal"],33.2,places=0)
+        self.assertAlmostEqual(row["precrack_hypothesis_delta_pct"],(1.37/1.36-1)*100)
+        self.assertTrue(row["disagrees_on_long_term_pass_fail"])
+
     def test_solver_nonconvergence_never_yields_result(self):
         rows=research.check_answer("P1000",self.reference,self.fake_answer("P1000",converged=False))
         self.assertTrue(all(r["CScore_status"]=="indeterminate_requires_arbat" for r in rows))
