@@ -1,0 +1,120 @@
+"""Optional experimental SLS in ordinary pile_rebar: never final design approval."""
+import copy
+import json
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+import pile_rebar as main
+
+
+class PileSlsOptionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.example = json.loads(
+            (ROOT/"examples/verification/P800_sls_preselection_example.json").read_text(encoding="utf-8")
+        )
+
+    def test_default_conservative_sls_is_explicit_and_loads_independent(self):
+        data=copy.deepcopy(self.example)
+        main.validate_input(data)
+        candidates, _ = main.make_candidates(data)
+        request = main.build_engine_request(data, candidates)
+        self.assertEqual(request["sls_probe"]["preliminary_method"],"arbat_conservative")
+        self.assertEqual(len(request["sls_probe"]["loads"]),4)
+        self.assertEqual(len(request["loads"]),3)
+        self.assertEqual(request["sls_probe"]["review_band"],.03)
+
+    def test_optional_native_refined_is_available(self):
+        data=copy.deepcopy(self.example)
+        data["sls_probe"]["preliminary_method"]="native_refined"
+        main.validate_input(data)
+        self.assertEqual(
+            main.build_engine_request(data,main.make_candidates(data)[0])["sls_probe"]["preliminary_method"],
+            "native_refined"
+        )
+
+    def test_malformed_service_material_is_rejected(self):
+        data=copy.deepcopy(self.example)
+        data["sls_probe"]["short_materials"]["concrete_rbt_kpa"]=-5
+        with self.assertRaises(main.InputError):
+            main.validate_input(data)
+
+    def test_duplicate_or_nonfinite_service_load_is_rejected(self):
+        data=copy.deepcopy(self.example)
+        data["sls_probe"]["loads"][1]["id"]=data["sls_probe"]["loads"][0]["id"]
+        with self.assertRaises(main.InputError):
+            main.validate_input(data)
+        data=copy.deepcopy(self.example)
+        data["sls_probe"]["loads"][0]["n_kn"]=float("nan")
+        with self.assertRaises(main.InputError):
+            main.validate_input(data)
+
+    def fake_rows(self, utilization=.989, native=.95, mode="arbat_conservative"):
+        return [{
+            "id":l["id"],"status":"research_calculated","error":None,
+            "verified_for_design":False,"preliminary_is_final_approval":False,
+            "preliminary_method":mode,"preliminary_basis":"precrack_compatibility_envelope_with_native",
+            "preliminary_decision":(
+                "engineering_review" if abs(utilization-1)<=.03
+                else "preliminary_exceeds_limit" if utilization>1
+                else "preliminary_below_limit"
+            ),
+            "preliminary_utilization_long":utilization,
+            "utilization_long":native
+        } for l in self.example["sls_probe"]["loads"]]
+
+    def test_near_boundary_989_and_1014_both_require_review(self):
+        for utilization in (.989,1.014):
+            rows=main.check_sls_results(
+                self.fake_rows(utilization), self.example["sls_probe"],
+                "arbat_conservative", .03
+            )
+            self.assertTrue(all(r["preliminary_decision"]=="engineering_review" for r in rows))
+            self.assertTrue(all(r["design_status"]=="NOT_VERIFIED" for r in rows))
+
+    def test_default_can_never_be_less_conservative_than_native(self):
+        with self.assertRaisesRegex(main.InputError,"менее консервативен"):
+            main.check_sls_results(
+                self.fake_rows(utilization=.92,native=.99),
+                self.example["sls_probe"],"arbat_conservative",.03
+            )
+
+    def test_native_user_selection_remains_non_approved(self):
+        source=copy.deepcopy(self.example["sls_probe"])
+        source["preliminary_method"]="native_refined"
+        rows=main.check_sls_results(
+            self.fake_rows(utilization=.90,native=.98,mode="native_refined"),
+            source,"native_refined",.03
+        )
+        self.assertTrue(all(r["design_status"]=="NOT_VERIFIED" for r in rows))
+
+    def test_missing_sls_results_are_rejected(self):
+        with self.assertRaisesRegex(main.InputError,"неполный"):
+            main.check_sls_results(
+                self.fake_rows()[:2],self.example["sls_probe"],"arbat_conservative",.03
+            )
+
+    def test_failed_upstream_solver_is_indeterminate(self):
+        rows=self.fake_rows()
+        rows[0]={"id":rows[0]["id"],"status":"indeterminate","error":"solver_no_convergence",
+                 "verified_for_design":False}
+        result=main.check_sls_results(
+            rows,self.example["sls_probe"],"arbat_conservative",.03
+        )
+        self.assertEqual(result[0]["design_status"],"NOT_VERIFIED")
+        self.assertEqual(result[0]["status"],"indeterminate")
+
+    def test_upstream_cannot_claim_design_approval(self):
+        rows=self.fake_rows()
+        rows[0]["verified_for_design"]=True
+        with self.assertRaisesRegex(main.InputError,"утверждённый"):
+            main.check_sls_results(
+                rows,self.example["sls_probe"],"arbat_conservative",.03
+            )
+
+
+if __name__=="__main__":
+    unittest.main()
