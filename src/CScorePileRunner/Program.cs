@@ -300,7 +300,7 @@ internal static class Program
                     }
                     double? primaryUtilization = primaryWidth.HasValue
                         ? primaryWidth.Value / probe.AcrcUltLongMm : null;
-                    double? reviewBand = probe.ReviewBand;
+                    double reviewBand = probe.ReviewBand;
                     string preliminaryDecision = primaryUtilization is null
                         ? "indeterminate"
                         : Math.Abs(primaryUtilization.Value - 1.0) <= reviewBand
@@ -521,7 +521,7 @@ internal static class Program
             if (!double.IsFinite(rect.WidthMm) || !double.IsFinite(rect.HeightMm)
                 || rect.WidthMm <= 0 || rect.HeightMm <= 0
                 || rect.MeshResolution < 10 || rect.MeshResolution > 200
-                || rect.Bars.Count < 2 || input.Candidates.Count != 1
+                || rect.Bars is null || rect.Bars.Count < 2 || input.Candidates.Count != 1
                 || string.IsNullOrWhiteSpace(input.Candidates[0].Id))
                 throw new ArgumentException("Invalid rectangular research geometry");
             if (rect.Bars.Any(b => !double.IsFinite(b.XMm) || !double.IsFinite(b.YMm)
