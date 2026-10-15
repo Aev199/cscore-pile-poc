@@ -95,6 +95,36 @@ def comparison(results_dir: Path, output_csv: Path) -> list[dict]:
                 mismatches = sum(r["different_pass_fail_verdict"] for r in filtered)
                 print(f"  {section:5} {hypothesis:8} {metric:8} MAPE={mean_err:6.2f}% "
                       f"boundary verdict mismatches={mismatches}")
+    # Regression control only: ±2% is not a safety margin or code acceptance limit.
+    # Previous, independently generated ARBAT RTF results are treated as frozen.
+    # A pass/fail disagreement is accepted in the regression only when both
+    # strengths lie near unity, and MUST still be escalated for ARBAT review.
+    reference_rows = [
+        r for r in rows
+        if r["hypothesis"] == "plus_ea" and r["metric"] == "joint_NM"
+    ]
+    if len(reference_rows) != 16:
+        raise ValueError("Expected 16 independent validation rows")
+    failed_regressions = [
+        r for r in reference_rows
+        if not math.isfinite(r["abs_relative_error_pct"]) or r["abs_relative_error_pct"] > 2.0
+    ]
+    if failed_regressions:
+        raise ValueError(f"ARBAT v2 numerical regression exceeded 2%: {failed_regressions}")
+    unsafe_disagreement = [
+        r for r in reference_rows
+        if r["different_pass_fail_verdict"] and not r["boundary_2pct"]
+    ]
+    if unsafe_disagreement:
+        raise ValueError(f"Unexpected distant pass/fail disagreement: {unsafe_disagreement}")
+    near_boundary = [r for r in reference_rows if r["boundary_2pct"]]
+    print(f"Regression reference reproduced: {len(reference_rows)} cases, "
+          f"{len(near_boundary)} near-boundary cases requiring engineering review.")
+    if near_boundary:
+        for row in near_boundary:
+            print(f"  REVIEW {row['case_id']}: ARBAT={row['ARBAT_moment_factor']:.6f} "
+                  f"CScore={row['CScore_factor']:.6f}; "
+                  f"verdict_mismatch={row['different_pass_fail_verdict']}")
     return rows
 
 
