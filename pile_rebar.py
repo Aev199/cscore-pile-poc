@@ -43,10 +43,12 @@ def eccentricity_settings(data: dict) -> dict:
     raw = data.get('eccentricity')
     if raw is None:
         return {'mode': 'unspecified_legacy'}
-    if not isinstance(raw, dict) or raw.get('mode') not in ECC_MODES:
+    if not isinstance(raw, dict) or not isinstance(raw.get('mode'), str) or raw['mode'] not in ECC_MODES:
         raise InputError('eccentricity.mode: sp63_stat_determinate, already_in_loads или research_none')
     mode = raw['mode']
     if mode == 'sp63_stat_determinate':
+        if set(raw) - {'mode', 'static_scheme', 'effective_length_mm', 'zero_moment_axis'}:
+            raise InputError('Неизвестные параметры eccentricity для sp63_stat_determinate')
         if raw.get('static_scheme') != 'statically_determinate':
             raise InputError('Автоматический e_a пока поддерживает только статически определимую схему')
         length = positive(raw.get('effective_length_mm'), 'eccentricity.effective_length_mm')
@@ -101,7 +103,7 @@ def prepare_design_loads(data: dict) -> tuple[list[dict], list[dict], dict]:
                       'delta_mx_knm': added_x, 'delta_my_knm': added_y,
                       'ea_mm': ea_mm if original['n_kn'] < 0 and mode == 'sp63_stat_determinate' else 0.0})
     config = {**settings, 'ea_mm': ea_mm,
-              'preliminary_eccentricity_verified': mode in ('sp63_stat_determinate', 'already_in_loads'),
+              'eccentricity_accounted_for': mode in ('sp63_stat_determinate', 'already_in_loads'),
               'note': ('Experimental uniaxial calibration to ARBAT; biaxial and zero-moment handling not independently validated'
                        if mode == 'sp63_stat_determinate' else
                        'No accidental eccentricity applied in this stage')}
@@ -266,7 +268,7 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
               'calculation_scope': 'section_uls_only_no_eta_no_shear_no_crack_no_code_detailing',
               'eccentricity': eccentricity, 'forces_audit': forces_audit,
               'selected_uls_candidate': (passes[0]['id'] if passes else None)
-                 if eccentricity['preliminary_eccentricity_verified'] else None,
+                 if eccentricity['eccentricity_accounted_for'] else None,
               'engine_commit': '4ae6aa077be5b29145930ec093ba1c9eb7776222',
               'cases': calculated, 'rejected_geometry': rejected,
               'note': 'pass_uls означает только проверку нормального сечения; НЕ готовность КЖ'}
@@ -302,7 +304,7 @@ def main() -> int:
         return 2
     print(f'Кандидатов: {len(result["cases"])}, прошли только прочность нормального сечения: {sum(c["status"] == "pass_uls" for c in result["cases"])}')
     print(f'Предварительно минимальный по площади: {result["selected_uls_candidate"] or "не найден"}')
-    if not result['eccentricity']['preliminary_eccentricity_verified']:
+    if not result['eccentricity']['eccentricity_accounted_for']:
         print('ВНИМАНИЕ: e_a не подтверждён. Подбор не выдаётся; настройте eccentricity.mode.',
               file=sys.stderr)
     elif result['eccentricity']['mode'] == 'sp63_stat_determinate':
