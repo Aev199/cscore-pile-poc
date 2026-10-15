@@ -1,0 +1,12 @@
+{
+  "repository": "rumata-ap/OpenCS",
+  "branch": "master",
+  "commit": "4ae6aa077be5b29145930ec093ba1c9eb7776222",
+  "policy": "manual review, version pinning, no automatic upgrades",
+  "paths": [
+    "CScore/",
+    "CScore.Tests/",
+    "CSmath/",
+    "CSTriangulation/"
+  ]
+}
