@@ -261,10 +261,64 @@ internal static class Program
                         widthPsiOne = null;
                     string? error = validated ? null :
                         "indeterminate_crack_solver_or_upstream_silent_fallback";
+                    // Selection here governs ONLY preliminary SLS screening.
+                    // 'arbat_conservative' does NOT imply we reproduced ARBAT:
+                    // the pre-crack stress approximation is not normatively
+                    // established for arbitrary loads or geometries.
+                    // Keep the native refined result as a separate, unchanged option.
+                    double? primaryWidth = null;
+                    string primaryBasis = "not_computed";
+                    if (validated)
+                    {
+                        if (!r.Cracked)
+                        {
+                            primaryWidth = 0.0;
+                            primaryBasis = "uncracked_checked_threshold";
+                        }
+                        else if (probe.PreliminaryMethod == "native_refined")
+                        {
+                            primaryWidth = r.AcrcLong;
+                            primaryBasis = "native_refined_postcrack";
+                        }
+                        else if (widthPreMm.HasValue
+                                 && preError is null)
+                        {
+                            // Never claim an ARBAT-like screen is LESS
+                            // conservative than CScore's native numerical width.
+                            primaryWidth = Math.Max(widthPreMm.Value, r.AcrcLong);
+                            primaryBasis = "precrack_compatibility_envelope_with_native";
+                        }
+                        else if (widthPsiOne.HasValue)
+                        {
+                            // For unequal sustained/total actions the pre-crack
+                            // comparison is not validated. SP63 psi_s=1 supplies
+                            // a transparent conservative preliminary upper bound
+                            // relative to the same CScore crack expression.
+                            primaryWidth = Math.Max(widthPsiOne.Value, r.AcrcLong);
+                            primaryBasis = "psi_s_one_fallback_compat_not_applicable";
+                        }
+                    }
+                    double? primaryUtilization = primaryWidth.HasValue
+                        ? primaryWidth.Value / probe.AcrcUltLongMm : null;
+                    double? reviewBand = probe.ReviewBand;
+                    string preliminaryDecision = primaryUtilization is null
+                        ? "indeterminate"
+                        : Math.Abs(primaryUtilization.Value - 1.0) <= reviewBand
+                            ? "engineering_review"
+                            : primaryUtilization.Value > 1.0
+                                ? "preliminary_exceeds_limit"
+                                : "preliminary_below_limit";
                     return (object)new {
                         id = load.Id,
                         status = validated ? "research_calculated" : "indeterminate",
                         error,
+                        preliminary_method = probe.PreliminaryMethod,
+                        preliminary_basis = primaryBasis,
+                        preliminary_width_long_mm = primaryWidth,
+                        preliminary_utilization_long = primaryUtilization,
+                        preliminary_decision = preliminaryDecision,
+                        preliminary_review_band = reviewBand,
+                        preliminary_is_final_approval = false,
                         cracked = (bool?)r.Cracked,
                         crc_converged = r.CrcConverged,
                         mcrc_knm = finite ? (double?)r.Mcrc : null,
@@ -445,7 +499,11 @@ internal static class Program
                 || probe.Loads is null || probe.Loads.Count == 0
                 || !double.IsFinite(probe.Phi2) || probe.Phi2 <= 0
                 || !double.IsFinite(probe.AcrcUltLongMm) || probe.AcrcUltLongMm <= 0
-                || !double.IsFinite(probe.AcrcUltShortMm) || probe.AcrcUltShortMm <= 0)
+                || !double.IsFinite(probe.AcrcUltShortMm) || probe.AcrcUltShortMm <= 0
+                || (probe.PreliminaryMethod != "arbat_conservative"
+                    && probe.PreliminaryMethod != "native_refined")
+                || !double.IsFinite(probe.ReviewBand) || probe.ReviewBand <= 0
+                || probe.ReviewBand >= 0.25)
                 throw new ArgumentException("Explicit service characteristics, loads and limits required");
             ValidateMaterials(probe.ShortMaterials);
             ValidateMaterials(probe.LongMaterials);
@@ -513,6 +571,8 @@ internal sealed class SlsProbe
     [JsonPropertyName("phi2")] public double Phi2 { get; init; } = 0.5;
     [JsonPropertyName("acrc_ult_long_mm")] public double AcrcUltLongMm { get; init; } = 0.3;
     [JsonPropertyName("acrc_ult_short_mm")] public double AcrcUltShortMm { get; init; } = 0.4;
+    [JsonPropertyName("preliminary_method")] public string PreliminaryMethod { get; init; } = "arbat_conservative";
+    [JsonPropertyName("review_band")] public double ReviewBand { get; init; } = 0.03;
 }
 internal sealed class SlsLoad
 {
