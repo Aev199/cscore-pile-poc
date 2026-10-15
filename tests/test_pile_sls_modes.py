@@ -63,8 +63,24 @@ class PileSlsOptionTests(unittest.TestCase):
                 else "preliminary_below_limit"
             ),
             "preliminary_utilization_long":utilization,
-            "utilization_long":native
+            "preliminary_utilization_short":0.5,
+            "preliminary_governing_utilization":max(utilization, 0.5),
+            "utilization_long":native,
+            "utilization_short":0.4
         } for l in self.example["sls_probe"]["loads"]]
+
+    def test_short_crack_check_also_controls_candidate(self):
+        rows=self.fake_rows(utilization=.80,native=.70)
+        for r in rows:
+            r["preliminary_utilization_short"]=1.014
+            r["utilization_short"]=1.01
+            r["preliminary_governing_utilization"]=1.014
+            r["preliminary_decision"]="engineering_review"
+        validated=main.check_sls_results(
+            rows,self.example["sls_probe"],"arbat_conservative",.03
+        )
+        self.assertTrue(all(v["preliminary_decision"]=="engineering_review"
+                            for v in validated))
 
     def test_near_boundary_989_and_1014_both_require_review(self):
         for utilization in (.989,1.014):
