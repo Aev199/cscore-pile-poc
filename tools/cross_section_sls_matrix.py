@@ -285,6 +285,11 @@ def run(runner: Path, output_dir: Path, method: str = "arbat_conservative") -> l
         indeterminate = len(rows)-computed
         print(f"{section['id']}: {computed}/{len(rows)} computed, "
               f"{indeterminate} indeterminate, ARBAT references not yet available")
+        if computed == 0:
+            raise RuntimeError(
+                f"{section['id']}: the research runner returned no usable SLS values; "
+                "see archived raw CScore JSON and diagnose before accepting the experiment"
+            )
     write_table(output_dir / "cross_section_sls_matrix.csv", all_rows)
     print(f"Research matrix {len(definitions)} sections, {len(all_rows)} load tuples; "
           "zero ARBAT comparisons until externally verified reports arrive.")
