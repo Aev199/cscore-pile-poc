@@ -1,0 +1,68 @@
+name: CScore pile PoC Windows
+
+# Manual only: does not spend GitHub Actions minutes on every commit.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout prototype
+        uses: actions/checkout@v4
+      - name: Install .NET 10 SDK (CI runner only)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.301'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Checkout pinned OpenCS source
+        shell: pwsh
+        run: |
+          git clone https://github.com/rumata-ap/OpenCS.git vendor/OpenCS
+          git -C vendor/OpenCS checkout --detach 4ae6aa077be5b29145930ec093ba1c9eb7776222
+          if ((git -C vendor/OpenCS rev-parse HEAD).Trim() -ne '4ae6aa077be5b29145930ec093ba1c9eb7776222') { throw 'Wrong upstream commit' }
+      - name: Python contract tests (no calculated numbers)
+        run: python -m unittest discover -s tests -v
+      - name: CScore upstream tests (ULS + geometry + cracks)
+        shell: pwsh
+        run: |
+          dotnet test vendor/OpenCS/CScore.Tests/CScore.Tests.csproj -c Release `
+            --filter 'FullyQualifiedName~Sp63Normal|FullyQualifiedName~CrackWidthSolver|FullyQualifiedName~Sp63Shear' `
+            --logger 'console;verbosity=normal'
+      - name: Publish portable Windows runner
+        shell: pwsh
+        run: |
+          dotnet publish src/CScorePileRunner/CScorePileRunner.csproj -c Release `
+            -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o publish
+      - name: End-to-end numerical run (real CScore, no mocks)
+        shell: pwsh
+        run: |
+          python pile_rebar.py examples/demo_bns.json `
+            --runner publish/CScorePileRunner.exe `
+            --output results/pile_results.json `
+            --csv results/pile_results.csv
+          if ($LASTEXITCODE -ne 0) { throw 'Integration run failed' }
+          python -c "import json; r=json.load(open('results/pile_results.json', encoding='utf-8')); assert r['cases'] and all(c['status'] in ('pass_uls','fail_uls','indeterminate') for c in r['cases']); assert any(c['status'] != 'indeterminate' for c in r['cases']), 'All CScore cases are indeterminate'; print('cases', len(r['cases']))"
+      - name: Pack deliverables
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory release -Force | Out-Null
+          Copy-Item publish/* release/ -Recurse
+          Copy-Item pile_rebar.py release/
+          Copy-Item examples/demo_bns.json release/
+          Copy-Item examples/geometry_preview.csv release/
+          Copy-Item README.md release/
+          Copy-Item results/pile_results.* release/
+          Compress-Archive -Path release/* -DestinationPath cscore-pile-windows.zip -Force
+      - name: Windows EXE and numerical results
+        uses: actions/upload-artifact@v4
+        with:
+          name: cscore-pile-windows
+          path: cscore-pile-windows.zip
+          retention-days: 14

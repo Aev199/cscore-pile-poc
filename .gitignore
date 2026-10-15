@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
+.venv/
+results/
+publish/
+release/
+vendor/
+*.zip
+bin/
+obj/
