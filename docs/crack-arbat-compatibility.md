@@ -158,6 +158,46 @@ Source references:
 The new code implementing both research contrasts has not yet run
 through GitHub CI: do not report these new output fields as verified.
 
+## Independent verification of diagnostic hypotheses — CI 38750390062
+
+[Successful Windows build](https://github.com/Aev199/cscore-pile-poc/actions/runs/38750390062), source SHA `b7e61f188c7b61b083b34f03770dd0403b77bcb7`. The Windows job completed upstream CScore 486/486 tests, Python contract tests, previous ULS regressions and 16/16 experimental SLS cases with no runtime error.
+
+Measured sustained crack-width utilization from the archived `crack_probe/crack_width_comparison.csv`:
+
+| Section / case | ARBAT | Native CScore | ψs = 1 | Pre-crack σs,crc hypothesis |
+|---|---:|---:|---:|---:|
+| Ø800 T01 | 0.660 | 0.324 | 0.782 | 0.694 |
+| Ø800 T02 | 2.202 | 1.869 | 2.328 | 2.240 |
+| Ø800 T04 | 1.378 | 1.284 | 1.459 | 1.389 |
+| Ø800 T06 | 0.705 | 0.667 | 0.763 | 0.711 |
+| Ø800 T07 | 1.360 | 0.695 | 1.509 | 1.393 |
+| Ø800 T08 | 2.666 | 1.987 | 2.800 | 2.684 |
+| Ø1000 T02 | 0.989 | 0.671 | 1.106 | 1.014 |
+| Ø1000 T04 | 0.519 | 0.367 | 0.607 | 0.524 |
+| Ø1000 T08 | 1.508 | 0.980 | 1.658 | 1.542 |
+
+Mean absolute relative error from nine numeric ARBAT references:
+
+| Method | Ø800 (6) | Ø1000 (3) |
+|---|---:|---:|
+| Native CScore | 25.43% | 32.11% |
+| Code-permitted preliminary ψs=1 | 9.05% | 12.92% |
+| Pre-crack stress hypothesis (research) | **1.95%** | **1.89%** |
+
+Largest per-case relative difference under the *research* pre-crack hypothesis: **5.22%** (Ø800/T01). Every other reference case is below 2.53%. All nine native CScore predictions are lower than ARBAT. Pre-crack compatibility has NO unsafe false-pass cases on this set. **One conservative false-fail** remains: Ø1000/T02, ARBAT=0.989 (passes long crack check) vs compatibility=1.013943 (fails). Near-boundary cases MUST remain pending independent ARBAT calculation.
+
+Note on applicability: these are **nine** numerically comparable cases, not nine independent physical sections. All use only two section sizes, same B30/A500 and equal full/sustained SLS forces. Agreement is NOT a general model validation, and hidden intermediate solver fallbacks remain a risk. SLS material diagrams are still exploratory.
+
+### Product decision after this build
+
+- Preserve original upstream CScore as **native** method; do not revert the author's post-crack stress refinement.
+- Expose the pre-crack stress option separately as **experimental ARBAT-oriented preliminary estimate**, never silently replacing native or giving a normative PASS.
+- Keep the `ψs=1` conservative screening as a separate code-permitted quick check, with applicability assumptions visible.
+- ARBAT remains the mandatory final checker for crack width and other SLS/ULS requirements; initial CScore compatibility PASS is not a release gate.
+- Before any promotion from research: obtain *new* ARBAT reference results varying bar diameter/count, cover, material class, separate sustained/short-term portions and biaxial N-Mx-My; compare both absolute width in mm and utilization; verify pre/post-crack steel stresses and numerical convergence across all solver states.
+
+This was an **actual numeric experiment**, not a published statement that ARBAT uses the pre-crack stress. Its internal algorithm remains unconfirmed.
+
 ## Limitations
 
 - The nine ARBAT RTF rows contain only utilization factors, not internal
