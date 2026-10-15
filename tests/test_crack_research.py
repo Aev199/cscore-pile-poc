@@ -1,0 +1,75 @@
+"""The research-only SLS probe must never silently 'pass' an incomplete crack check."""
+import json
+import pathlib
+import sys
+import unittest
+from unittest.mock import patch
+
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
+from tools import run_crack_research as research
+
+class CrackResearchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.reference=json.loads(research.REFERENCE.read_text(encoding="utf-8"))
+
+    def test_both_sections_match_report_reference_cages(self):
+        for section in ("P800","P1000"):
+            req=research.prepare_request(section,self.reference)
+            self.assertEqual(req["schema_version"],1)
+            self.assertEqual(len(req["candidates"]),1)
+            self.assertEqual(len(req["sls_probe"]["loads"]),8)
+            self.assertEqual(
+                req["sls_probe"]["loads"][0]["n_kn"],
+                self.reference["groups"][section]["cases"][0]["n_kn"])
+            self.assertEqual(
+                req["sls_probe"]["short_materials"],
+                req["sls_probe"]["long_materials"])
+            self.assertEqual(len(req["loads"]),1)
+
+    def fake_answer(self,section,*,cracked=True,converged=True,status="research_calculated"):
+        req=research.prepare_request(section,self.reference)
+        sls=[]
+        for r in req["sls_probe"]["loads"]:
+            sls.append({
+                "id":r["id"],"status":status,"error":None if status=="research_calculated" else "internal",
+                "crc_converged":converged,"verified_for_design":False,
+                "cracked":cracked,"width_long_mm":.12,"width_short_mm":.16,
+                "utilization_long":.4,"utilization_short":.4
+            })
+        return {"schema_version":1,"cases":[{
+            "id":req["candidates"][0]["id"],"sls_probe":sls
+        }]}
+
+    def test_valid_diagnostic_never_signals_design_approval(self):
+        rows=research.check_answer("P800",self.reference,self.fake_answer("P800"))
+        self.assertEqual(len(rows),8)
+        self.assertTrue(all(r["CScore_status"]=="computed_experimental" for r in rows))
+        self.assertTrue(all(r["design_status"]=="NOT_VERIFIED" for r in rows))
+
+    def test_cracking_report_with_zero_width_fallback_is_indeterminate(self):
+        rows=research.check_answer("P800",self.reference,self.fake_answer("P800",cracked=False))
+        byid={r["case"]:r for r in rows}
+        self.assertEqual(byid["P800_T02"]["CScore_status"],"indeterminate_requires_arbat")
+        self.assertIsNone(byid["P800_T02"]["CScore_util_long"])
+
+    def test_solver_nonconvergence_never_yields_result(self):
+        rows=research.check_answer("P1000",self.reference,self.fake_answer("P1000",converged=False))
+        self.assertTrue(all(r["CScore_status"]=="indeterminate_requires_arbat" for r in rows))
+        self.assertTrue(all(r["CScore_util_short"] is None for r in rows))
+
+    def test_missing_sls_result_is_not_a_pass(self):
+        result=self.fake_answer("P800")
+        result["cases"][0]["sls_probe"].pop()
+        with self.assertRaisesRegex(ValueError,"Incomplete"):
+            research.check_answer("P800",self.reference,result)
+
+    def test_output_provenance_requires_false_verified(self):
+        result=self.fake_answer("P800")
+        result["cases"][0]["sls_probe"][0]["verified_for_design"]=True
+        rows=research.check_answer("P800",self.reference,result)
+        self.assertEqual(rows[0]["CScore_status"],"indeterminate_requires_arbat")
+
+if __name__=="__main__":
+    unittest.main()
