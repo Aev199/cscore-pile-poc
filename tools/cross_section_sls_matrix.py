@@ -209,11 +209,11 @@ def write_table(path: Path, rows: list[dict]) -> None:
         w.writerows(rows)
 
 
-def generate_cases(output_dir: Path, sections: list[dict]) -> list[dict]:
+def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_conservative") -> list[dict]:
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = []
     for section in sections:
-        request = make_request(section)
+        request = make_request(section, mode=method)
         (output_dir / f"{section['id']}_input.json").write_text(
             json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
@@ -249,9 +249,9 @@ def generate_cases(output_dir: Path, sections: list[dict]) -> list[dict]:
     return summary
 
 
-def run(runner: Path, output_dir: Path) -> list[dict]:
+def run(runner: Path, output_dir: Path, method: str = "arbat_conservative") -> list[dict]:
     definitions = section_definitions()
-    generate_cases(output_dir, definitions)
+    generate_cases(output_dir, definitions, method=method)
     all_rows = []
     for section in definitions:
         source = output_dir / f"{section['id']}_input.json"
@@ -283,10 +283,11 @@ def run(runner: Path, output_dir: Path) -> list[dict]:
 if __name__ == "__main__":
     cli = argparse.ArgumentParser()
     cli.add_argument("--runner", type=Path)
+    cli.add_argument("--method", choices=METHODS, default="arbat_conservative")
     cli.add_argument("--out", type=Path, default=ROOT/"results/sls_matrix")
     a = cli.parse_args()
     if a.runner:
-        run(a.runner, a.out)
+        run(a.runner, a.out, method=a.method)
     else:
-        models = generate_cases(a.out, section_definitions())
+        models = generate_cases(a.out, section_definitions(), method=a.method)
         print(f"Prepared {len(models)} sections and blank ARBAT reference schedule in {a.out}")
