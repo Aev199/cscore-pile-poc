@@ -191,10 +191,10 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with csv_path.open('w', encoding='utf-8-sig', newline='') as h:
         wr = csv.writer(h, delimiter=';')
-        wr.writerow(['candidate','steel_area_mm2','clearance_mm','status','max_utilization','load_id','load_status','utilization','factor','converged','error'])
+        wr.writerow(['candidate','steel_area_mm2','clearance_mm','status','max_utilization','load_id','load_status','utilization','factor','converged','error','moment_utilization','moment_factor','moment_converged','moment_error'])
         for c in calculated:
             for l in c['loads']:
-                wr.writerow([c['id'], round(c['steel_area_mm2'], 2), round(c['clearance_mm'],2),c['status'],c['max_utilization'],l['id'],l['decision'],l.get('utilization'),l.get('factor'),l.get('converged'),l.get('error')])
+                wr.writerow([c['id'], round(c['steel_area_mm2'], 2), round(c['clearance_mm'],2),c['status'],c['max_utilization'],l['id'],l['decision'],l.get('utilization'),l.get('factor'),l.get('converged'),l.get('error'),l.get('moment_utilization'),l.get('moment_factor'),l.get('moment_converged'),l.get('moment_error')])
     return result
 
 
