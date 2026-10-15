@@ -129,6 +129,27 @@ def check_answer(section: str, reference: dict, answer: dict) -> list[dict]:
                 if valid and ref["arbat_crack_short_util"] and ref["arbat_crack_short_util"] > 0
                 else None
             ),
+            "disagrees_on_long_term_pass_fail": (
+                (case["utilization_long"] <= 1) != (ref["arbat_crack_long_util"] <= 1)
+                if valid and ref["arbat_crack_long_util"] is not None
+                else None
+            ),
+            "sigma_rebar_MPa": (case.get("sigma_rebar_kpa") / 1000.0
+                                if valid and isinstance(case.get("sigma_rebar_kpa"), (float, int)) else None),
+            "sigma_rebar_at_crack_MPa": (case.get("sigma_rebar_at_crack_kpa") / 1000.0
+                                       if valid and isinstance(case.get("sigma_rebar_at_crack_kpa"), (float, int)) else None),
+            "psi_s": case.get("psi_s") if valid else None,
+            "crack_spacing_mm": (case.get("crack_spacing_m") * 1000.0
+                                 if valid and isinstance(case.get("crack_spacing_m"), (float, int)) else None),
+            "tensile_rebar_area_mm2": (case.get("tensile_rebar_area_m2") * 1e6
+                                      if valid and isinstance(case.get("tensile_rebar_area_m2"), (float, int)) else None),
+            "tensile_concrete_area_mm2": (case.get("tensile_concrete_area_m2") * 1e6
+                                         if valid and isinstance(case.get("tensile_concrete_area_m2"), (float, int)) else None),
+            "equivalent_rebar_diameter_mm": (case.get("equivalent_rebar_diameter_m") * 1000.0
+                                             if valid and isinstance(case.get("equivalent_rebar_diameter_m"), (float, int)) else None),
+            "a_crc_1_mm": case.get("a_crc_1_mm") if valid else None,
+            "a_crc_2_mm": case.get("a_crc_2_mm") if valid else None,
+            "a_crc_3_mm": case.get("a_crc_3_mm") if valid else None,
             "design_status": "NOT_VERIFIED",
         })
     return rows
@@ -158,6 +179,17 @@ def run(runner: Path, output_dir: Path, timeout: int = 900) -> list[dict]:
         all_rows.extend(rows)
         ok = sum(r["CScore_status"] == "computed_experimental" for r in rows)
         print(f"{section}: {ok}/8 experimentally computed, {8-ok}/8 indeterminate")
+        comparable = [r for r in rows if r["ARBAT_vs_CScore_long_pct"] is not None]
+        mismatches = [r for r in comparable if r["disagrees_on_long_term_pass_fail"]]
+        if comparable:
+            mean_err = sum(abs(r["ARBAT_vs_CScore_long_pct"]) for r in comparable) / len(comparable)
+            print(f"{section}: long crack benchmark {len(comparable)} comparable cases, "
+                  f"mean abs relative error = {mean_err:.1f}%, "
+                  f"PASS/FAIL disagreements = {len(mismatches)}")
+        for problem in mismatches:
+            print(f"  CAUTION: {problem['case']} - ARBAT long crack "
+                  f"{problem['ARBAT_width_long_util']} vs experimental CScore "
+                  f"{problem['CScore_util_long']}; NOT VERIFIED")
     output = output_dir / "crack_width_comparison.csv"
     with output.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(all_rows[0]), delimiter=";")
