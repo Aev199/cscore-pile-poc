@@ -39,9 +39,42 @@ internal static class Program
                             bool ok = result.Converged && double.IsFinite(result.Factor) &&
                                       double.IsFinite(result.Utilization) && result.Factor > 0.0 &&
                                       result.Utilization >= 0.0;
+                            // ARBAT reports the moment utilization at a FIXED N.
+                            // AllFactor scales N and M together, so it is not the same metric.
+                            // Calculate a second, independently qualified MomentFactor for comparison.
+                            double? momentFactor = null, momentUtilization = null;
+                            bool momentConverged = false;
+                            string? momentError = null;
+                            try
+                            {
+                                var momentSolver = LimitForceSolver.ForCrossSection(
+                                    section, CalcType.C, ten: false);
+                                var mr = momentSolver.MomentFactor(load.NKn, load.MxKnm, load.MyKnm);
+                                momentConverged = mr.Converged && double.IsFinite(mr.Factor) &&
+                                    double.IsFinite(mr.Utilization) && mr.Factor > 0.0 &&
+                                    mr.Utilization >= 0.0;
+                                if (momentConverged)
+                                {
+                                    momentFactor = mr.Factor;
+                                    momentUtilization = mr.Utilization;
+                                }
+                                else
+                                {
+                                    momentError = "moment_no_convergence_or_invalid_result";
+                                }
+                            }
+                            catch (Exception momentEx)
+                            {
+                                momentError = "moment_solver_error:" + momentEx.GetType().Name +
+                                    ":" + momentEx.Message;
+                            }
                             values.Add(new
                             {
                                 id = load.Id,
+                                moment_converged = momentConverged,
+                                moment_factor = momentFactor,
+                                moment_utilization = momentUtilization,
+                                moment_error = momentError,
                                 converged = ok,
                                 factor = ok ? (double?)result.Factor : null,
                                 utilization = ok ? (double?)result.Utilization : null,
