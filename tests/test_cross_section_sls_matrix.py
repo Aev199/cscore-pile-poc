@@ -88,7 +88,10 @@ class ResearchMatrixTests(unittest.TestCase):
                 "preliminary_basis":"precrack_compatibility_envelope_with_native",
                 "preliminary_decision":"engineering_review" if status=="research_calculated" else "indeterminate",
                 "preliminary_utilization_long":preliminary if status=="research_calculated" else None,
+                "preliminary_utilization_short":0.40 if status=="research_calculated" else None,
+                "preliminary_governing_utilization":max(preliminary,0.40) if status=="research_calculated" else None,
                 "utilization_long":native if status=="research_calculated" else None,
+                "utilization_short":0.35 if status=="research_calculated" else None,
             })
         return req, {"schema_version":1,"cases":[{"id":section["id"],"sls_probe":records}]}
 
@@ -100,6 +103,18 @@ class ResearchMatrixTests(unittest.TestCase):
         self.assertTrue(all(x["preliminary_status"] == "engineering_review" for x in rows))
         self.assertTrue(all(x["final_design_status"] == "NOT_VERIFIED" for x in rows))
         self.assertTrue(all(x["arbat_report_status"] == "NOT_PROVIDED" for x in rows))
+
+    def test_short_term_can_govern_the_conservative_research_screen(self):
+        sec = matrix.section_definitions()[0]
+        req, answer = self.fake_output(sec, preliminary=0.7, native=0.6)
+        for row in answer["cases"][0]["sls_probe"]:
+            row["preliminary_utilization_short"]=1.014
+            row["utilization_short"]=0.95
+            row["preliminary_governing_utilization"]=1.014
+            row["preliminary_decision"]="engineering_review"
+        rows=matrix.validate_answer(sec,req,answer)
+        self.assertTrue(all(r["preliminary_status"]=="engineering_review" for r in rows))
+        self.assertTrue(all(r["final_design_status"]=="NOT_VERIFIED" for r in rows))
 
     def test_default_must_not_underestimate_native(self):
         sec = matrix.section_definitions()[0]
