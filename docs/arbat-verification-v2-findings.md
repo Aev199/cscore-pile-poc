@@ -50,6 +50,33 @@ The segregation strongly supports eccentricity treatment as the principal cause 
 
 A further independent test to confirm the compression-eccentricity hypothesis is now scripted: `tools/arbat_v2_benchmark.py`. It produces separate `P800_NM8_ea.json` and `P1000_NM8_ea.json` without altering the original loads, then compares both methods against the new RTF reference in `arbat_v2_comparison.csv`. **This new numerical run has not yet been executed** and must not be counted as verified.
 
+## Independent v2 confirmation: GitHub Actions run 38716913205
+
+Successful run: https://github.com/Aev199/cscore-pile-poc/actions/runs/38716913205
+Pinned CScore commit unchanged. 486 targeted upstream tests passed. Separate ARBAT v2 cross-validation step completed successfully and generated `arbat_v2_comparison.csv`.
+
+Using the **independent eight-case v2 reports** and comparing with CScore **AllFactor**, with correct bar placement, concrete 0.9 factor and accidental eccentricity added for compression:
+
+| 8-case comparison | P800 | P1000 |
+|---|---:|---:|
+| Mean absolute relative deviation, without accidental eccentricity | 4.306% | 4.072% |
+| Mean absolute relative deviation, with accidental eccentricity | **0.408%** | **0.515%** |
+| Maximum individual deviation with accidental eccentricity | 0.825% | 0.958% |
+| Other pass/fail differences outside near-boundary cases | 0 | 0 |
+
+This reproduces the independently prepared initial test batch's sub-1% agreement, strongly supporting the corrected geometry, concrete coefficient and ARBAT's `N/M` radial-load and accidental-eccentricity handling **for these examples**.
+
+**Remaining critical disagreement:** `P800_T08`, combined tensile `N=+500 kN` and `M=600 kN·m`, gives ARBAT `K=0.998` (pass by moment) and CScore `K=1.002953` (fail by moment). It is within about 0.5% relative but changes the verdict. ARBAT also reports long-term crack utilization `2.666` here, so the overall design FAILS. This must not be reported as an approved cage.
+
+`tools/arbat_v2_benchmark.py` now checks the 16 reference comparisons against a 2% **regression tolerance**, but that threshold is **not** an engineering acceptance criterion. It also prints near-unity cases for mandatory review. The guard was committed **after** the successful workflow run and still needs its own CI validation.
+
+## Product implications for safety
+
+1. Apply documented SP63 accidental eccentricity treatment to routine CScore candidate calculations before treating them as even preliminary ULS predictions. The current ordinary `pile_rebar.py` inputs and `pass_uls` field still do **not** implement the corrected external `ea` transform by default.
+2. Keep original and transformed signed N–M actions visible to audit; a transformed-case evaluation must not overwrite source PLAXIS loads.
+3. Near unity, do not auto-accept a preliminary result based on CScore verdict. ARBAT is mandatory for final design anyway, including shear, cracking and second-order effects.
+4. Archive RTF/SAV input hashes and check every load case against its corresponding ARBAT report before labeling the final result valid.
+
 ## Product decision
 
 - Use CScore for **preliminary** cage candidate ranking only, with convergence/solver errors as indeterminate.
