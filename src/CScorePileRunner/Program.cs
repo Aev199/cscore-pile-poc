@@ -308,9 +308,12 @@ internal static class Program
                             : primaryUtilization.Value > 1.0
                                 ? "preliminary_exceeds_limit"
                                 : "preliminary_below_limit";
+                    bool preliminaryCalculated = validated && primaryUtilization.HasValue;
+                    if (!preliminaryCalculated && error is null)
+                        error = "preliminary_crack_screen_not_available";
                     return (object)new {
                         id = load.Id,
-                        status = validated ? "research_calculated" : "indeterminate",
+                        status = preliminaryCalculated ? "research_calculated" : "indeterminate",
                         error,
                         preliminary_method = probe.PreliminaryMethod,
                         preliminary_basis = primaryBasis,
