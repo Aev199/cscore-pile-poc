@@ -66,6 +66,8 @@ def compare(reference: Path, results_dir: Path, output: Path) -> list[dict]:
         writer.writeheader()
         writer.writerows(rows)
     n = sum(row["CScore_fixed_N_moment_util"] is not None for row in rows)
+    if n == 0:
+        raise ValueError("All fixed-N moment calculations failed; comparison cannot be completed")
     print(f"ARBAT comparison rows: {len(rows)}, converged comparable moment values: {n}")
     print("RESEARCH ONLY: different second-order treatment/material laws may explain discrepancies.")
     return rows
