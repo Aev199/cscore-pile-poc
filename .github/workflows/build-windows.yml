@@ -22,160 +22,11 @@ jobs:
       - name: Checkout pinned OpenCS source
         shell: pwsh
         run: |
-          $pin = (Get-Content config/opencs.lock.json -Raw | ConvertFrom-Json).commit
-          if ($pin -notmatch '^[0-9a-f]{40}
-      - name: Python contract tests (no calculated numbers)
-        run: python -m unittest discover -s tests -v
-      - name: CScore upstream tests (ULS + geometry + cracks)
-        shell: pwsh
-        run: |
-          dotnet test vendor/OpenCS/CScore.Tests/CScore.Tests.csproj -c Release `
-            --filter 'FullyQualifiedName~Sp63Normal|FullyQualifiedName~CrackWidthSolver|FullyQualifiedName~Sp63Shear' `
-            --logger 'console;verbosity=normal'
-      - name: Publish portable Windows runner
-        shell: pwsh
-        run: |
-          dotnet publish src/CScorePileRunner/CScorePileRunner.csproj -c Release `
-            -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-            -o publish
-      - name: End-to-end numerical run (real CScore, no mocks)
-        shell: pwsh
-        env:
-          PYTHONIOENCODING: utf-8
-        run: |
-          python pile_rebar.py examples/demo_bns.json `
-            --runner publish/CScorePileRunner.exe `
-            --output results/pile_results.json `
-            --csv results/pile_results.csv
-          if ($LASTEXITCODE -ne 0) { throw 'Integration run failed' }
-          python -c "import json; r=json.load(open('results/pile_results.json', encoding='utf-8')); assert r['cases'] and all(c['status'] in ('pass_uls','fail_uls','indeterminate') for c in r['cases']); assert any(c['status'] != 'indeterminate' for c in r['cases']), 'All CScore cases are indeterminate'; print('cases', len(r['cases']))"
-      - name: Independent benchmark BNS 800 and 1000 (ULS section only)
-        shell: pwsh
-        env:
-          PYTHONIOENCODING: utf-8
-        run: |
-          foreach ($case in @('P800_reference', 'P1000_reference', 'P800_search', 'P1000_search')) {
-            python pile_rebar.py "examples/verification/$case.json" `
-              --runner publish/CScorePileRunner.exe `
-              --output "results/$case.json" `
-              --csv "results/$case.csv"
-            if ($LASTEXITCODE -ne 0) { throw "Benchmark $case failed" }
-            python -c "import json,sys,collections; d=json.load(open(sys.argv[1],encoding='utf-8')); c=collections.Counter(x['status'] for x in d['cases']); print(sys.argv[1], dict(c)); assert c['pass_uls']+c['fail_uls']>0, 'No valid CScore calculation'" "results/$case.json"
-            if ($LASTEXITCODE -ne 0) { throw "Benchmark $case has no valid numerical result" }
+          $lock = Get-Content config/opencs.lock.json -Raw | ConvertFrom-Json
+          $pin = $lock.commit
+          if ($pin.Length -ne 40 -or $pin -notmatch '^[a-f0-9]{40}$') {
+            throw 'Invalid SHA in upstream lock file'
           }
-      - name: ARBAT-matched reference cases (two material-strength assumptions)
-        shell: pwsh
-        env:
-          PYTHONIOENCODING: utf-8
-        run: |
-          foreach ($d in @('P800', 'P1000')) {
-            foreach ($mode in @('nominal', 'gamma09_sensitivity')) {
-              $case = "${d}_${mode}"
-              python pile_rebar.py "examples/verification/arbat_matched/$case.json" `
-                --runner publish/CScorePileRunner.exe `
-                --output "results/$case.json" `
-                --csv "results/$case.csv"
-              if ($LASTEXITCODE -ne 0) { throw "ARBAT benchmark $case failed" }
-            }
-          }
-          python tools/compare_arbat.py --results-dir results --output results/arbat_comparison.csv
-          if ($LASTEXITCODE -ne 0) { throw 'ARBAT/CScore comparison failed' }
-      - name: Pure bending and fixed-axial checks prepared for companion ARBAT SAV reports
-        shell: pwsh
-        env:
-          PYTHONIOENCODING: utf-8
-        run: |
-          foreach ($section in @('P800', 'P1000')) {
-            python pile_rebar.py "examples/verification/diagnostic_forces/${section}_NM8.json" `
-              --runner publish/CScorePileRunner.exe `
-              --output "results/${section}_NM8.json" `
-              --csv "results/${section}_NM8.csv"
-            if ($LASTEXITCODE -ne 0) { throw "N-M diagnostic $section failed" }
-          }
-      - name: Explain ARBAT/CScore discrepancies (geometry, gamma, eccentricity, factor)
-        shell: pwsh
-        env:
-          PYTHONIOENCODING: utf-8
-        run: |
-          python tools/diagnose_arbat_inputs.py
-          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic input generation failed' }
-          New-Item -ItemType Directory results/diagnostics -Force | Out-Null
-          Copy-Item examples/verification/diagnostics/manifest.json results/diagnostics/
-          $cases = Get-ChildItem examples/verification/diagnostics/P*.json
-          foreach ($entry in $cases) {
-            python pile_rebar.py $entry.FullName `
-              --runner publish/CScorePileRunner.exe `
-              --output "results/diagnostics/$($entry.BaseName).json" `
-              --csv "results/diagnostics/$($entry.BaseName).csv"
-            if ($LASTEXITCODE -ne 0) { throw "Diagnostic $($entry.Name) failed" }
-          }
-          python tools/diagnose_arbat_compare.py
-          if ($LASTEXITCODE -ne 0) { throw 'Discrepancy analysis incomplete' }
-      - name: ARBAT v2 cross-validation of accidental eccentricity on independent N-M loads
-        shell: pwsh
-        env:
-          PYTHONIOENCODING: utf-8
-        run: |
-          python tools/arbat_v2_benchmark.py --prepare-inputs
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to generate ARBAT v2 eccentricity checks' }
-          foreach ($d in @('P800', 'P1000')) {
-            python pile_rebar.py "examples/verification/diagnostic_forces/${d}_NM8_ea.json" `
-              --runner publish/CScorePileRunner.exe `
-              --output "results/${d}_NM8_ea.json" `
-              --csv "results/${d}_NM8_ea.csv"
-            if ($LASTEXITCODE -ne 0) { throw "Failed ARBAT v2 eccentricity case $d" }
-          }
-          python tools/arbat_v2_benchmark.py --results-dir results --output-csv results/arbat_v2_comparison.csv
-          if ($LASTEXITCODE -ne 0) { throw 'ARBAT v2 numerical benchmark incomplete' }
-      - name: Pack deliverables
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory release -Force | Out-Null
-          Copy-Item publish/* release/ -Recurse
-          Copy-Item pile_rebar.py release/
-          Copy-Item tools/compare_arbat.py release/
-          Copy-Item tools/diagnose_arbat_inputs.py release/
-          Copy-Item tools/diagnose_arbat_compare.py release/
-          Copy-Item tools/arbat_sav_export.py release/
-          Copy-Item tools/arbat_v2_benchmark.py release/
-          New-Item -ItemType Directory release/config -Force | Out-Null
-          Copy-Item config/opencs.lock.json release/config/
-          Copy-Item examples/demo_bns.json release/
-          Copy-Item examples/geometry_preview.csv release/
-          Copy-Item README.md release/
-          New-Item -ItemType Directory release/verification -Force | Out-Null
-          Copy-Item examples/verification/* release/verification/ -Recurse
-          New-Item -ItemType Directory release/diagnostic_forces -Force | Out-Null
-          Copy-Item examples/verification/diagnostic_forces/* release/diagnostic_forces/
-          Copy-Item results/*.json release/
-          Copy-Item results/*.csv release/
-          New-Item -ItemType Directory release/diagnostics -Force | Out-Null
-          Copy-Item results/diagnostics/* release/diagnostics/
-          Compress-Archive -Path release/* -DestinationPath cscore-pile-windows.zip -Force
-      - name: Windows EXE and numerical results
-        uses: actions/upload-artifact@v4
-        with:
-          name: cscore-pile-windows
-          path: cscore-pile-windows.zip
-          retention-days: 14
-      - name: Save diagnostic calculation results on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cscore-diagnostic-results
-          path: |
-            results/pile_results.json
-            results/pile_results.csv
-            results/P800_*.json
-            results/P800_*.csv
-            results/P1000_*.json
-            results/P1000_*.csv
-            results/diagnostics/*.json
-            results/diagnostics/*.csv
-          if-no-files-found: ignore
-          retention-days: 7
-) { throw 'Invalid upstream lock file' }
           git clone https://github.com/rumata-ap/OpenCS.git vendor/OpenCS
           git -C vendor/OpenCS checkout --detach $pin
           if ((git -C vendor/OpenCS rev-parse HEAD).Trim() -ne $pin) { throw 'Wrong upstream commit' }
@@ -294,6 +145,8 @@ jobs:
           Copy-Item tools/diagnose_arbat_compare.py release/
           Copy-Item tools/arbat_sav_export.py release/
           Copy-Item tools/arbat_v2_benchmark.py release/
+          New-Item -ItemType Directory release/config -Force | Out-Null
+          Copy-Item config/opencs.lock.json release/config/
           Copy-Item examples/demo_bns.json release/
           Copy-Item examples/geometry_preview.csv release/
           Copy-Item README.md release/
