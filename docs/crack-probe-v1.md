@@ -74,6 +74,54 @@ A CScore failure is not silently treated as an accepted SLS design. Numerical
 deviations must not be interpreted as model quality until the long-term force
 split, actual SLS material diagrams and \`CalcType.N/NL\` modes are aligned.
 
+## Completed Windows experiment: 38741879627
+
+Successful CI: https://github.com/Aev199/cscore-pile-poc/actions/runs/38741879627
+(Windows build compiled, tests passed and 16/16 research SLS cases completed).
+
+Quantitative comparison of **long-term crack-width usage** (only RTF rows
+where ARBAT prints a numerical crack ratio):
+
+| Pile | Comparable RTF cases | Mean absolute relative deviation |
+|---|---:|---:|
+| Ø800 / 12Ø25 | 6 | **25.43%** |
+| Ø1000 / 16Ø28 | 3 | **32.11%** |
+
+All 9 comparable CScore widths were LOWER than ARBAT. In two cases the
+experimental solver would signal PASS by width while ARBAT signals FAIL:
+
+- P800_T07, N=+500 kN / M=200 kNm: ARBAT long utilization **1.360**,
+  CScore research **0.6953** (actual width 0.20860 mm versus
+  ARBAT utilization × 0.3 = 0.408 mm).
+- P1000_T08, N=+500 kN / M=600 kNm: ARBAT long utilization **1.508**,
+  CScore research **0.9798** (actual width 0.29393 mm versus
+  ARBAT inferred width 0.4524 mm).
+
+These are NOT acceptable automatic SLS verdicts. Never promote
+`research_calculated` to `pass` for working-design use. In
+other cases ARBAT did not print a crack ratio; **CScore calculated zero**
+in six such cases, but this cannot be numerically checked against ARBAT.
+
+Current SLS test material diagrams are preliminary and the solver
+computes a different crack width from ARBAT (likely material/ψs/crack
+spacing or cracked-section state differences, **not yet isolated**).
+Do not tune a strength or coefficient to force agreement.
+
+The comparison outputs above are from a CI run BEFORE the following
+diagnostic code changes; those changes still need CI validation:
+
+- Use `CalcType.N` for both full and sustained crack calculations, in
+  agreement with pinned upstream `CrackWidthSolverExample47Tests`
+  (the upstream test cites SP63 6.1.26).
+- Return intermediate solver diagnostics: cracking moment, rebar
+  stress/ψs, crack spacing, tensile areas, and acrc1/acrc2/acrc3.
+- Mark any agreement in pass/fail between CScore and ARBAT explicitly,
+  and print nonconservative disagreements to the CI log.
+
+The source test uses the short-term concrete diagram during long-duration
+*crack-opening* calculations; this is not to be confused with the
+long-duration state in other types of RC analysis.
+
 ## Recommended next round
 
 1. Review the initial SLS solver response and reason for any indeterminate
