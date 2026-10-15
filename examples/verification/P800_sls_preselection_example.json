@@ -53,7 +53,9 @@
     ]
   },
   "eccentricity": {
-    "mode": "already_in_loads"
+    "mode": "sp63_stat_determinate",
+    "static_scheme": "statically_determinate",
+    "effective_length_mm": 3000
   },
   "sls_probe": {
     "short_materials": {
