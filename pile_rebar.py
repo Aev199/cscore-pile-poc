@@ -212,6 +212,18 @@ def main() -> int:
         return 2
     print(f'Кандидатов: {len(result["cases"])}, прошли только прочность нормального сечения: {sum(c["status"] == "pass_uls" for c in result["cases"])}')
     print(f'Предварительно минимальный по площади: {result["selected_uls_candidate"] or "не найден"}')
+    # Provide actionable diagnostics in CI logs, not only in downloaded JSON artifacts.
+    if all(c['status'] == 'indeterminate' for c in result['cases']):
+        from collections import Counter
+        reasons = Counter(
+            row.get('error') or 'invalid_or_inconsistent_solver_result'
+            for case in result['cases']
+            for row in case['loads']
+            if row['decision'] == 'indeterminate'
+        )
+        print('Все варианты имеют неопределённый результат. Основные причины:', file=sys.stderr)
+        for reason, count in reasons.most_common(5):
+            print(f'  {count} x {reason}', file=sys.stderr)
     print('ВНИМАНИЕ: пока не проверяются трещины, поперечная сила, устойчивость и полный конструктив.')
     print(f'Результаты: {args.output}, {args.csv}')
     return 0
