@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "pile": {
+    "diameter_mm": 800,
+    "cover_mm": 58,
+    "ties_diameter_mm": 12,
+    "min_clear_spacing_mm": 40,
+    "mesh_resolution": 41,
+    "polygon_sides": 96
+  },
+  "materials": {
+    "concrete_rb_kpa": 15300,
+    "concrete_rbt_kpa": 1035,
+    "concrete_e_kpa": 32500000,
+    "concrete_ec1": -0.0015,
+    "concrete_ec2": -0.0035,
+    "concrete_et1": 0.00008,
+    "concrete_et2": 0.00015,
+    "rebar_rs_kpa": 435000,
+    "rebar_e_kpa": 200000000,
+    "rebar_ec2": -0.025,
+    "rebar_et2": 0.025
+  },
+  "loads": [
+    {
+      "id": "P800_T01",
+      "n_kn": 0,
+      "mx_knm": 200,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_T04",
+      "n_kn": -1000,
+      "mx_knm": 600,
+      "my_knm": 0
+    },
+    {
+      "id": "P800_T07",
+      "n_kn": 500,
+      "mx_knm": 200,
+      "my_knm": 0
+    }
+  ],
+  "search": {
+    "bar_counts": [
+      12
+    ],
+    "bar_diameters_mm": [
+      25
+    ],
+    "rotation_deg": [
+      0
+    ]
+  },
+  "eccentricity": {
+    "mode": "already_in_loads"
+  },
+  "sls_probe": {
+    "short_materials": {
+      "concrete_rb_kpa": 22000,
+      "concrete_rbt_kpa": 1750,
+      "concrete_e_kpa": 32500000,
+      "concrete_ec1": -0.0015,
+      "concrete_ec2": -0.0035,
+      "concrete_et1": 0.00008,
+      "concrete_et2": 0.00015,
+      "rebar_rs_kpa": 500000,
+      "rebar_e_kpa": 200000000,
+      "rebar_ec2": -0.025,
+      "rebar_et2": 0.025
+    },
+    "long_materials": {
+      "concrete_rb_kpa": 22000,
+      "concrete_rbt_kpa": 1750,
+      "concrete_e_kpa": 32500000,
+      "concrete_ec1": -0.0015,
+      "concrete_ec2": -0.0035,
+      "concrete_et1": 0.00008,
+      "concrete_et2": 0.00015,
+      "rebar_rs_kpa": 500000,
+      "rebar_e_kpa": 200000000,
+      "rebar_ec2": -0.025,
+      "rebar_et2": 0.025
+    },
+    "phi2": 0.5,
+    "acrc_ult_long_mm": 0.3,
+    "acrc_ult_short_mm": 0.4,
+    "preliminary_method": "arbat_conservative",
+    "review_band": 0.03,
+    "loads": [
+      {
+        "id": "P800_T07",
+        "n_kn": 500,
+        "mx_total_knm": 200,
+        "my_total_knm": 0,
+        "mx_long_knm": 200,
+        "my_long_knm": 0
+      },
+      {
+        "id": "P800_T08",
+        "n_kn": 500,
+        "mx_total_knm": 600,
+        "my_total_knm": 0,
+        "mx_long_knm": 600,
+        "my_long_knm": 0
+      },
+      {
+        "id": "P800_T02",
+        "n_kn": 0,
+        "mx_total_knm": 600,
+        "my_total_knm": 0,
+        "mx_long_knm": 600,
+        "my_long_knm": 0
+      },
+      {
+        "id": "P800_SPLIT",
+        "n_kn": -500,
+        "mx_total_knm": 250,
+        "my_total_knm": 40,
+        "mx_long_knm": 125,
+        "my_long_knm": 20
+      }
+    ]
+  }
+}
