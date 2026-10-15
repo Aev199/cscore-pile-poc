@@ -160,6 +160,15 @@ def check_answer(section: str, reference: dict, answer: dict) -> list[dict]:
                 and isinstance(case.get("psi_s"), (int,float))
                 else None
             ),
+            "sigma_s_crc_MPa_implied_if_other_terms_equal": (
+                case["sigma_rebar_kpa"] / 1000.0 * (
+                    1 - case["psi_s"] * ref["arbat_crack_long_util"] / case["utilization_long"]
+                ) / 0.8
+                if valid and ref["arbat_crack_long_util"] and case["utilization_long"] > 0
+                and isinstance(case.get("psi_s"), (int,float))
+                and isinstance(case.get("sigma_rebar_kpa"), (int,float))
+                else None
+            ),
             "crack_spacing_mm": (case.get("crack_spacing_m") * 1000.0
                                  if valid and isinstance(case.get("crack_spacing_m"), (float, int)) else None),
             "tensile_rebar_area_mm2": (case.get("tensile_rebar_area_m2") * 1e6
