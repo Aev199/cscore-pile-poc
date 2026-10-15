@@ -54,6 +54,15 @@ class CrackResearchTests(unittest.TestCase):
         self.assertEqual(byid["P800_T02"]["CScore_status"],"indeterminate_requires_arbat")
         self.assertIsNone(byid["P800_T02"]["CScore_util_long"])
 
+    def test_nonconservative_sls_verdict_disagreement_is_flagged(self):
+        # ARBAT P800 T07 reports long crack utilization 1.360 (>1).
+        # An experimental CScore utilization of 0.4 MUST be visibly flagged.
+        rows=research.check_answer("P800",self.reference,self.fake_answer("P800"))
+        row=next(r for r in rows if r["case"]=="P800_T07")
+        self.assertTrue(row["disagrees_on_long_term_pass_fail"])
+        self.assertEqual(row["CScore_status"],"computed_experimental")
+        self.assertEqual(row["design_status"],"NOT_VERIFIED")
+
     def test_solver_nonconvergence_never_yields_result(self):
         rows=research.check_answer("P1000",self.reference,self.fake_answer("P1000",converged=False))
         self.assertTrue(all(r["CScore_status"]=="indeterminate_requires_arbat" for r in rows))
