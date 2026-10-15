@@ -168,9 +168,14 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
             if req["sls_probe"]["preliminary_method"] == "arbat_conservative" and \
                primary + 1e-9 < native:
                 raise ValueError("Default preliminary screening is less conservative than native")
-        if item.get("preliminary_is_final_approval") is not False or \
-           item.get("verified_for_design") is not False:
+        # A failed solver may omit preliminary fields, but it must remain indeterminate.
+        if item.get("verified_for_design") is not False or (
+            item.get("preliminary_is_final_approval") is True or
+            calculated and item.get("preliminary_is_final_approval") is not False
+        ):
             raise ValueError("Research case must never be approved for design")
+        if not calculated and item.get("preliminary_decision") not in (None, "indeterminate"):
+            raise ValueError("Invalid solver cannot return a preliminary verdict")
         rows.append({
             "section_id": section["id"], "section_kind": section["kind"],
             "case_id": item["id"], "N_kN": ids["n_kn"],
