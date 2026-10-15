@@ -54,7 +54,7 @@ def section_definitions() -> list[dict]:
         last["id"] = "R400x400_8d16_two_layers_cover35"
         last["bars"] = [
             {"x_mm": x, "y_mm": y, "diameter_mm": 16}
-            for y in (-157, -115, 115, 157)
+            for y in (-157, -90, 90, 157)
             for x in (-157, 157)
         ]
     for d, phi, count, cover in (
@@ -241,7 +241,7 @@ def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_
         )
         summary.append({
             **section,
-            "source": "GENERATED_RESEARCH_INPUT_NOT_ARB_AT_REFERENCE",
+            "source": "GENERATED_RESEARCH_INPUT_NOT_ARBAT_REFERENCE",
             "input_file": f"{section['id']}_input.json",
             "input_sha256": hashlib.sha256(
                 (output_dir / f"{section['id']}_input.json").read_bytes()).hexdigest(),
