@@ -39,9 +39,9 @@ internal static class Program
                             bool ok = result.Converged && double.IsFinite(result.Factor) &&
                                       double.IsFinite(result.Utilization) && result.Factor > 0.0 &&
                                       result.Utilization >= 0.0;
-                            // ARBAT reports the moment utilization at a FIXED N.
-                            // AllFactor scales N and M together, so it is not the same metric.
-                            // Calculate a second, independently qualified MomentFactor for comparison.
+                            // ARBAT's radial N-M strength-domain factor corresponds to
+                            // AllFactor in our benchmark. MomentFactor at fixed N
+                            // is provided as a separate diagnostic measure.
                             double? momentFactor = null, momentUtilization = null;
                             bool momentConverged = false;
                             string? momentError = null;
@@ -148,6 +148,93 @@ internal static class Program
                         load.MyLongKnm, load.MyTotalKnm);
                     var mLong = Math.Sqrt(load.MxLongKnm * load.MxLongKnm
                                           + load.MyLongKnm * load.MyLongKnm);
+                    // An ARBAT-oriented RESEARCH contrast: pre-cracking rebar
+                    // stress (historical OpenCS technique, superseded upstream).
+                    // We keep upstream's post-crack algorithm entirely unchanged.
+                    // For arbitrary SLS load splits this contrast is not valid:
+                    // our reference dataset uses identical sustained/total forces.
+                    bool sameMoments = Math.Abs(load.MxLongKnm - load.MxTotalKnm) < 1e-9
+                        && Math.Abs(load.MyLongKnm - load.MyTotalKnm) < 1e-9;
+                    double? sigmaPreKpa = null, psiPre = null, widthPreMm = null,
+                        utilizationPre = null;
+                    string? preError = sameMoments ? null : "sustained_total_moments_differ";
+                    if (sameMoments && r.Cracked && r.CrcConverged && r.PlaneLong.HasValue
+                        && double.IsFinite(r.PsiS) && r.PsiS > 1e-12
+                        && double.IsFinite(r.SigmaS) && r.SigmaS > 0
+                        && double.IsFinite(r.AcrcLong) && r.AcrcLong >= 0)
+                    {
+                        try
+                        {
+                            double mxDir = Math.Abs(load.MxLongKnm) > 1e-12
+                                ? load.MxLongKnm : (Math.Abs(load.MxTotalKnm) > 1e-12
+                                    ? load.MxTotalKnm : 1.0);
+                            double myDir = Math.Abs(load.MxLongKnm) > 1e-12
+                                || Math.Abs(load.MyLongKnm) > 1e-12
+                                ? load.MyLongKnm : load.MyTotalKnm;
+                            var cracking = new CrackingSolver(section, CalcType.N,
+                                solverTol: 0.5,
+                                tensionZone: CrackingSolver.LoadedTensionZone(
+                                    section, load.NKn, mxDir, myDir,
+                                    nAtZeroMoment: load.NKn));
+                            var crc = cracking.CrackingMoment(load.NKn, mxDir, myDir);
+                            double mag = Math.Sqrt(crc.Mx * crc.Mx + crc.My * crc.My);
+                            if (!crc.Converged || !crc.StrainPlane.HasValue
+                                || Math.Abs(mag - r.Mcrc) > 0.05)
+                            {
+                                preError = "precrack_threshold_not_reproduced";
+                            }
+                            else
+                            {
+                                double sigma = 0.0;
+                                foreach (var (area, ka) in section.EnumerateAreas(crc.StrainPlane.Value))
+                                {
+                                    if (area.Material?.Type != MatType.ReSteelF)
+                                        continue;
+                                    var diagrams = area.Material.GetDiagramms(
+                                        area.DiagrammType, 0.85, 0.05);
+                                    if (diagrams is null
+                                        || !diagrams.TryGetValue(CalcType.N, out var diag))
+                                        continue;
+                                    foreach (var bar in area.Fibers)
+                                    {
+                                        if (bar.TypeFiber != FiberType.point)
+                                            continue;
+                                        var eps = ka.e0 + ka.ky * bar.Y + ka.kz * bar.X;
+                                        if (eps > 0)
+                                        {
+                                            var stress = diag.Sig(eps, out _);
+                                            if (double.IsFinite(stress) && stress > sigma)
+                                                sigma = stress;
+                                        }
+                                    }
+                                }
+                                double psi = Math.Clamp(1.0 - 0.8 * sigma / r.SigmaS,
+                                    0.2, 1.0);
+                                double trialWidth = r.AcrcLong * psi / r.PsiS;
+                                if (!double.IsFinite(trialWidth) || trialWidth < 0)
+                                    preError = "invalid_compatibility_width";
+                                else
+                                {
+                                    sigmaPreKpa = sigma;
+                                    psiPre = psi;
+                                    widthPreMm = trialWidth;
+                                    utilizationPre = trialWidth / probe.AcrcUltLongMm;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            preError = "precrack_study_error:" + ex.GetType().Name;
+                        }
+                    }
+                    else if (sameMoments && !r.Cracked)
+                    {
+                        preError = "no_crack_in_upstream_result";
+                    }
+                    else if (sameMoments)
+                    {
+                        preError = "insufficient_upstream_sls_state";
+                    }
                     bool finite = double.IsFinite(r.Mcrc) && r.Mcrc >= 0
                         && double.IsFinite(r.AcrcLong) && r.AcrcLong >= 0
                         && double.IsFinite(r.AcrcShort) && r.AcrcShort >= 0
@@ -174,6 +261,14 @@ internal static class Program
                         // These do not themselves certify a correct crack result.
                         sigma_rebar_kpa = validated && double.IsFinite(r.SigmaS) ? (double?)r.SigmaS : null,
                         sigma_rebar_at_crack_kpa = validated && double.IsFinite(r.SigmaSCrc) ? (double?)r.SigmaSCrc : null,
+                        // Alternative uses PRE-crack plane only for ψs,
+                        // not for the governing CScore SLS result.
+                        compatibility_hypothesis = "precrack_sigma_s_crc_legacy_opencs_not_verified_arbat",
+                        compatibility_error = preError,
+                        sigma_rebar_precrack_kpa = validated ? sigmaPreKpa : null,
+                        psi_s_precrack_hypothesis = validated ? psiPre : null,
+                        width_long_precrack_hypothesis_mm = validated ? widthPreMm : null,
+                        utilization_long_precrack_hypothesis = validated ? utilizationPre : null,
                         psi_s = validated && double.IsFinite(r.PsiS) ? (double?)r.PsiS : null,
                         psi_s2 = validated && double.IsFinite(r.PsiS2) ? (double?)r.PsiS2 : null,
                         crack_spacing_m = validated && double.IsFinite(r.Ls) ? (double?)r.Ls : null,
