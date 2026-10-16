@@ -245,6 +245,16 @@ def validate_input(data: dict) -> None:
             finite_number(load.get(key), f'loads[{idx}].{key}')
     if 'sls_probe' in data:
         validate_sls_probe(data['sls_probe'])
+        # Declared provenance does NOT independently verify the forces,
+        # but prevents accidentally treating design ULS as normative SLS.
+        basis = data.get('force_basis')
+        if not isinstance(basis, dict) or basis != {
+                'uls': 'design', 'sls': 'normative'}:
+            raise InputError(
+                'Для расчёта ULS → SLS явно задайте force_basis: '
+                '{"uls":"design","sls":"normative"}; '
+                'проверьте реальные сочетания и коэффициенты отдельно'
+            )
     counts = search.get('bar_counts')
     diameters = search.get('bar_diameters_mm')
     rotations = search.get('rotation_deg')
@@ -293,6 +303,9 @@ def build_engine_request(data: dict, candidates: list[dict]) -> dict:
             'candidates': candidates}
     if 'sls_probe' in data:
         request['sls_probe'] = data['sls_probe']
+        # Ordinary candidate selection NEVER runs SLS on rejected sections.
+        # The research-only override belongs to cross_section_sls_matrix.py.
+        request['sls_execution_policy'] = 'uls_pass_only'
     return request
 
 
@@ -339,13 +352,46 @@ def parse_runner_results(request: dict, raw: Any) -> list[dict]:
         validated['status'] = overall
         validated['loads'] = decisions
         if 'sls_probe' in request:
-            opts = request['sls_probe']
-            sls_rows = check_sls_results(
-                item.get('sls_probe'), opts,
-                opts.get('preliminary_method', 'arbat_conservative'),
-                opts.get('review_band', 0.03)
+            if request.get('sls_execution_policy') != 'uls_pass_only':
+                raise InputError('Нельзя обходить ULS в обычном подборе армирования')
+            gate = item.get('sls_gate')
+            expected_gate = (
+                'skipped_uls_indeterminate' if overall == 'indeterminate'
+                else 'skipped_uls_fail' if overall == 'fail_uls'
+                else 'calculated_uls_pass'
             )
-            validated['sls_probe'] = sls_rows
+            if gate != expected_gate:
+                raise InputError(
+                    f'{name}: неверное выполнение ULS → SLS: '
+                    f'получено {gate!r}, ожидается {expected_gate!r}'
+                )
+            validated['sls_gate'] = gate
+            if overall != 'pass_uls':
+                if item.get('sls_probe') is not None:
+                    raise InputError(
+                        f'{name}: SLS рассчитан для непригодного/неопределённого ULS'
+                    )
+                validated['sls_probe'] = None
+                validated['sls_status'] = (
+                    'not_evaluated_uls_fail' if overall == 'fail_uls'
+                    else 'not_evaluated_uls_indeterminate'
+                )
+            else:
+                opts = request['sls_probe']
+                sls_rows = check_sls_results(
+                    item.get('sls_probe'), opts,
+                    opts.get('preliminary_method', 'arbat_conservative'),
+                    opts.get('review_band', 0.03)
+                )
+                validated['sls_probe'] = sls_rows
+                decisions_sls = [row['preliminary_decision'] for row in sls_rows]
+                validated['sls_status'] = (
+                    'research_indeterminate' if 'indeterminate' in decisions_sls
+                    else 'preliminary_exceeds_limit'
+                    if 'preliminary_exceeds_limit' in decisions_sls
+                    else 'engineering_review' if 'engineering_review' in decisions_sls
+                    else 'preliminary_below_limit'
+                )
         validated['max_utilization'] = max((l['utilization'] for l in decisions if l['decision'] != 'indeterminate'), default=None)
         result.append(validated)
     if seen != set(expected_candidates):
@@ -383,6 +429,12 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
                                     if 'sls_probe' in request else
                                     'section_uls_only_no_eta_no_shear_no_crack_no_code_detailing'),
               'eccentricity': eccentricity, 'forces_audit': forces_audit,
+              'force_basis': (data.get('force_basis') if 'sls_probe' in request else None),
+              'force_basis_note': ('user_declared_not_independently_verified'
+                                   if 'sls_probe' in request else None),
+              'uls_case_ids': [x['id'] for x in effective_loads],
+              'sls_case_ids': ([x['id'] for x in request['sls_probe']['loads']]
+                               if 'sls_probe' in request else []),
               'selected_uls_candidate': (passes[0]['id'] if passes else None)
                  if eccentricity['eccentricity_accounted_for'] else None,
               'selected_preliminary_uls_sls_research_candidate': (
