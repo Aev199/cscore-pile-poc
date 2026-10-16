@@ -62,6 +62,22 @@ class Arbat70ResearchTests(unittest.TestCase):
                   and x["case_id"]=="T10_partial_biax")
         self.assertEqual(last["class"],"N_LONG_NOT_MATCHED_T10")
 
+    def test_supplemental_short_only_is_excluded_from_agreement_mape(self):
+        data=self.build_fake()
+        target=next(r for r in data
+                    if r["section_id"]=="R500x700_8d25_cover60"
+                    and r["case_id"]=="T09_partial_sustained")
+        target["crack_solver_path"]="supplemental_full_load_Acrc2"
+        target["preliminary_utilization"]=0.0
+        target["preliminary_utilization_short"]=0.55
+        rows,stats=benchmark.compare(self.reference,data)
+        found=next(r for r in rows
+                    if r["section_id"]=="R500x700_8d25_cover60"
+                    and r["case_id"]=="T09_partial_sustained")
+        self.assertEqual(found["class"],"SHORT_ONLY_RECONSTRUCTION_UNVERIFIED")
+        self.assertEqual(stats["coverage"]["preliminarily_comparable"],9)
+        self.assertTrue(stats["not_design_approved"])
+
     def test_bad_t09_duration_is_rejected(self):
         data=self.build_fake()
         row=next(x for x in data if x["section_id"]=="C600_8d20_cover50"
