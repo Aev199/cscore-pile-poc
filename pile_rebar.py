@@ -182,9 +182,17 @@ def check_sls_results(result_rows: list, expected: dict, mode: str, band: float)
                 raise InputError('SLS: неверный управляющий коэффициент')
             if mode == 'arbat_conservative' and (a + 1e-9 < n or a_short + 1e-9 < native_short):
                 raise InputError('SLS: основной результат менее консервативен, чем CScore')
-            expected_decision = ('engineering_review' if abs(governing - 1) <= band else
-                                 'preliminary_exceeds_limit' if governing > 1 else
-                                 'preliminary_below_limit')
+            short_only = row.get('preliminary_basis') == 'short_only_supplemental_full_load_solver'
+            if short_only:
+                if (row.get('preliminary_review_reason') !=
+                    'cracked_only_under_total_load_unvalidated_mcrc_threshold'
+                    or a != 0 or n != 0 or a_short <= 0 or native_short <= 0):
+                    raise InputError('SLS: некорректный исследовательский расчёт только кратковременных трещин')
+                expected_decision = 'engineering_review'
+            else:
+                expected_decision = ('engineering_review' if abs(governing - 1) <= band else
+                                     'preliminary_exceeds_limit' if governing > 1 else
+                                     'preliminary_below_limit')
             if row.get('preliminary_decision') != expected_decision or (
                 row.get('preliminary_is_final_approval') is not False
             ):
