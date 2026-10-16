@@ -221,7 +221,11 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
             if item.get("preliminary_basis") == "short_only_supplemental_full_load_solver":
                 if (item.get("preliminary_review_reason") !=
                     "cracked_only_under_total_load_unvalidated_mcrc_threshold"
-                    or item.get("preliminary_decision") != "engineering_review"
+                    or item.get("preliminary_decision") != (
+                        "preliminary_exceeds_limit"
+                        if governing > 1 + req["sls_probe"]["review_band"]
+                        else "engineering_review"
+                    )
                     or primary != 0 or native != 0
                     or primary_short <= 0 or native_short <= 0):
                     raise ValueError("Invalid supplemental short-only SLS status")
@@ -379,11 +383,12 @@ def run(runner: Path, output_dir: Path, method: str = "arbat_conservative", layo
     print(f"Partial sustained only: {len(restored)} supplemental short-only "
           f"research calculations; {len(unresolved)} still indeterminate.")
     for x in restored:
-        if x["preliminary_status"] != "engineering_review":
-            raise ValueError("Recovered short-only load MUST remain engineering review")
+        if x["preliminary_status"] not in ("engineering_review",
+                                             "preliminary_exceeds_limit"):
+            raise ValueError("Recovered short-only load cannot be accepted")
         print(f"  short-only supplemental: {x['section_id']} {x['case_id']}, "
               f"short K={x['preliminary_utilization_short']:.4f}, "
-              "UNVERIFIED/REVIEW REQUIRED")
+              "UNVERIFIED/ENGINEERING CHECK REQUIRED")
     for x in unresolved:
         print(f"  unresolved: {x['section_id']} {x['case_id']}, "
               f"reason={x.get('error')}, path={x.get('crack_solver_path')}")
