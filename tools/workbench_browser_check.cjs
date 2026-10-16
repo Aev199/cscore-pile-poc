@@ -14,8 +14,16 @@ const path=require('path');
   browser=await chromium.launch({headless:true,args:['--no-sandbox']});
   const page=await browser.newPage({viewport:{width:1500,height:1050}});let errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(url);await page.waitForSelector('#charts svg');
-  assert.equal(await page.locator('#charts svg').count(),4);
+  assert.equal(await page.locator('#charts svg').count(),5);
   assert(!(await page.locator('#spacingLabel').isVisible()));
+  // Q is visible but deliberately remains unverified until explicitly screened.
+  await page.locator('#screenQ').check();
+  assert(await page.locator('#qFields').isVisible());
+  await page.locator('#qSpacing').fill('150');
+  await page.locator('#qSpacing').dispatchEvent('change');
+  assert(!(await page.locator('#qConstructive').isChecked()));
+  await page.locator('#screenQ').uncheck();
+  assert(!(await page.locator('#qFields').isVisible()));
   await page.locator('#charts svg').first().click({position:{x:60,y:240}});
   assert.notEqual(await page.locator('#elevation').textContent(),'—');
   await page.locator('#showQ').check();assert.equal(await page.locator('#charts svg').count(),5);
@@ -42,6 +50,6 @@ const path=require('path');
   const json=Buffer.concat(chunks).toString();assert(!json.includes('not-to-be-saved'));assert.equal(JSON.parse(json).kind,'pile');
   await page.reload();await page.waitForSelector('#charts svg');
   await page.screenshot({path:process.env.SCREENSHOT||'/tmp/workbench-initial.png',fullPage:true});
-  assert.deepEqual(errors,[]);console.log('Browser QA passed: diagrams, selection, table replacement/errors, pile mode, project download, no secret persistence.');
+  assert.deepEqual(errors,[]);console.log('Browser QA passed: Q controls, diagrams, selection, table replacement/errors, pile mode, project download, no secret persistence.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
