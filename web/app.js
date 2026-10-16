@@ -21,6 +21,13 @@ function renderForms(){
  document.querySelectorAll('[data-bg]').forEach(e=>e.onchange=()=>{project.background[+e.dataset.bg]=Number(e.value);dirty();renderZones();});
  document.querySelectorAll('[data-dia]').forEach(e=>e.onchange=()=>{project.diameters[+e.dataset.dia]=Number(e.value);dirty();});
  document.querySelectorAll('[data-pile]').forEach(e=>e.onchange=()=>{project[e.dataset.pile]=Number(e.value);dirty();renderZones();});
+ // Old saved projects have no transverse block: safely default to no Q verdict.
+ const t=project.transverse||(project.transverse={mode:'off',diameter_mm:10,spacing_mm:200,effective_legs_per_cage:2,rsw_kpa:170000,constructive_confirmed:false});
+ $('shearSection').hidden=kind!=='wall';
+ $('screenQ').checked=kind==='wall'&&t.mode==='screen';
+ $('qFields').hidden=kind!=='wall'||t.mode!=='screen';
+ for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).value=t[key];
+ $('qConstructive').checked=!!t.constructive_confirmed;
  $('sourceLabel').textContent=project.source?.type==='plaxis_output'?'PLAXIS Output':project.source?.note?'Пример · ручной ввод':'Ручной ввод';
  $('table').textContent=`Таблица усилий · ${project.rows.length}`;
  const phases=[...new Set(project.rows.map(r=>r.basis+' · '+r.case))];
@@ -60,12 +67,28 @@ function metric(a,b){return `<div class="metric"><span>${esc(a)}</span><b>${esc(
 function renderInspection(){if(!project)return;$('elevation').textContent=fmt(selectedZ)+' м';const t=tierAt(selectedZ);let html='<h3>Принятое армирование</h3>';
  for(let i=0;i<(project.kind==='wall'?2:1);i++){const bg=countAt(1,i),total=countAt(t[i],i),d=project.kind==='wall'?project.diameters[i]:project.pile_diameter;html+=metric(project.kind==='wall'?`Грань y${i?'+':'−'}`:'Кольцо',`${bg} + ${total-bg} Ø${d}`)+metric('As'+(project.kind==='wall'?'/м':''),fmt(area(t[i],i))+' см²');}
  const station=result&&!stale?result.stations.find(s=>s.z===selectedZ):null;
- if(station){const c=station.adopted;html+=`<div class="status ${station.checked?'':'bad'}">${station.checked?'Проверки сечения пройдены предварительно':'Сечение требует проверки'}</div>`;
+ if(station){const c=station.adopted;html+=`<div class="status ${station.checked?'':'bad'}">${station.checked?'N/M предварительно пройдены; Q отдельно':'N/M: требуется проверка'}</div>`;
  if(c){html+=metric('Прочность',fmt(c.max_utilization,3));const governing=c.loads?.filter(l=>Number.isFinite(l.utilization)).sort((a,b)=>b.utilization-a.utilization)[0];if(governing)html+=metric('Определяет',governing.id);
  html+=metric('Трещины',({'preliminary_below_limit':'предварительно проходят','preliminary_exceeds_limit':'превышение','engineering_review':'пограничный результат','not_evaluated_uls_fail':'пропущены: отказ ULS','not_evaluated_uls_indeterminate':'пропущены: ULS неизвестен','research_indeterminate':'неопределённо'})[c.sls_status]||'не запрошены');}
  else html+='<p class="hint">Нет геометрически допустимого варианта.</p>';}
  else html+=`<div class="status">${stale&&result?'Результат устарел. Перепроверьте принятое.':'Расчёт сечения не выполнен'}</div>`;
  html+='<h3>Совместные усилия</h3>';for(const r of rows().filter(r=>r.z===selectedZ&&(phase==='all'||r.basis+' · '+r.case===phase)))html+=`<p class="small">${esc(r.case)} · ${esc(r.basis)}</p>`+metric('N / M',fmt(r.n)+' / '+fmt(r.m));
+ if(project.kind==='wall'){
+  html+='<h3>Поперечная сила Q</h3>';
+  if(!station?.shear_screening)html+='<div class="status">Q не проверена. Включите оценку и пересчитайте.</div>';
+  else{
+   const shear=station.shear_screening;
+   for(const r of shear){
+    const verdict=({'research_screen_pass':'условно проходит','research_screen_fail':'превышение','indeterminate':'не определено'})[r.status]||'неизвестно';
+    html+='<p class="small">'+esc(r.id)+' · исследовательская оценка</p>';
+    html+=metric('Q / η',fmt(r.q_kn)+' кН / '+fmt(r.utilization,3));
+    html+=metric('Результат',verdict);
+    if(r.governing_formula)html+=metric('Условие СП',r.governing_formula);
+    if(r.error)html+='<p class="hint">'+esc(r.error)+'</p>';
+   }
+   html+='<p class="hint">Без профиля усилий, опор и анкеровки нормативного допуска нет.</p>';
+  }
+ }
  $('inspection').innerHTML=html;
 }
 function tierOptions(i,t){return [1,2,3].map(x=>`<option value="${x}" ${x===t?'selected':''}>${countAt(x,i)} ст.</option>`).join('');}
@@ -76,11 +99,17 @@ function renderZones(){if(!project.zones.length){$('zoneTable').innerHTML='<p cl
 }
 function render(){renderForms();renderCharts();renderZones();renderInspection();}
 async function calculate(recheck){if(busy)return;message();const rev=revision;busy=true;document.body.classList.add('busy');
- try{const start=await api('calculate',{project,recheck});while(true){await new Promise(r=>setTimeout(r,600));const job=await api('job?id='+encodeURIComponent(start.job));$('progress').textContent=job.message;if(job.status==='error')throw Error(job.message);if(job.status==='done'){if(revision!==rev){message('Во время расчёта данные изменились. Результат не применён; запустите расчёт заново.');break;}result=job.result;project.zones=result.zones;stale=false;$('resultState').textContent=result.all_checked?'Проверено по заданным отметкам':'Есть непрошедшие сечения';renderZones();renderCharts();renderInspection();break;}}}
+ try{const start=await api('calculate',{project,recheck});while(true){await new Promise(r=>setTimeout(r,600));const job=await api('job?id='+encodeURIComponent(start.job));$('progress').textContent=job.message;if(job.status==='error')throw Error(job.message);if(job.status==='done'){if(revision!==rev){message('Во время расчёта данные изменились. Результат не применён; запустите расчёт заново.');break;}result=job.result;project.zones=result.zones;stale=false;$('resultState').textContent=result.all_checked?'N/M предварительно пройдены · Q не является допуском':'Есть непрошедшие нормальные сечения';renderZones();renderCharts();renderInspection();break;}}}
  catch(e){message(e.message);}finally{busy=false;document.body.classList.remove('busy');$('progress').textContent='Локальный расчёт · данные остаются на компьютере';}}
-function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+$('screenQ').onchange=e=>{project.transverse.mode=e.target.checked?'screen':'off';dirty();renderForms();};
+for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).onchange=e=>{
+ project.transverse[key]=Number(e.target.value);
+ project.transverse.constructive_confirmed=false;dirty();renderForms();
+};
+$('qConstructive').onchange=e=>{project.transverse.constructive_confirmed=e.target.checked;dirty();};
 $('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
-$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';project.zones=[];result=null;dirty();render();};
+$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];result=null;dirty();render();};
 for(const id of ['force_scale','spacing_m','moment_sign','max_tier','materials_confirmed','eccentricity_confirmed'])$(id).onchange=e=>{project[id]=e.target.type==='checkbox'?e.target.checked:['spacing_m','moment_sign','max_tier'].includes(id)?Number(e.target.value):e.target.value;dirty();renderForms();};
 $('phase').onchange=e=>{phase=e.target.value;renderCharts();renderInspection();};$('showQ').onchange=renderCharts;
 $('table').onclick=()=>{$('tableText').value='z\tcase\tbasis\tn\tm\tq\tm_long\n'+project.rows.map(r=>['z','case','basis','n','m','q','m_long'].map(k=>r[k]??'').join('\t')).join('\n');$('tableDialog').showModal();};
