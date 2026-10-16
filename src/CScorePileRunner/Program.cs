@@ -208,6 +208,8 @@ internal static class Program
                         // classify this reconstructed case as a prelim PASS.
                         // Always route it to explicit engineering review.
                         double shortUse = screeningShortWidth / probe.AcrcUltShortMm;
+                        string shortOnlyDecision = shortUse > 1.0 + probe.ReviewBand
+                            ? "preliminary_exceeds_limit" : "engineering_review";
                         return (object)new
                         {
                             id = load.Id,
@@ -221,7 +223,7 @@ internal static class Program
                             preliminary_width_short_mm = (double?)screeningShortWidth,
                             preliminary_utilization_short = (double?)shortUse,
                             preliminary_governing_utilization = (double?)shortUse,
-                            preliminary_decision = "engineering_review",
+                            preliminary_decision = shortOnlyDecision,
                             preliminary_review_band = probe.ReviewBand,
                             preliminary_is_final_approval = false,
                             cracked = (bool?)true,
