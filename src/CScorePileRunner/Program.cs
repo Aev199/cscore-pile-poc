@@ -379,7 +379,10 @@ internal static class Program
                         && (!double.IsFinite(widthPsiOne.Value) || widthPsiOne.Value < 0))
                         widthPsiOne = null;
                     string? error = validated ? null :
-                        "indeterminate_crack_solver_or_upstream_silent_fallback";
+                        (!r.Cracked && r.CrcConverged
+                             && double.IsFinite(r.Mcrc) && mLong > r.Mcrc
+                            ? "upstream_post_threshold_zero_unresolved_stage"
+                            : "indeterminate_crack_solver_or_upstream_silent_fallback");
                     // Selection here governs ONLY preliminary SLS screening.
                     // 'arbat_conservative' does NOT imply we reproduced ARBAT:
                     // the pre-crack stress approximation is not normatively
@@ -490,6 +493,10 @@ internal static class Program
                         error,
                         preliminary_method = probe.PreliminaryMethod,
                         preliminary_basis = primaryBasis,
+                        crack_solver_path = !validated && !r.Cracked
+                            ? "upstream_default_zero_return" : "upstream_default",
+                        upstream_post_threshold_zero = !r.Cracked && r.CrcConverged
+                            && double.IsFinite(r.Mcrc) && mLong > r.Mcrc,
                         preliminary_width_long_mm = primaryWidth,
                         preliminary_utilization_long = primaryUtilization,
                         preliminary_width_short_mm = primaryShortWidth,
