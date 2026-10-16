@@ -141,6 +141,8 @@ def make_request(section: dict, mode: str = "arbat_conservative") -> dict:
     long = short.copy()
     request = {
         "schema_version": 1,
+        # Historical independent research must NEVER pretend dummy ULS is a real gate.
+        "sls_execution_policy": "research_all",
         "pile": {
             "diameter_mm": section.get("diameter_mm", 0),
             "mesh_resolution": 41,
