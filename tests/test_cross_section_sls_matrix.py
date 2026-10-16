@@ -237,6 +237,27 @@ class ResearchMatrixTests(unittest.TestCase):
         self.assertTrue(all(r["cscore_status"]=="indeterminate" for r in rows))
         self.assertTrue(all(r["preliminary_utilization"] is None for r in rows))
 
+    def test_post_threshold_equilibrium_diagnostic_never_approves_cracks(self):
+        section=matrix.section_definitions()[0]
+        req,answer=self.fake_output(section,status="indeterminate")
+        row=answer["cases"][0]["sls_probe"][0]
+        row.update({
+            "error":"upstream_post_threshold_zero_unresolved_stage",
+            "crack_solver_path":"upstream_default_zero_return",
+            "secondary_equilibrium_status":"independent_equilibrium_not_converged",
+            "secondary_equilibrium_converged":False,
+            "secondary_equilibrium_iterations":80,
+            "secondary_equilibrium_residual":37.5
+        })
+        rows=matrix.validate_answer(section,req,answer)
+        first=rows[0]
+        self.assertEqual(first["cscore_status"],"indeterminate")
+        self.assertEqual(first["final_design_status"],"NOT_VERIFIED")
+        self.assertEqual(first["secondary_equilibrium_status"],
+                         "independent_equilibrium_not_converged")
+        self.assertEqual(first["secondary_equilibrium_residual"],37.5)
+        self.assertIsNone(first["preliminary_utilization"])
+
     def test_cannot_relabel_as_design_approved(self):
         sec = matrix.section_definitions()[0]
         req, answer = self.fake_output(sec)
