@@ -150,6 +150,119 @@ internal static class Program
                                           + load.MyLongKnm * load.MyLongKnm);
                     var mTotal = Math.Sqrt(load.MxTotalKnm * load.MxTotalKnm
                                            + load.MyTotalKnm * load.MyTotalKnm);
+                    // Supplement ONLY the upstream early-return case where
+                    // the sustained moment is under Mcrc but the total moment
+                    // crosses Mcrc. The upstream Compute() returns zero before
+                    // calculating the total force. Repeat it with FULL action
+                    // as both arguments and take its Acrc2 transient term.
+                    // This is an independent research reconstruction, not a
+                    // rewrite or verification of the author's solver.
+                    if (!r.Cracked && r.CrcConverged
+                        && double.IsFinite(r.Mcrc) && r.Mcrc >= 0
+                        && mLong <= r.Mcrc && mTotal > r.Mcrc + 1e-8)
+                    {
+                        // The cracking-face direction must stay the same.
+                        // A rotating or reversed load would require separate
+                        // cracking threshold computations for every direction.
+                        double cross = load.MxLongKnm * load.MyTotalKnm
+                                     - load.MyLongKnm * load.MxTotalKnm;
+                        double dot = load.MxLongKnm * load.MxTotalKnm
+                                   + load.MyLongKnm * load.MyTotalKnm;
+                        if (mLong > 1e-9
+                            && (dot <= 0 || Math.Abs(cross) > 1e-8 * mLong * mTotal))
+                            throw new InvalidOperationException(
+                                "short_only_requires_proportional_nonreversing_moments");
+
+                        var full = solver.Compute(load.NKn,
+                            load.MxTotalKnm, load.MxTotalKnm,
+                            load.MyTotalKnm, load.MyTotalKnm);
+                        bool validFull = full.Cracked && full.CrcConverged
+                            && full.PlaneLong.HasValue
+                            && double.IsFinite(full.Mcrc) && full.Mcrc >= 0
+                            && Math.Abs(full.Mcrc - r.Mcrc) <= 0.05
+                            && double.IsFinite(full.Acrc2) && full.Acrc2 > 0
+                            && double.IsFinite(full.AcrcLong) && full.AcrcLong > 0
+                            && double.IsFinite(full.AcrcShort) && full.AcrcShort > 0
+                            && double.IsFinite(full.PsiS2) && full.PsiS2 > 0
+                            && double.IsFinite(full.SigmaS) && full.SigmaS >= 0;
+                        // For equal total and sustained forces, Acrc2 is the
+                        // phi1=1.0 transient term, while AcrcLong has phi1=1.4.
+                        bool consistentShortTerm = validFull
+                            && Math.Abs(full.Acrc2 - full.AcrcLong / 1.4)
+                                <= 1e-7 + 1e-6 * full.Acrc2;
+                        if (!consistentShortTerm)
+                            throw new InvalidOperationException(
+                                "short_only_supplement_failed_convergence_or_psi_identity");
+
+                        double nativeShortWidth = full.Acrc2;
+                        double screeningShortWidth = probe.PreliminaryMethod == "native_refined"
+                            ? nativeShortWidth
+                            : Math.Max(nativeShortWidth, nativeShortWidth / full.PsiS2);
+                        if (!double.IsFinite(screeningShortWidth)
+                            || screeningShortWidth < 0)
+                            throw new InvalidOperationException(
+                                "short_only_invalid_conservative_width");
+
+                        // Because ARBAT sometimes predicts long cracks even
+                        // below this preliminary CScore Mcrc, we cannot
+                        // classify this reconstructed case as a prelim PASS.
+                        // Always route it to explicit engineering review.
+                        double shortUse = screeningShortWidth / probe.AcrcUltShortMm;
+                        return (object)new
+                        {
+                            id = load.Id,
+                            status = "research_calculated",
+                            error = (string?)null,
+                            preliminary_method = probe.PreliminaryMethod,
+                            preliminary_basis = "short_only_supplemental_full_load_solver",
+                            preliminary_review_reason = "cracked_only_under_total_load_unvalidated_mcrc_threshold",
+                            preliminary_width_long_mm = (double?)0.0,
+                            preliminary_utilization_long = (double?)0.0,
+                            preliminary_width_short_mm = (double?)screeningShortWidth,
+                            preliminary_utilization_short = (double?)shortUse,
+                            preliminary_governing_utilization = (double?)shortUse,
+                            preliminary_decision = "engineering_review",
+                            preliminary_review_band = probe.ReviewBand,
+                            preliminary_is_final_approval = false,
+                            cracked = (bool?)true,
+                            cracked_long = false,
+                            cracked_total = true,
+                            crack_solver_path = "supplemental_full_load_Acrc2",
+                            raw_long_branch_cracked = false,
+                            crc_converged = full.CrcConverged,
+                            mcrc_knm = (double?)full.Mcrc,
+                            sigma_rebar_kpa = (double?)null,
+                            sigma_rebar_total_kpa = (double?)full.SigmaS,
+                            sigma_rebar_at_crack_kpa = (double?)null,
+                            compatibility_hypothesis = "none_short_only",
+                            compatibility_error = "no_sustained_cracks_to_reconstruct",
+                            sigma_rebar_precrack_kpa = (double?)null,
+                            psi_s_precrack_hypothesis = (double?)null,
+                            width_long_precrack_hypothesis_mm = (double?)null,
+                            utilization_long_precrack_hypothesis = (double?)null,
+                            psi_s = (double?)null,
+                            psi_s2 = (double?)full.PsiS2,
+                            crack_spacing_m = double.IsFinite(full.Ls) ? (double?)full.Ls : null,
+                            tensile_rebar_area_m2 = double.IsFinite(full.AsTens) ? (double?)full.AsTens : null,
+                            equivalent_rebar_diameter_m = double.IsFinite(full.DsEq) ? (double?)full.DsEq : null,
+                            tensile_concrete_area_m2 = double.IsFinite(full.Abt) ? (double?)full.Abt : null,
+                            effective_height_m = double.IsFinite(full.H0) ? (double?)full.H0 : null,
+                            phi1_long_times_phi2 = 1.4 * probe.Phi2,
+                            phi2 = probe.Phi2,
+                            a_crc_1_mm = (double?)0.0,
+                            a_crc_2_mm = (double?)full.Acrc2,
+                            a_crc_3_mm = (double?)0.0,
+                            width_long_mm = (double?)0.0,
+                            screening_psi_one_basis = "SP63_8.2.15_psi_s_one_transient_only",
+                            width_long_psi_one_mm = (double?)0.0,
+                            utilization_long_psi_one = (double?)0.0,
+                            width_short_mm = (double?)nativeShortWidth,
+                            utilization_long = (double?)0.0,
+                            utilization_short = (double?)(nativeShortWidth / probe.AcrcUltShortMm),
+                            verified_for_design = false
+                        };
+                    }
+
                     // An ARBAT-oriented RESEARCH contrast: pre-cracking rebar
                     // stress (historical OpenCS technique, superseded upstream).
                     // We keep upstream's post-crack algorithm entirely unchanged.
