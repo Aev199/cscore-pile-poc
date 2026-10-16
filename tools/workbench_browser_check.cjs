@@ -5,10 +5,12 @@ const assert=require('assert');
 const path=require('path');
 (async()=>{
  const root=path.resolve(__dirname,'..');
- const server=spawn(process.env.PYTHON||'python',['workbench_app.py','--no-browser'],{cwd:root});
+ const server=spawn(process.env.PYTHON||'python',['-u','workbench_app.py','--no-browser'],{cwd:root,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
+ // Preserve the actual Python traceback if startup fails on the CI runner.
+ let serverErrors='';server.stderr.setEncoding('utf8');server.stderr.on('data',d=>{serverErrors+=d;process.stderr.write(d);});
  let browser;
  try{
-  const url=await new Promise((resolve,reject)=>{let all='';server.stdout.on('data',d=>{all+=d;const m=all.match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});server.on('exit',c=>reject(Error('Server exit '+c)));setTimeout(()=>reject(Error('Server startup timeout')),10000).unref();});
+  const url=await new Promise((resolve,reject)=>{let all='';server.stdout.on('data',d=>{all+=d;const m=all.match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});server.on('exit',c=>reject(Error('Server exit '+c+(serverErrors?'\n'+serverErrors:''))));setTimeout(()=>reject(Error('Server startup timeout')),10000).unref();});
   browser=await chromium.launch({headless:true,args:['--no-sandbox']});
   const page=await browser.newPage({viewport:{width:1500,height:1050}});let errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(url);await page.waitForSelector('#charts svg');
