@@ -435,6 +435,8 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
               'uls_case_ids': [x['id'] for x in effective_loads],
               'sls_case_ids': ([x['id'] for x in request['sls_probe']['loads']]
                                if 'sls_probe' in request else []),
+              'sls_execution_policy': (request.get('sls_execution_policy')
+                                       if 'sls_probe' in request else None),
               'selected_uls_candidate': (passes[0]['id'] if passes else None)
                  if eccentricity['eccentricity_accounted_for'] else None,
               'selected_preliminary_uls_sls_research_candidate': (
@@ -475,6 +477,14 @@ def main() -> int:
         return 2
     print(f'Кандидатов: {len(result["cases"])}, прошли только прочность нормального сечения: {sum(c["status"] == "pass_uls" for c in result["cases"])}')
     print(f'Предварительно минимальный по площади: {result["selected_uls_candidate"] or "не найден"}')
+    if result['calculation_scope'].startswith('section_uls_plus_unverified'):
+        from collections import Counter
+        gate_counts = Counter(c.get('sls_gate', 'not_requested') for c in result['cases'])
+        print('Последовательность ULS → SLS: '
+              f'рассчитано SLS у {gate_counts["calculated_uls_pass"]} вариантов; '
+              f'пропущено по ULS fail {gate_counts["skipped_uls_fail"]}; '
+              f'пропущено из-за неопределённости ULS {gate_counts["skipped_uls_indeterminate"]}.')
+        print('Пропуск SLS не означает ширину трещин 0 мм и не является допуском.')
     if result['calculation_scope'].startswith('section_uls_plus_unverified'):
         print('Проверка раскрытия трещин: ИССЛЕДОВАТЕЛЬСКАЯ (не для КЖ).')
         print(f'Кандидат по ULS + предварительному SLS: '
