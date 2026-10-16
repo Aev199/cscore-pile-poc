@@ -256,6 +256,32 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
     return rows
 
 
+def check_fully_sustained_width_identity(rows: list[dict]) -> int:
+    """For same total and sustained N/M, SP63 a_short=a1+a2-a3=a1.
+
+    The independent refined native solver has the same identity. Check the
+    conservative *preliminary* compatibility method as an integration test.
+    """
+    count = 0
+    for row in rows:
+        if (row["cscore_status"] != "research_calculated"
+            or row["method"] != "arbat_conservative"
+            or row["Mx_total_kNm"] != row["Mx_long_kNm"]
+            or row["My_total_kNm"] != row["My_long_kNm"]):
+            continue
+        a = row.get("preliminary_width_mm")
+        b = row.get("preliminary_width_short_mm")
+        if not (isinstance(a, (int, float)) and isinstance(b, (int, float))
+                and math.isfinite(a) and math.isfinite(b)
+                and math.isclose(a, b, rel_tol=1e-8, abs_tol=1e-8)):
+            raise ValueError(
+                f"SP63 fully-sustained crack identity failed: "
+                f"{row['section_id']}/{row['case_id']} long={a} short={b}"
+            )
+        count += 1
+    return count
+
+
 def write_table(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as file:
@@ -336,6 +362,8 @@ def run(runner: Path, output_dir: Path, method: str = "arbat_conservative", layo
                 f"{section['id']}: the research runner returned no usable SLS values; "
                 "see archived raw CScore JSON and diagnose before accepting the experiment"
             )
+    fully_sustained = check_fully_sustained_width_identity(all_rows)
+    print(f"SP63 identity a_short = a_long on {fully_sustained} fully sustained computed SLS cases")
     write_table(output_dir / "cross_section_sls_matrix.csv", all_rows)
     print(f"Research matrix {len(definitions)} sections, {len(all_rows)} load tuples; "
           "zero ARBAT comparisons until externally verified reports arrive.")
