@@ -23,7 +23,10 @@ internal static class Program
             foreach (var candidate in input.Candidates)
             {
                 var values = new List<object>();
-                // Each input/candidate is independently checked; errors are never converted to 'pass'.
+                bool ulsAnyFailed = false;
+                bool ulsAnyIndeterminate = false;
+                // All ULS action tuples are checked before any serviceability work.
+                // ULS is a normal SECTION check only; no member/shear acceptance.
                 try
                 {
                     var section = MakeSection(input, candidate);
@@ -38,7 +41,13 @@ internal static class Program
                             var result = solver.AllFactor(load.NKn, load.MxKnm, load.MyKnm);
                             bool ok = result.Converged && double.IsFinite(result.Factor) &&
                                       double.IsFinite(result.Utilization) && result.Factor > 0.0 &&
-                                      result.Utilization >= 0.0;
+                                      result.Utilization >= 0.0
+                                      && double.IsFinite(result.Factor * result.Utilization)
+                                      && Math.Abs(result.Factor * result.Utilization - 1.0) <= 0.01;
+                            if (!ok)
+                                ulsAnyIndeterminate = true;
+                            else if (result.Utilization > 1.0)
+                                ulsAnyFailed = true;
                             // ARBAT's radial N-M strength-domain factor corresponds to
                             // AllFactor in our benchmark. MomentFactor at fixed N
                             // is provided as a separate diagnostic measure.
@@ -83,6 +92,7 @@ internal static class Program
                         }
                         catch (Exception ex)
                         {
+                            ulsAnyIndeterminate = true;
                             values.Add(new { id = load.Id, converged = false,
                                 factor = (double?)null, utilization = (double?)null,
                                 error = "solver_error:" + ex.GetType().Name + ":" + ex.Message });
@@ -91,16 +101,27 @@ internal static class Program
                 }
                 catch (Exception ex)
                 {
+                    ulsAnyIndeterminate = true;
                     foreach (var load in input.Loads)
                         values.Add(new { id = load.Id, converged = false,
                             factor = (double?)null, utilization = (double?)null,
                             error = "section_error:" + ex.GetType().Name + ":" + ex.Message });
                 }
-                // SLS probe is fully separate from the ULS decision path.
-                // A numerical SLS value is NEVER interpreted as an approved design.
-                var slsValues = input.SlsProbe is null
-                    ? null : RunCrackProbe(input, candidate);
-                records.Add(new { id = candidate.Id, loads = values, sls_probe = slsValues });
+                // In the normal product workflow, SLS is NOT evaluated for
+                // a section already known to fail ULS, or where ULS is unknown.
+                // The research matrix explicitly opts into research_all to
+                // preserve independent crack-benchmark cases (including dummy ULS).
+                // Fail and indeterminate are different engineering diagnoses.
+                string slsGate = input.SlsProbe is null ? "not_requested"
+                    : input.SlsExecutionPolicy == "research_all" ? "calculated_research_override"
+                    : ulsAnyIndeterminate ? "skipped_uls_indeterminate"
+                    : ulsAnyFailed ? "skipped_uls_fail"
+                    : "calculated_uls_pass";
+                object[]? slsValues =
+                    slsGate is "calculated_research_override" or "calculated_uls_pass"
+                        ? RunCrackProbe(input, candidate) : null;
+                records.Add(new { id = candidate.Id, loads = values,
+                    sls_gate = slsGate, sls_probe = slsValues });
             }
             Console.Out.Write(JsonSerializer.Serialize(new
             {
@@ -776,6 +797,8 @@ internal static class Program
                         <= (rect.Bars[i].DiameterMm + rect.Bars[j].DiameterMm) / 2)
                         throw new ArgumentException("Overlapping rectangular reinforcement bars");
         }
+        if (input.SlsExecutionPolicy is not ("uls_pass_only" or "research_all"))
+            throw new ArgumentException("Unsupported SLS execution policy");
         if (input.SlsProbe is { } probe)
         {
             if (probe.ShortMaterials is null || probe.LongMaterials is null
@@ -817,6 +840,8 @@ internal sealed class BatchInput
     [JsonPropertyName("loads")] public List<LoadCase> Loads { get; init; } = [];
     [JsonPropertyName("candidates")] public List<Candidate> Candidates { get; init; } = [];
     [JsonPropertyName("sls_probe")] public SlsProbe? SlsProbe { get; init; }
+    // Default is safe even when a direct consumer does not specify a policy.
+    [JsonPropertyName("sls_execution_policy")] public string SlsExecutionPolicy { get; init; } = "uls_pass_only";
     [JsonPropertyName("research_rectangle")] public ResearchRectangle? ResearchRectangle { get; init; }
 }
 
