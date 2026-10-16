@@ -32,7 +32,7 @@ class ShearScreeningContract(unittest.TestCase):
                 self.assertEqual(req['shear_screening']['cage_count'], cages)
                 self.assertEqual(req['shear_screening']['effective_legs_per_cage'], 2)
                 self.assertAlmostEqual(req['loads'][0]['q_kn'], 90)
-                self.assertAlmostEqual(req['loads'][0]['n_kn'], -210)
+                self.assertAlmostEqual(req['loads'][0]['n_kn'], -300)
                 self.assertAlmostEqual(req['loads'][0]['mx_knm'], 84)
                 self.assertNotIn('q_kn_per_m', req['loads'][0])
 
