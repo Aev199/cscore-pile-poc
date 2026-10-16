@@ -303,24 +303,52 @@ internal static class Program
                                 primaryBasis = "psi_s_one_fallback_compat_not_applicable";
                             }
 
-                            // Short: separate SP63 psi_s=1 upper-bound screening,
-                            // because historical precrack correction has NOT
-                            // been validated for short/partial load components.
-                            // a_short = a1 + a2 - a3, so setting both psi terms
-                            // to one gives (a1-a3)/psi_long + a2/psi_short.
-                            double? shortPsiOne = null;
-                            if (double.IsFinite(r.PsiS) && r.PsiS > 0.0
-                                && double.IsFinite(r.PsiS2) && r.PsiS2 > 0.0
-                                && double.IsFinite(r.Acrc1) && double.IsFinite(r.Acrc2)
-                                && double.IsFinite(r.Acrc3))
+                            // Exact same sustained and total N-M tuple:
+                            // SP63 three-component short width = a1+a2-a3
+                            // and with identical load/diagram, a2 == a3.
+                            // The short width MUST equal the long width, also
+                            // for the pre-crack compatibility estimate. This
+                            // holds only if the native solve independently
+                            // confirms equal widths. Otherwise fail closed.
+                            if (sameMoments)
                             {
-                                double estimate = (r.Acrc1 - r.Acrc3) / r.PsiS
-                                                  + r.Acrc2 / r.PsiS2;
-                                if (double.IsFinite(estimate) && estimate >= 0.0)
-                                    shortPsiOne = estimate;
+                                double nativeWidthTolerance = Math.Max(1e-9,
+                                    1e-8 * Math.Max(Math.Abs(r.AcrcLong),
+                                                    Math.Abs(r.AcrcShort)));
+                                if (primaryWidth.HasValue
+                                    && Math.Abs(r.AcrcLong - r.AcrcShort)
+                                        <= nativeWidthTolerance)
+                                {
+                                    primaryShortWidth = primaryWidth.Value;
+                                    primaryBasis += "_fully_sustained";
+                                }
+                                else
+                                {
+                                    primaryBasis += "_native_short_long_inconsistent";
+                                }
                             }
-                            if (shortPsiOne.HasValue)
-                                primaryShortWidth = Math.Max(shortPsiOne.Value, r.AcrcShort);
+                            else
+                            {
+                                // Partial sustained action: no independently
+                                // validated pre-crack transformation for the
+                                // second transient term. Use psi_s=1 for all
+                                // three native SP63 components and retain an
+                                // envelope against unmodified native CScore.
+                                double? shortPsiOne = null;
+                                if (double.IsFinite(r.PsiS) && r.PsiS > 0.0
+                                    && double.IsFinite(r.PsiS2) && r.PsiS2 > 0.0
+                                    && double.IsFinite(r.Acrc1) && double.IsFinite(r.Acrc2)
+                                    && double.IsFinite(r.Acrc3))
+                                {
+                                    double estimate = (r.Acrc1 - r.Acrc3) / r.PsiS
+                                                      + r.Acrc2 / r.PsiS2;
+                                    if (double.IsFinite(estimate) && estimate >= 0.0)
+                                        shortPsiOne = estimate;
+                                }
+                                if (shortPsiOne.HasValue)
+                                    primaryShortWidth = Math.Max(shortPsiOne.Value,
+                                                                r.AcrcShort);
+                            }
                         }
                     }
 
