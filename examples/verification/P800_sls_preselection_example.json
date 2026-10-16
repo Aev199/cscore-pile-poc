@@ -123,5 +123,9 @@
         "my_long_knm": 20
       }
     ]
+  },
+  "force_basis": {
+    "uls": "design",
+    "sls": "normative"
   }
 }
