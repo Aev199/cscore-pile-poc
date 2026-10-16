@@ -193,12 +193,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Independent crack-width comparison failed' }
           python -c "import json; j=json.load(open('results/arbat70_verification/arbat70_aligned_metrics.json',encoding='utf-8')); c=j['coverage']; assert c['total']==70 and c['arbat_printed']==27 and c['preliminarily_comparable']>=1; assert j['not_design_approved']; print('ARBAT crack width: printed',c['arbat_printed'],'preliminarily comparable',c['preliminarily_comparable'])"
           if ($LASTEXITCODE -ne 0) { throw 'ARBAT comparison contract failed' }
+      - name: Wall cages real-engine checks
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python wall_rebar.py examples/wall_cages.json --runner publish/CScorePileRunner.exe --output results/wall_results.json --csv results/wall_results.csv
+          if ($LASTEXITCODE -ne 0) { throw 'Wall cage selection failed' }
+          python tools/wall_smoke.py --runner publish/CScorePileRunner.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Wall numerical scaling or ULS gate failed' }
       - name: Pack deliverables
         shell: pwsh
         run: |
           New-Item -ItemType Directory release -Force | Out-Null
           Copy-Item publish/* release/ -Recurse
           Copy-Item pile_rebar.py release/
+          Copy-Item wall_rebar.py release/
+          Copy-Item examples/wall_cages.json release/
+          Copy-Item docs/wall-cage-selection.md release/
+          Copy-Item results/wall_smoke release/ -Recurse
           Copy-Item tools/compare_arbat.py release/
           Copy-Item tools/diagnose_arbat_inputs.py release/
           Copy-Item tools/diagnose_arbat_compare.py release/
@@ -241,6 +254,8 @@ jobs:
         with:
           name: cscore-diagnostic-results
           path: |
+            results/wall_results.*
+            results/wall_smoke/*
             results/pile_results.json
             results/pile_results.csv
             results/P800_*.json
