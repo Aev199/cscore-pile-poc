@@ -33,7 +33,13 @@ def bars_rectangle(width: float, height: float, diameter: float, cover: float,
     return [{"x_mm": x, "y_mm": y, "diameter_mm": diameter} for x, y in points]
 
 
-def section_definitions() -> list[dict]:
+def section_definitions(layout: str = "original") -> list[dict]:
+    """Original is immutable historical benchmark; arbat_stated is a new
+    geometry hypothesis based on the independently supplied ARBAT 2019 RTF.
+    ARBAT armature axis/orientation still requires external verification.
+    """
+    if layout not in ("original", "arbat_stated"):
+        raise ValueError("Unsupported geometry layout")
     rectangular = [
         ("R300x500_4d20_cover45", 300, 500, 20, 45, False, False),
         ("R400x600_6d20_cover50", 400, 600, 20, 50, True, False),
@@ -57,6 +63,33 @@ def section_definitions() -> list[dict]:
             for y in (-157, -90, 90, 157)
             for x in (-157, 157)
         ]
+    if layout == "arbat_stated":
+        for section in result:
+            d, a1 = section["bar_diameter_mm"], section["cover_to_longitudinal_bar_surface_mm"]
+            hx = section["width_mm"] / 2 - a1 - d / 2
+            hy = section["height_mm"] / 2 - a1 - d / 2
+            if section["id"] == "R400x600_6d20_cover50":
+                # ARBAT reports S1=3 bars, S2=3 bars. Hypothesis:
+                # equally spaced on opposing TOP/BOTTOM faces.
+                points = [(x,y) for y in (-hy,hy) for x in (-hx,0.0,hx)]
+            elif section["id"] == "R500x700_8d25_cover60":
+                # ARBAT S1=4, S2=4, rather than CScore's perimeter middles.
+                points = [(x,y) for y in (-hy,hy)
+                          for x in (-hx,-hx/3,hx/3,hx)]
+            elif section["id"] == "R400x400_8d16_two_layers_cover35":
+                # ARBAT S1/S2: 2x16 first row + 2x16 second row,
+                # clear bar-to-bar row separation 20mm => 36mm center.
+                inside = hy - (d + 20.0)
+                points = [(x,y) for y in (-hy,-inside,inside,hy)
+                          for x in (-hx,hx)]
+            else:
+                points = [(x,y) for y in (-hy,hy) for x in (-hx,hx)]
+            section["bars"] = [
+                {"x_mm":x, "y_mm":y, "diameter_mm":d} for x,y in points
+            ]
+            section["geometry_alignment"] = (
+                "ARBAT RTF bar-count and layer-geometry hypothesis; axes to verify"
+            )
     for d, phi, count, cover in (
         (600, 20, 8, 50), (800, 25, 16, 55),
         (1000, 28, 20, 70),
@@ -231,7 +264,7 @@ def write_table(path: Path, rows: list[dict]) -> None:
         w.writerows(rows)
 
 
-def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_conservative") -> list[dict]:
+def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_conservative", layout: str = "original") -> list[dict]:
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = []
     for section in sections:
@@ -247,7 +280,9 @@ def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_
                 (output_dir / f"{section['id']}_input.json").read_bytes()).hexdigest(),
         })
     (output_dir / "manifest.json").write_text(
-        json.dumps({"model": SERVICE_MODEL_ID, "sections": summary}, indent=2, ensure_ascii=False),
+        json.dumps({"model": SERVICE_MODEL_ID, "layout": layout,
+                    "geometry_hypothesis_not_independently_verified": layout=="arbat_stated",
+                    "sections": summary}, indent=2, ensure_ascii=False),
         encoding="utf-8"
     )
     arbat_sheet = []
@@ -271,9 +306,9 @@ def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_
     return summary
 
 
-def run(runner: Path, output_dir: Path, method: str = "arbat_conservative") -> list[dict]:
-    definitions = section_definitions()
-    generate_cases(output_dir, definitions, method=method)
+def run(runner: Path, output_dir: Path, method: str = "arbat_conservative", layout: str = "original") -> list[dict]:
+    definitions = section_definitions(layout)
+    generate_cases(output_dir, definitions, method=method, layout=layout)
     all_rows = []
     for section in definitions:
         source = output_dir / f"{section['id']}_input.json"
@@ -311,10 +346,12 @@ if __name__ == "__main__":
     cli = argparse.ArgumentParser()
     cli.add_argument("--runner", type=Path)
     cli.add_argument("--method", choices=METHODS, default="arbat_conservative")
+    cli.add_argument("--layout", choices=("original","arbat_stated"), default="original")
     cli.add_argument("--out", type=Path, default=ROOT/"results/sls_matrix")
     a = cli.parse_args()
     if a.runner:
-        run(a.runner, a.out, method=a.method)
+        run(a.runner, a.out, method=a.method, layout=a.layout)
     else:
-        models = generate_cases(a.out, section_definitions(), method=a.method)
+        models = generate_cases(a.out, section_definitions(a.layout), method=a.method,
+                                layout=a.layout)
         print(f"Prepared {len(models)} sections and blank ARBAT reference schedule in {a.out}")
