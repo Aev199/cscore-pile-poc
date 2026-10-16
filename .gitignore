@@ -10,3 +10,5 @@ vendor/
 *.zip
 bin/
 obj/
+
+.ui-qa/
