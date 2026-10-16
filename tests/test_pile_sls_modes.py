@@ -36,6 +36,82 @@ class PileSlsOptionTests(unittest.TestCase):
             "native_refined"
         )
 
+    def test_force_basis_must_separate_design_and_normative(self):
+        good=copy.deepcopy(self.example)
+        main.validate_input(good)
+        request=main.build_engine_request(good,main.make_candidates(good)[0])
+        self.assertEqual(request["sls_execution_policy"],"uls_pass_only")
+        for bad in (
+            {"uls":"normative","sls":"normative"},
+            {"uls":"design","sls":"design"},
+            None
+        ):
+            data=copy.deepcopy(good)
+            if bad is None:
+                data.pop("force_basis")
+            else:
+                data["force_basis"]=bad
+            with self.assertRaisesRegex(main.InputError,"force_basis"):
+                main.validate_input(data)
+
+    def test_uls_fail_skips_sls_without_assuming_zero_cracks(self):
+        req=main.build_engine_request(self.example,main.make_candidates(self.example)[0])
+        def mock_case(util, gate, sls):
+            return {"schema_version":1,"cases":[{
+                "id":req["candidates"][0]["id"],
+                "loads":[{
+                    "id":x["id"],"converged":True,"error":None,
+                    "factor":1/util,"utilization":util
+                } for x in req["loads"]],
+                "sls_gate":gate,"sls_probe":sls
+            }]}
+        cases=main.parse_runner_results(req,mock_case(1.2,"skipped_uls_fail",None))
+        self.assertEqual(cases[0]["status"],"fail_uls")
+        self.assertEqual(cases[0]["sls_status"],"not_evaluated_uls_fail")
+        self.assertIsNone(cases[0]["sls_probe"])
+        # A malicious/corrupt runner may not fabricate a PASS for skipped SLS.
+        with self.assertRaises(main.InputError):
+            main.parse_runner_results(req,mock_case(1.2,"calculated_uls_pass",self.fake_rows()))
+        with self.assertRaises(main.InputError):
+            main.parse_runner_results(req,mock_case(1.2,"skipped_uls_fail",self.fake_rows()))
+
+    def test_uls_indeterminate_is_not_a_uls_fail(self):
+        req=main.build_engine_request(self.example,main.make_candidates(self.example)[0])
+        raw={"schema_version":1,"cases":[{
+            "id":req["candidates"][0]["id"],
+            "loads":[{
+                "id":x["id"],"converged":False,"error":"no_convergence",
+                "factor":None,"utilization":None
+            } for x in req["loads"]],
+            "sls_gate":"skipped_uls_indeterminate",
+            "sls_probe":None
+        }]}
+        cases=main.parse_runner_results(req,raw)
+        self.assertEqual(cases[0]["status"],"indeterminate")
+        self.assertEqual(cases[0]["sls_status"],"not_evaluated_uls_indeterminate")
+        raw["cases"][0]["sls_gate"]="skipped_uls_fail"
+        with self.assertRaises(main.InputError):
+            main.parse_runner_results(req,raw)
+
+    def test_all_uls_must_pass_for_sls_even_if_some_pass(self):
+        req=main.build_engine_request(self.example,main.make_candidates(self.example)[0])
+        loads=[{
+            "id":x["id"],"converged":True,"error":None,
+            "factor":2.0,"utilization":0.5
+        } for x in req["loads"]]
+        loads[-1]={"id":loads[-1]["id"],"converged":True,
+                   "error":None,"factor":0.8,"utilization":1.25}
+        raw={"schema_version":1,"cases":[{
+            "id":req["candidates"][0]["id"],"loads":loads,
+            "sls_gate":"skipped_uls_fail","sls_probe":None
+        }]}
+        c=main.parse_runner_results(req,raw)[0]
+        self.assertEqual(c["status"],"fail_uls")
+        self.assertEqual(c["sls_status"],"not_evaluated_uls_fail")
+        raw["cases"][0]["sls_gate"]="calculated_uls_pass"
+        with self.assertRaises(main.InputError):
+            main.parse_runner_results(req,raw)
+
     def test_malformed_service_material_is_rejected(self):
         data=copy.deepcopy(self.example)
         data["sls_probe"]["short_materials"]["concrete_rbt_kpa"]=-5
@@ -169,6 +245,7 @@ class PileSlsOptionTests(unittest.TestCase):
                                     "id":l["id"],"converged":True,"error":None,
                                     "factor":2.0,"utilization":0.5,
                                 } for l in req["loads"]],
+                                "sls_gate":"calculated_uls_pass",
                                 "sls_probe":sls,
                             } for c in req["candidates"]]
                         })
