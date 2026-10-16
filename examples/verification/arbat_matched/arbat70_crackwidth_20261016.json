@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "source": "User-run ARBAT 21.1.9.3 RTF with saved binary SAV verified",
+  "benchmark_purpose": "INDEPENDENT numeric crack-width ratios; not section design approval",
+  "sp": "SP63.13330.2018",
+  "concrete": "B30",
+  "longitudinal_steel": "A500",
+  "limits": {
+    "long_mm": 0.3,
+    "short_mm": 0.4
+  },
+  "upstream_comparison_run": "https://github.com/Aev199/cscore-pile-poc/actions/runs/38761812114",
+  "disclaimer": "null means RTF did NOT print a crack-width ratio (not the same as zero or pass); T10 not comparable for Nlong",
+  "duration_by_load": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    0.5,
+    0.5
+  ],
+  "sections": {
+    "R300x500_4d20_cover45": {
+      "file": "300x500(1).rtf",
+      "geom": "four_corner_bars_probable",
+      "short": [
+        0.74,
+        null,
+        null,
+        null,
+        null,
+        0.964,
+        null,
+        null,
+        null,
+        null
+      ],
+      "long": [
+        0.987,
+        null,
+        null,
+        null,
+        null,
+        1.285,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "R400x600_6d20_cover50": {
+      "file": "400x600(1).rtf",
+      "geom": "ARBAT_S1S2_3_each_axes_need_verification",
+      "short": [
+        null,
+        1.268,
+        1.268,
+        1.509,
+        1.552,
+        0.382,
+        1.408,
+        null,
+        0.943,
+        1.035
+      ],
+      "long": [
+        null,
+        1.69,
+        1.69,
+        2.011,
+        2.07,
+        0.51,
+        1.877,
+        null,
+        0.68,
+        0.751
+      ]
+    },
+    "R500x700_8d25_cover60": {
+      "file": "500x700(1).rtf",
+      "geom": "ARBAT_S1S2_4_each_axes_need_verification",
+      "short": [
+        null,
+        0.498,
+        0.498,
+        0.602,
+        0.635,
+        null,
+        0.549,
+        null,
+        0.371,
+        0.398
+      ],
+      "long": [
+        null,
+        0.664,
+        0.664,
+        0.802,
+        0.846,
+        null,
+        0.732,
+        null,
+        0.284,
+        0.296
+      ]
+    },
+    "R400x400_8d16_two_layers_cover35": {
+      "file": "400x400(2).rtf",
+      "geom": "ARBAT_2+2_each_side_20mm_clear_gap",
+      "short": [
+        0.841,
+        null,
+        null,
+        1.414,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "long": [
+        1.121,
+        null,
+        null,
+        1.885,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "C600_8d20_cover50": {
+      "file": "d600(1).rtf",
+      "geom": "circular_8_bars",
+      "short": [
+        null,
+        1.476,
+        1.476,
+        0.862,
+        1.119,
+        0.597,
+        1.567,
+        null,
+        1.1,
+        0.774
+      ],
+      "long": [
+        null,
+        1.968,
+        1.968,
+        1.149,
+        1.492,
+        0.796,
+        2.089,
+        null,
+        0.798,
+        0.556
+      ]
+    },
+    "C800_16d25_cover55": {
+      "file": "d800(1).rtf",
+      "geom": "circular_16_bars",
+      "short": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "C1000_20d28_cover70": {
+      "file": "d1000(1).rtf",
+      "geom": "circular_20_bars",
+      "short": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+  }
+}
