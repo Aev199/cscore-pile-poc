@@ -171,6 +171,8 @@ jobs:
         run: |
           python tools/cross_section_sls_matrix.py --runner publish/CScorePileRunner.exe --layout arbat_stated --out results/sls_matrix_aligned
           if ($LASTEXITCODE -ne 0) { throw 'ARBAT-stated geometry matrix failed' }
+          python -c "import csv; p='results/sls_matrix_aligned/cross_section_sls_matrix.csv'; r=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); z=[x for x in r if x['crack_solver_path']=='supplemental_full_load_Acrc2']; print('Experimental short-only recovered:',len(z)); assert z, 'No short-only cases were numerically recovered'; assert all(x['preliminary_status']=='engineering_review' and x['final_design_status']=='NOT_VERIFIED' for x in z); print('Unresolved crack results:',sum(x['cscore_status']!='research_calculated' for x in r))"
+          if ($LASTEXITCODE -ne 0) { throw 'Short-only recovery must remain research-only; see diagnostics' }
           python tools/compare_arbat70_crackwidth.py --csv results/sls_matrix_aligned/cross_section_sls_matrix.csv --out results/arbat70_verification
           if ($LASTEXITCODE -ne 0) { throw 'Independent crack-width comparison failed' }
           python -c "import json; j=json.load(open('results/arbat70_verification/arbat70_aligned_metrics.json',encoding='utf-8')); c=j['coverage']; assert c['total']==70 and c['arbat_printed']==27 and c['preliminarily_comparable']>=1; assert j['not_design_approved']; print('ARBAT crack width: printed',c['arbat_printed'],'preliminarily comparable',c['preliminarily_comparable'])"
