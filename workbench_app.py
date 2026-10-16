@@ -101,8 +101,10 @@ def main():
     args=parser.parse_args();app=App(args.runner.resolve())
     server=ThreadingHTTPServer(('127.0.0.1',args.port),handler_for(app))
     url=f'http://127.0.0.1:{server.server_port}'
-    print('Сечения:',url,flush=True)
-    print('Для завершения закройте это окно или нажмите Ctrl+C.',flush=True)
+    # Windows may encode redirected stdout as cp1252 even when the UI is Russian.
+    # Keep the startup banner ASCII so a piped launcher cannot crash the server.
+    print('Workbench:',url,flush=True)
+    print('Press Ctrl+C to stop.',flush=True)
     if not args.no_browser:webbrowser.open(url)
     try:server.serve_forever()
     except KeyboardInterrupt:pass
