@@ -247,6 +247,10 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
             "preliminary_status": item.get("preliminary_decision"),
             "preliminary_review_reason": item.get("preliminary_review_reason"),
             "crack_solver_path": item.get("crack_solver_path", "upstream_default"),
+            "secondary_equilibrium_status": item.get("secondary_equilibrium_status"),
+            "secondary_equilibrium_converged": item.get("secondary_equilibrium_converged"),
+            "secondary_equilibrium_iterations": item.get("secondary_equilibrium_iterations"),
+            "secondary_equilibrium_residual": item.get("secondary_equilibrium_residual"),
             "preliminary_width_mm": item.get("preliminary_width_long_mm"),
             "preliminary_utilization": primary if calculated else None,
             "preliminary_width_short_mm": item.get("preliminary_width_short_mm") if calculated else None,
@@ -391,7 +395,9 @@ def run(runner: Path, output_dir: Path, method: str = "arbat_conservative", layo
               "UNVERIFIED/ENGINEERING CHECK REQUIRED")
     for x in unresolved:
         print(f"  unresolved: {x['section_id']} {x['case_id']}, "
-              f"reason={x.get('error')}, path={x.get('crack_solver_path')}")
+              f"reason={x.get('error')}, path={x.get('crack_solver_path')}, "
+              f"secondary_eq={x.get('secondary_equilibrium_status')}, "
+              f"residual={x.get('secondary_equilibrium_residual')}")
     write_table(output_dir / "cross_section_sls_matrix.csv", all_rows)
     print(f"Research matrix {len(definitions)} sections, {len(all_rows)} load tuples; "
           "zero ARBAT comparisons until externally verified reports arrive.")
