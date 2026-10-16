@@ -94,6 +94,26 @@ class ResearchMatrixTests(unittest.TestCase):
         self.assertTrue(any(row["mx_total_knm"] < 0 for row in rows))
         self.assertTrue(any(row["my_total_knm"] != 0 and row["mx_total_knm"] != 0 for row in rows))
 
+    def test_identical_full_sustained_crack_width_identity(self):
+        good = {
+            "cscore_status": "research_calculated",
+            "method": "arbat_conservative",
+            "Mx_total_kNm": 180, "Mx_long_kNm": 180,
+            "My_total_kNm": 0, "My_long_kNm": 0,
+            "preliminary_width_mm": 0.252,
+            "preliminary_width_short_mm": 0.252,
+            "section_id": "R400x600", "case_id": "T02"
+        }
+        self.assertEqual(matrix.check_fully_sustained_width_identity([good]), 1)
+        bad = {**good, "preliminary_width_short_mm": 0.272}
+        with self.assertRaisesRegex(ValueError, "identity failed"):
+            matrix.check_fully_sustained_width_identity([bad])
+        different = {**bad, "Mx_long_kNm": 90}
+        self.assertEqual(matrix.check_fully_sustained_width_identity([different]), 0)
+        missing = {**good, "cscore_status": "indeterminate",
+                   "preliminary_width_mm": None, "preliminary_width_short_mm": None}
+        self.assertEqual(matrix.check_fully_sustained_width_identity([missing]), 0)
+
     def test_native_refined_choice_is_explicit(self):
         section = matrix.section_definitions()[0]
         native = matrix.make_request(section, "native_refined")
