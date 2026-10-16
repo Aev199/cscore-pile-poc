@@ -64,6 +64,12 @@ def compare(ref:dict,rows:list[dict])->tuple[list[dict],dict]:
                 quality="CSCORE_INDETERMINATE"
             elif i==9:
                 quality="N_LONG_NOT_MATCHED_T10"
+            elif row.get("crack_solver_path") == "supplemental_full_load_Acrc2":
+                # The raw upstream model returned no crack under sustained
+                # load; a supplemental total-only solution estimates ONLY
+                # short-term opening. ARBAT may report long-term crack width
+                # in the same case, so this is NOT a validated numeric pair.
+                quality="SHORT_ONLY_RECONSTRUCTION_UNVERIFIED"
             elif section in GEOM_PENDING:
                 quality="GEOMETRY_UNVERIFIED"
             else:
