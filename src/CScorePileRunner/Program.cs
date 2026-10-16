@@ -3,6 +3,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CScore;
+using CScore.Sp63Shear;
 
 internal static class Program
 {
@@ -120,15 +121,19 @@ internal static class Program
                 object[]? slsValues =
                     slsGate is "calculated_research_override" or "calculated_uls_pass"
                         ? RunCrackProbe(input, candidate) : null;
+                object[]? shearValues = input.ShearScreening?.Enabled == true
+                    ? RunShearScreening(input, candidate) : null;
                 records.Add(new { id = candidate.Id, loads = values,
-                    sls_gate = slsGate, sls_probe = slsValues });
+                    sls_gate = slsGate, sls_probe = slsValues, shear_screening = shearValues });
             }
             Console.Out.Write(JsonSerializer.Serialize(new
             {
                 schema_version = 1,
                 engine = "OpenCS.CScore.LimitForceSolver",
                 engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
-                scope = "uls_ndm_section_only_without_eta_shear_cracks",
+                scope = input.ShearScreening?.Enabled == true
+                    ? "uls_ndm_and_local_shear_research_screen_not_design_verified"
+                    : "uls_ndm_section_only_without_eta_shear_cracks",
                 cases = records
             }));
             return 0;
@@ -138,6 +143,81 @@ internal static class Program
             Console.Error.WriteLine(ex.ToString());
             return 2;
         }
+    }
+
+    // Local Q diagnostic, NOT a complete inclined-section verification.
+    // ConstantProfile is an upstream-supported model for one isolated force tuple,
+    // but it does not reconstruct reactions, applied distributed loads or bar cutoffs.
+    // A positive result must NEVER be described as normative approval.
+    private static object[] RunShearScreening(BatchInput input, Candidate candidate)
+    {
+        var options = input.ShearScreening!;
+        return input.Loads.Select(load =>
+        {
+            try
+            {
+                if (input.ResearchRectangle is null)
+                    throw new InvalidOperationException("circular_shear_requires_independent_method");
+                if (load.QKn is not double q || !double.IsFinite(q))
+                    throw new InvalidOperationException("missing_or_invalid_Q");
+                var section = MakeSection(input, candidate);
+                var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
+                var side = geometry.For(load.MxKnm);
+                if (!(side.B > 0 && side.H0 > 0))
+                    throw new InvalidOperationException("invalid_automatic_shear_geometry");
+                // Active branches per *physical* cage; never infer from longitudinal bars.
+                double effectiveLegs = options.ConstructiveConfirmed
+                    ? options.EffectiveLegsPerCage * options.CageCount : 0.0;
+                double areaM2 = effectiveLegs * Math.PI
+                    * Math.Pow(options.DiameterMm / 1000.0, 2) / 4.0;
+                double qsw = options.RswKpa * areaM2 / (options.SpacingMm / 1000.0);
+                var parameters = new ShearInclinedInput(
+                    B: side.B, H0: side.H0, Rb: side.Rb, Rbt: side.Rbt,
+                    Qsw: qsw, Sw: options.SpacingMm / 1000.0,
+                    Ns: side.Ns, Kind: ElementKind.Other,
+                    AnchorageFactor: 1.0, StationStep: 0.0, ProjectionStep: 0.0,
+                    MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
+                    CheckMoment: false, PhiNOverride: null);
+                var profile = new ConstantProfile(
+                    q: q, m: load.MxKnm, n: load.NKn, supportDistance: 0.0);
+                var outcome = ShearInclinedChecker.Check(parameters, profile, geometry, 0);
+                var exact = outcome.Details.Where(x => x.Formula is "8.55" or "8.56").ToList();
+                if (exact.Count != 2 || exact.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0))
+                    throw new InvalidOperationException("incomplete_or_nonfinite_shear_checks");
+                double util = exact.Max(x => x.Ratio);
+                var worst = exact.OrderByDescending(x => x.Ratio).First();
+                var station = outcome.Stations.FirstOrDefault();
+                return (object)new {
+                    id = load.Id,
+                    status = util <= 1.0 ? "research_screen_pass" : "research_screen_fail",
+                    utilization = (double?)util,
+                    governing_formula = worst.Formula,
+                    q_kn = (double?)q,
+                    qb_kn = station is not null && double.IsFinite(station.Qb)
+                        ? (double?)station.Qb : null,
+                    qsw_kn = station is not null && double.IsFinite(station.Qsw)
+                        ? (double?)station.Qsw : null,
+                    critical_c_m = station is not null && double.IsFinite(station.CriticalC)
+                        ? (double?)station.CriticalC : null,
+                    active_qsw_kn_per_m = qsw,
+                    b_m = side.B, h0_m = side.H0,
+                    support_model = "constant_profile_no_support",
+                    note = options.ConstructiveConfirmed
+                        ? "Unverified link geometry and local Q profile; no inclined moment check"
+                        : "Constructive 10.3 not confirmed; stirrup contribution ignored",
+                    verified_for_design = false
+                };
+            }
+            catch (Exception ex)
+            {
+                return (object)new {
+                    id = load.Id, status = "indeterminate",
+                    utilization = (double?)null,
+                    error = "shear_screen_error:" + ex.GetType().Name + ":" + ex.Message,
+                    verified_for_design = false
+                };
+            }
+        }).ToArray();
     }
 
     // Research probe: explicit service properties and separate total / sustained bending
@@ -797,6 +877,16 @@ internal static class Program
                         <= (rect.Bars[i].DiameterMm + rect.Bars[j].DiameterMm) / 2)
                         throw new ArgumentException("Overlapping rectangular reinforcement bars");
         }
+        if (input.ShearScreening is { Enabled: true } shear)
+        {
+            if (!rectMode || !double.IsFinite(shear.DiameterMm) || shear.DiameterMm <= 0
+                || !double.IsFinite(shear.SpacingMm) || shear.SpacingMm <= 0
+                || !double.IsFinite(shear.RswKpa) || shear.RswKpa <= 0 || shear.RswKpa > 300_000
+                || shear.EffectiveLegsPerCage < 1 || shear.EffectiveLegsPerCage > 30
+                || shear.CageCount < 1 || shear.CageCount > 3
+                || input.Loads.Any(l => l.QKn is not double q || !double.IsFinite(q)))
+                throw new ArgumentException("Invalid shear screening geometry, steel or Q");
+        }
         if (input.SlsExecutionPolicy is not ("uls_pass_only" or "research_all"))
             throw new ArgumentException("Unsupported SLS execution policy");
         if (input.SlsProbe is { } probe)
@@ -843,6 +933,7 @@ internal sealed class BatchInput
     // Default is safe even when a direct consumer does not specify a policy.
     [JsonPropertyName("sls_execution_policy")] public string SlsExecutionPolicy { get; init; } = "uls_pass_only";
     [JsonPropertyName("research_rectangle")] public ResearchRectangle? ResearchRectangle { get; init; }
+    [JsonPropertyName("shear_screening")] public ShearScreening? ShearScreening { get; init; }
 }
 
 internal sealed class Pile
@@ -873,6 +964,19 @@ internal sealed class LoadCase
     [JsonPropertyName("n_kn")] public double NKn { get; init; }
     [JsonPropertyName("mx_knm")] public double MxKnm { get; init; }
     [JsonPropertyName("my_knm")] public double MyKnm { get; init; }
+    [JsonPropertyName("q_kn")] public double? QKn { get; init; }
+}
+
+
+internal sealed class ShearScreening
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; init; }
+    [JsonPropertyName("diameter_mm")] public double DiameterMm { get; init; }
+    [JsonPropertyName("spacing_mm")] public double SpacingMm { get; init; }
+    [JsonPropertyName("effective_legs_per_cage")] public int EffectiveLegsPerCage { get; init; }
+    [JsonPropertyName("cage_count")] public int CageCount { get; init; }
+    [JsonPropertyName("rsw_kpa")] public double RswKpa { get; init; }
+    [JsonPropertyName("constructive_confirmed")] public bool ConstructiveConfirmed { get; init; }
 }
 
 internal sealed class ResearchRectangle
