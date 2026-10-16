@@ -24,6 +24,7 @@ class ResearchMatrixTests(unittest.TestCase):
         for sec in sections:
             req = matrix.make_request(sec)
             self.assertEqual(req["schema_version"], 1)
+            self.assertEqual(req["sls_execution_policy"], "research_all")
             self.assertEqual(len(req["candidates"]), 1)
             self.assertEqual(req["candidates"][0]["id"], sec["id"])
             self.assertEqual(req["sls_probe"]["preliminary_method"], "arbat_conservative")
@@ -152,7 +153,7 @@ class ResearchMatrixTests(unittest.TestCase):
                 "utilization_long":native if status=="research_calculated" else None,
                 "utilization_short":0.35 if status=="research_calculated" else None,
             })
-        return req, {"schema_version":1,"cases":[{"id":section["id"],"sls_probe":records}]}
+        return req, {"schema_version":1,"cases":[{"id":section["id"],"sls_gate":"calculated_research_override","sls_probe":records}]}
 
     def test_near_unity_is_review_not_design_pass(self):
         sec = matrix.section_definitions()[0]
