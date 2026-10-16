@@ -52,3 +52,27 @@ Windows workflow полностью прошёл, все 486 целевых те
 4. После этого отдельно исследовать T09/T10 и различие полного/длительного N, не вводя произвольных множителей для подгонки АРБАТ.
 
 Справка: `docs/arbat-70-crackwidth-second-run-2026-10-16.md`. Основной предварительный метод `arbat_conservative`, авторский уточнённый `native_refined` сохраняется как необязательный. Ни один из результатов не является окончательным допуском для КЖ.
+
+
+## Follow-up Windows validation — 38868762683
+
+Full Windows Actions run: https://github.com/Aev199/cscore-pile-poc/actions/runs/38868762683, commit `e014799fdb82b680a67d2e75221878d3edf61726`, **passed**. 66 Python contract tests, 486 pinned OpenCS tests. The new `check_fully_sustained_width_identity` succeeded on **48/48 computed fully sustained** test records in each of two research matrices. It is an explicit numerical confirmation that `a_crc,short = a_crc,long` under the stated identical full/sustained moments.
+
+Automatic strict ARBAT comparison still includes 9 previously eligible cases. Main conservative method MAPE:
+- Long crack width utilization **4.92936158%** (unchanged).
+- Short crack width utilization **3.98596654%** (down from **9.53059791%**).
+- Original author's native `CrackWidthSolver` was **not modified**.
+
+There are still exactly **59/70 research-calculated** and **11/70 indeterminate** results in each matrix. The eleven are not a single failure class:
+
+1. **Eight post-threshold zero-result cases:** R300×500 T02, T03, T04, T05, T07 and R400×400 T02, T03, T07. All eight have `M_long > Mcrc` and the upstream result `CrcConverged=true, Cracked=false`. The same eight combinations exceed the **ARBAT ULS normal-section checks**; they are physically poor candidates, but this does NOT identify exactly which hidden upstream numerical fallback returned zero. Do not conflate a valid failure of strength with successful crack solver convergence.
+2. **Three long/total load threshold splits:** R500×700 T09, T10 and Ø800 T09. Each has `M_long < Mcrc < M_total`; upstream source `CrackWidthSolver.Compute()` exits at `if (mLong <= mcrc || !crcRes.StrainPlane.HasValue) return zero;` **before total load is independently solved**. Numerical examples from aligned matrix:
+   - R500×700 T09: `M_long=80`, `M_total=160`, `Mcrc≈121.535` kN·m.
+   - R500×700 T10: `M_long≈80.623`, `M_total≈161.245`, `Mcrc≈96.203` kN·m.
+   - Ø800 T09: `M_long=80`, `M_total=160`, `Mcrc≈155.557` kN·m.
+
+**Crucial normative caveat:** independent ARBAT R500×700 T09 reports `Klong=0.284`, `Kshort=0.371` despite `M_long < Mcrc(CScore)`; T10 reports `Klong=0.296`, `Kshort=0.398`, but its sustained N is not comparable in the current CScore API. Therefore **do not force long-crack width to zero or treat Mcrc(CScore) as independently validated**. Investigate the concrete tensile law, cracking threshold and long/total load split before any recovery of these cases. Ø800 T09 has no printed ARBAT width and does not independently validate zero.
+
+Recommended implementation order: (a) diagnose long/total threshold mismatches explicitly in adapter statuses; (b) separately verify `CrackingSolver` threshold and material law against independently obtained ARBAT crack initiation evidence; (c) use distinct sustained/total N in a dedicated research adaptation if required; (d) ensure upstream internal convergence is explicitly observable, with all failures still fail-closed. Do not rewrite or weaken the author's refined crack algorithm.
+
+The numeric comparison CSV and raw JSONs are in the Windows artifact; last-run diagnostic classification was also exported as `cscore_38868762_11_indeterminate.csv` for review.
