@@ -369,6 +369,54 @@ internal static class Program
                         && mTotal <= r.Mcrc + 1e-9;
                     bool validated = r.CrcConverged && finite
                         && (r.Cracked ? r.PlaneLong.HasValue : plausibleNoCrack);
+                    // SECONDARY DIAGNOSTIC ONLY. CrackWidthSolver's internal
+                    // SolveDamped is private and may silently return a zero
+                    // result from multiple stages. For a zero return AFTER
+                    // the cracking threshold, independently attempt a
+                    // public StrainSolver equilibrium at the same service
+                    // load and diagram. This must NOT replace or approve
+                    // the upstream crack result, even if it converges.
+                    bool? independentEquilibriumConverged = null;
+                    int? independentEquilibriumIterations = null;
+                    double? independentEquilibriumResidual = null;
+                    string independentEquilibriumStatus = "not_necessary";
+                    if (!r.Cracked && r.CrcConverged
+                        && double.IsFinite(r.Mcrc) && r.Mcrc >= 0
+                        && mLong > r.Mcrc + 1e-8)
+                    {
+                        independentEquilibriumStatus = "attempted";
+                        try
+                        {
+                            var equilibrium = new StrainSolver(
+                                section, CalcType.N, ten: false, ca: true,
+                                tol: 0.5, maxIter: 80, centralJacobian: true);
+                            var independentPlane = equilibrium.Solve(
+                                load.NKn, load.MxLongKnm, load.MyLongKnm);
+                            bool planeFinite = double.IsFinite(independentPlane.e0)
+                                && double.IsFinite(independentPlane.ky)
+                                && double.IsFinite(independentPlane.kz);
+                            bool resultValid = planeFinite
+                                && double.IsFinite(equilibrium.Residual)
+                                && equilibrium.Residual >= 0;
+                            independentEquilibriumConverged =
+                                resultValid && equilibrium.Converged;
+                            independentEquilibriumIterations =
+                                equilibrium.Iterations;
+                            independentEquilibriumResidual = resultValid
+                                ? equilibrium.Residual : null;
+                            independentEquilibriumStatus =
+                                !resultValid ? "invalid_independent_solution"
+                                : equilibrium.Converged
+                                    ? "independent_equilibrium_converged"
+                                    : "independent_equilibrium_not_converged";
+                        }
+                        catch (Exception ex)
+                        {
+                            independentEquilibriumStatus =
+                                "independent_equilibrium_exception:"
+                                + ex.GetType().Name;
+                        }
+                    }
                     // SP63 8.2.15 permits psi_s=1 for a conservative initial
                     // screening. It preserves CScore's sigma_s, Es, ls, phi's
                     // and changes ONLY psi_s, with no ARBAT fitting.
@@ -499,6 +547,10 @@ internal static class Program
                             ? "upstream_default_zero_return" : "upstream_default",
                         upstream_post_threshold_zero = !r.Cracked && r.CrcConverged
                             && double.IsFinite(r.Mcrc) && mLong > r.Mcrc,
+                        secondary_equilibrium_status = independentEquilibriumStatus,
+                        secondary_equilibrium_converged = independentEquilibriumConverged,
+                        secondary_equilibrium_iterations = independentEquilibriumIterations,
+                        secondary_equilibrium_residual = independentEquilibriumResidual,
                         preliminary_width_long_mm = primaryWidth,
                         preliminary_utilization_long = primaryUtilization,
                         preliminary_width_short_mm = primaryShortWidth,
