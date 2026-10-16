@@ -58,6 +58,7 @@ def prepare_request(section: str, reference: dict) -> dict:
     if len(set(expected_ids)) != 8:
         raise ValueError("ARBAT source did not contain eight unique cases")
     req["loads"] = [source["loads"][0]]  # ULS is a dummy, not used in SLS comparison.
+    req["sls_execution_policy"] = "research_all"  # explicit independent research override
     req["sls_probe"] = {
         "short_materials": SERVICE_PARAMS.copy(),
         "long_materials": SERVICE_PARAMS.copy(),
