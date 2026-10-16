@@ -155,7 +155,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Ordinary BNS + optional SLS mode failed' }
           python -c "import json; a=json.load(open('results/P800_sls_research.json',encoding='utf-8')); assert a['cases'] and a['cases'][0]['sls_gate']=='calculated_uls_pass' and len(a['cases'][0]['sls_probe'])==4; s=a['cases'][0]['sls_probe']; assert all(x['design_status']=='NOT_VERIFIED' for x in s); assert all(x.get('preliminary_method')=='arbat_conservative' for x in s if x['status']=='research_calculated'); print('preliminary SLS cases',len(s))"
           if ($LASTEXITCODE -ne 0) { throw 'SLS mode default or fail-closed contract invalid' }
-      - name: ULS-first rejection test (real CScore: no SLS for overloaded pile)
+      - name: "ULS-first rejection test (real CScore - no SLS for overloaded pile)"
         shell: pwsh
         env:
           PYTHONIOENCODING: utf-8
