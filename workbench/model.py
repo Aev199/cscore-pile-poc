@@ -22,7 +22,10 @@ def default_project():
     p={'version':1,'title':'Новый расчёт','kind':'wall','force_scale':'per_metre','spacing_m':1.5,
        'moment_sign':1,'materials_confirmed':False,'eccentricity_confirmed':False,
        'background':[4,4],'pile_background':8,'diameters':[25,25],'pile_diameter':25,
-       'max_tier':3,'wall':{'panel_width_mm':3000,'thickness_mm':800,'cage_count':3,
+       'max_tier':3,
+       'transverse':{'mode':'off','diameter_mm':10,'spacing_mm':200,
+                     'effective_legs_per_cage':2,'rsw_kpa':170000,
+                     'constructive_confirmed':False},'wall':{'panel_width_mm':3000,'thickness_mm':800,'cage_count':3,
          'cage_width_mm':900,'end_cover_mm':50,'cover_mm':60,'ties_diameter_mm':10,
          'min_clear_spacing_mm':25,'min_cage_gap_mm':50,'mesh_resolution':41},
        'pile':{'diameter_mm':800,'cover_mm':60,'ties_diameter_mm':10,
@@ -108,6 +111,8 @@ def validate_project(p):
     for key,zs in groups.items():
         if zs!=stations:raise ValueError(f'{key[0]} ({key[1]}): набор отметок отличается. Согласуйте точки; пропуски не интерполируются.')
     if not any(r['basis']=='ULS' for r in rows):raise ValueError('Нужны расчётные усилия ULS')
+    if p['kind']=='pile' and p.get('transverse',{}).get('mode')=='screen':
+        raise ValueError('Для круглой БНС расчёт Q ещё не верифицирован и не подключён')
     validate_zones(p.get('zones',[]),max(stations),min(stations))
     # Validate engine inputs even before starting the worker.
     section=section_input(p,[r for r in rows if r['z']==max(stations)])
@@ -125,7 +130,10 @@ def section_input(p,rows,tiers=None):
         req['search']={f:{'bar_counts':[counts(p,tiers)[i]] if tiers else
                          [(p['background'][i]-1)*t+1 for t in range(1,p['max_tier']+1)],
                          'bar_diameters_mm':[p['diameters'][i]]} for i,f in enumerate(wall.FACES)}
-        req['loads']=[{'id':f"{r['case']} #{i+1}",'n_kn_per_m':r['n'],'mx_knm_per_m':r['m']} for i,r in enumerate(u)]
+        req['loads']=[{'id':f"{r['case']} #{i+1}",'n_kn_per_m':r['n'],
+                       'mx_knm_per_m':r['m'],'q_kn_per_m':r['q']} for i,r in enumerate(u)]
+        if p.get('transverse',{}).get('mode')=='screen':
+            req['transverse']=copy.deepcopy(p['transverse'])
     else:
         req['pile']=copy.deepcopy(p['pile'])
         req['search']={'bar_counts':[counts(p,tiers)[0]] if tiers else
@@ -222,6 +230,10 @@ def design(p,engine=None,progress=lambda v:None,recheck=False,runner=None):
         cases=evaluate(p,by_z[s['z']],cached,t)
         s['adopted']=cases[0] if cases else None
         s['checked']=bool(cases and cases[0]['accepted'])
+        s['shear_status']=cases[0].get('shear_status','not_evaluated') if cases else 'indeterminate'
+        s['shear_screening']=cases[0].get('shear_screening') if cases else None
     return {'stations':stations,'zones':zones,'rows':rows,'all_checked':all(s['checked'] for s in stations),
             'design_status':'NOT_VERIFIED','scope':'discrete_sections_only_no_shear_no_anchorage',
-            'has_sls':any(r['basis']=='SLS' for r in rows),'recheck':recheck}
+            'has_sls':any(r['basis']=='SLS' for r in rows),'recheck':recheck,
+            'shear_scope':'local_constant_profile_research_screen_only' if p['kind']=='wall' and p.get('transverse',{}).get('mode')=='screen' else 'not_evaluated',
+            'shear_checked_for_design':False}
