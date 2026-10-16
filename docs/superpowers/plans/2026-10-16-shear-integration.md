@@ -1,6 +1,6 @@
 # Integration plan: transverse shear Q for BNS and diaphragm walls
 
-Status: engineering design / **not implemented**.
+Status: **Stage 1 implemented (local CScore Q screening); full inclined-section verification still open**.
 Branch: `feat/section-workbench`. Based on pinned OpenCS commit
 `4ae6aa077be5b29145930ec093ba1c9eb7776222`.
 
@@ -61,6 +61,18 @@ Branch: `feat/section-workbench`. Based on pinned OpenCS commit
    limited screening outcome, **not** a normative PASS.
 7. Do **not** upgrade research-only CScore shear, SLS or unverified
    equivalent geometry into design approval merely because `eta < 1`.
+
+## Progress at this commit
+
+- [x] Separate physical transverse link input and explicit opt-in wall Q screening.
+- [x] Preserve joint N/M/Q and scale Q exactly once to panel width.
+- [x] Route isolated ULS tuples to pinned CScore `ShearInclinedChecker`.
+- [x] Fail closed on incomplete results; retain research-only statuses and no final acceptance.
+- [x] Workbench Q controls, visible diagram and inspector; browser/contract/real-engine CI tests added.
+- [ ] Confirm the new Windows CI run passes; do not claim numerical verification before that.
+- [ ] Replace constant profile by trustworthy phase-specific longitudinal profile and support model.
+- [ ] Prove cage-link mechanical model, detailing and anchorage; enable zoning / pitch selection.
+- [ ] Independent wall benchmarks; circular BNS separately.
 
 ## Implementation order
 
