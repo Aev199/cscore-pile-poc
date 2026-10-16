@@ -373,6 +373,20 @@ def run(runner: Path, output_dir: Path, method: str = "arbat_conservative", layo
             )
     fully_sustained = check_fully_sustained_width_identity(all_rows)
     print(f"SP63 identity a_short = a_long on {fully_sustained} fully sustained computed SLS cases")
+    restored = [x for x in all_rows
+                if x.get("crack_solver_path") == "supplemental_full_load_Acrc2"]
+    unresolved = [x for x in all_rows if x["cscore_status"] != "research_calculated"]
+    print(f"Partial sustained only: {len(restored)} supplemental short-only "
+          f"research calculations; {len(unresolved)} still indeterminate.")
+    for x in restored:
+        if x["preliminary_status"] != "engineering_review":
+            raise ValueError("Recovered short-only load MUST remain engineering review")
+        print(f"  short-only supplemental: {x['section_id']} {x['case_id']}, "
+              f"short K={x['preliminary_utilization_short']:.4f}, "
+              "UNVERIFIED/REVIEW REQUIRED")
+    for x in unresolved:
+        print(f"  unresolved: {x['section_id']} {x['case_id']}, "
+              f"reason={x.get('error')}, path={x.get('crack_solver_path')}")
     write_table(output_dir / "cross_section_sls_matrix.csv", all_rows)
     print(f"Research matrix {len(definitions)} sections, {len(all_rows)} load tuples; "
           "zero ARBAT comparisons until externally verified reports arrive.")
