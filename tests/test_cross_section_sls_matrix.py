@@ -42,6 +42,45 @@ class ResearchMatrixTests(unittest.TestCase):
                 self.assertNotIn("research_rectangle", req)
                 self.assertGreater(req["candidates"][0]["bar_axis_radius_mm"], 0)
 
+    def test_arbat_stated_geometry_does_not_mutate_original_test_matrix(self):
+        original=matrix.section_definitions()
+        aligned=matrix.section_definitions("arbat_stated")
+        self.assertEqual([x["id"] for x in original],[x["id"] for x in aligned])
+        self.assertEqual(len(aligned),7)
+        by_id={x["id"]:x for x in aligned}
+        # R400x600 ARBAT S1/S2 groups of 3 on opposite faces.
+        r6=by_id["R400x600_6d20_cover50"]
+        self.assertEqual({p["x_mm"] for p in r6["bars"]},{-140.0,0.0,140.0})
+        self.assertEqual({p["y_mm"] for p in r6["bars"]},{-240.0,240.0})
+        self.assertNotEqual(original[1]["bars"],r6["bars"])
+        # R500x700 has four bars on each opposed face.
+        r8=by_id["R500x700_8d25_cover60"]
+        self.assertEqual(len({b["x_mm"] for b in r8["bars"]}),4)
+        self.assertEqual(len({b["y_mm"] for b in r8["bars"]}),2)
+        # Two rows: 16mm bar diameter + 20mm free spacing = 36mm pitch.
+        layer=by_id["R400x400_8d16_two_layers_cover35"]
+        self.assertEqual(sorted({b["y_mm"] for b in layer["bars"]}),
+                         [-157.0,-121.0,121.0,157.0])
+        self.assertEqual(len(layer["bars"]),8)
+        # Circular reinforcement must stay exactly identical.
+        for a,b in zip(original[4:],aligned[4:]):
+            self.assertEqual(a["bar_count"],b["bar_count"])
+            self.assertEqual(a["cover_to_longitudinal_bar_surface_mm"],
+                             b["cover_to_longitudinal_bar_surface_mm"])
+        with self.assertRaises(ValueError):
+            matrix.section_definitions("bogus")
+
+    def test_arbat_stated_manifest_records_uncertainty(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)
+            matrix.generate_cases(path,matrix.section_definitions("arbat_stated"),
+                                  layout="arbat_stated")
+            manifest=json.loads((path/"manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["layout"],"arbat_stated")
+            self.assertTrue(manifest["geometry_hypothesis_not_independently_verified"])
+            self.assertEqual(len(manifest["sections"]),7)
+            self.assertEqual(len(matrix.loads()),10)
+
     def test_full_and_sustained_bending_are_not_confused(self):
         rows = matrix.loads()
         self.assertEqual(len(rows), 10)
