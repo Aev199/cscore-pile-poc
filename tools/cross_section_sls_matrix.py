@@ -195,6 +195,11 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
         raise ValueError("Missing or extra section results")
     if cases[0].get("id") != section["id"]:
         raise ValueError("Different cage ID returned")
+    # The 70-case historical sample deliberately has a dummy ULS tuple,
+    # so it must be tagged as independent research rather than candidate approval.
+    if (req.get("sls_execution_policy") != "research_all"
+            or cases[0].get("sls_gate") != "calculated_research_override"):
+        raise ValueError("Research-only ARBAT matrix lost explicit ULS bypass provenance")
     sls = cases[0].get("sls_probe")
     expected = {a["id"]: a for a in req["sls_probe"]["loads"]}
     if not isinstance(sls, list) or len(sls) != len(expected) or \
