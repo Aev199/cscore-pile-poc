@@ -206,6 +206,30 @@ class ResearchMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "short-only"):
             matrix.validate_answer(section, req, answer)
 
+    def test_short_only_over_limit_is_not_mislabeled_as_review_pass(self):
+        section=matrix.section_definitions()[2]
+        req,answer=self.fake_output(section,preliminary=0.0,native=0.0)
+        case=next(x for x in answer["cases"][0]["sls_probe"]
+                  if x["id"]=="T09_partial_sustained")
+        case.update({
+            "preliminary_basis":"short_only_supplemental_full_load_solver",
+            "preliminary_review_reason":"cracked_only_under_total_load_unvalidated_mcrc_threshold",
+            "crack_solver_path":"supplemental_full_load_Acrc2",
+            "preliminary_utilization_long":0.0,
+            "utilization_long":0.0,
+            "preliminary_utilization_short":1.25,
+            "utilization_short":1.15,
+            "preliminary_governing_utilization":1.25,
+            "preliminary_decision":"preliminary_exceeds_limit",
+        })
+        rows=matrix.validate_answer(section,req,answer)
+        selected=next(x for x in rows if x["case_id"]=="T09_partial_sustained")
+        self.assertEqual(selected["preliminary_status"],"preliminary_exceeds_limit")
+        self.assertEqual(selected["final_design_status"],"NOT_VERIFIED")
+        case["preliminary_decision"]="preliminary_below_limit"
+        with self.assertRaises(ValueError):
+            matrix.validate_answer(section,req,answer)
+
     def test_indeterminate_is_preserved(self):
         sec = matrix.section_definitions()[0]
         req, answer = self.fake_output(sec,status="indeterminate")
