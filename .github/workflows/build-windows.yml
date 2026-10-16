@@ -153,8 +153,22 @@ jobs:
             --output results/P800_sls_research.json `
             --csv results/P800_sls_research.csv
           if ($LASTEXITCODE -ne 0) { throw 'Ordinary BNS + optional SLS mode failed' }
-          python -c "import json; a=json.load(open('results/P800_sls_research.json',encoding='utf-8')); assert a['cases'] and len(a['cases'][0]['sls_probe'])==4; s=a['cases'][0]['sls_probe']; assert all(x['design_status']=='NOT_VERIFIED' for x in s); assert all(x.get('preliminary_method')=='arbat_conservative' for x in s if x['status']=='research_calculated'); print('preliminary SLS cases',len(s))"
+          python -c "import json; a=json.load(open('results/P800_sls_research.json',encoding='utf-8')); assert a['cases'] and a['cases'][0]['sls_gate']=='calculated_uls_pass' and len(a['cases'][0]['sls_probe'])==4; s=a['cases'][0]['sls_probe']; assert all(x['design_status']=='NOT_VERIFIED' for x in s); assert all(x.get('preliminary_method')=='arbat_conservative' for x in s if x['status']=='research_calculated'); print('preliminary SLS cases',len(s))"
           if ($LASTEXITCODE -ne 0) { throw 'SLS mode default or fail-closed contract invalid' }
+      - name: ULS-first rejection test (real CScore: no SLS for overloaded pile)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python -c "import json; d=json.load(open('examples/verification/P800_sls_preselection_example.json',encoding='utf-8')); d['loads']=[{'id':'OVERLOAD_ULS','n_kn':0,'mx_knm':50000,'my_knm':0}]; json.dump(d,open('results/P800_overload_uls_first_input.json','w',encoding='utf-8'),ensure_ascii=False,indent=2)"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare independent ULS overload test' }
+          python pile_rebar.py results/P800_overload_uls_first_input.json `
+            --runner publish/CScorePileRunner.exe `
+            --output results/P800_overload_uls_first_output.json `
+            --csv results/P800_overload_uls_first_output.csv
+          if ($LASTEXITCODE -ne 0) { throw 'ULS-first overloaded candidate test failed' }
+          python -c "import json; j=json.load(open('results/P800_overload_uls_first_output.json',encoding='utf-8')); assert j['force_basis']=={'uls':'design','sls':'normative'}; assert j['cases']; assert all(c['status'] in ('fail_uls','indeterminate') and c['sls_probe'] is None and c['sls_status'].startswith('not_evaluated_uls_') and c['sls_gate'] in ('skipped_uls_fail','skipped_uls_indeterminate') for c in j['cases']),j['cases']; assert j['selected_preliminary_uls_sls_research_candidate'] is None; print('real engine safely skipped SLS for',len(j['cases']),'overloaded candidates')"
+          if ($LASTEXITCODE -ne 0) { throw 'Overloaded candidate must not run SLS or receive PASS' }
       - name: Multi-geometry SLS research matrix (rectangles and circular sections)
         shell: pwsh
         env:
