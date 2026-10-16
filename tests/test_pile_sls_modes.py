@@ -69,6 +69,28 @@ class PileSlsOptionTests(unittest.TestCase):
             "utilization_short":0.4
         } for l in self.example["sls_probe"]["loads"]]
 
+    def test_short_only_supplement_is_mandatory_engineering_review(self):
+        from copy import deepcopy
+        sample=deepcopy(self.example["sls_probe"])
+        rows=self.fake_rows(utilization=0.0,native=0.0)
+        target=rows[0]
+        target.update({
+            "preliminary_basis":"short_only_supplemental_full_load_solver",
+            "preliminary_review_reason":"cracked_only_under_total_load_unvalidated_mcrc_threshold",
+            "preliminary_utilization_long":0.0,
+            "utilization_long":0.0,
+            "preliminary_utilization_short":0.72,
+            "utilization_short":0.63,
+            "preliminary_governing_utilization":0.72,
+            "preliminary_decision":"engineering_review",
+        })
+        checked=main.check_sls_results(rows,sample,"arbat_conservative",0.03)
+        self.assertEqual(checked[0]["preliminary_decision"],"engineering_review")
+        self.assertEqual(checked[0]["design_status"],"NOT_VERIFIED")
+        target["preliminary_decision"]="preliminary_below_limit"
+        with self.assertRaises(main.InputError):
+            main.check_sls_results(rows,sample,"arbat_conservative",0.03)
+
     def test_short_crack_check_also_controls_candidate(self):
         rows=self.fake_rows(utilization=.80,native=.70)
         for r in rows:
