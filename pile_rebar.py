@@ -188,7 +188,8 @@ def check_sls_results(result_rows: list, expected: dict, mode: str, band: float)
                     'cracked_only_under_total_load_unvalidated_mcrc_threshold'
                     or a != 0 or n != 0 or a_short <= 0 or native_short <= 0):
                     raise InputError('SLS: некорректный исследовательский расчёт только кратковременных трещин')
-                expected_decision = 'engineering_review'
+                expected_decision = ('preliminary_exceeds_limit'
+                                     if governing > 1.0 + band else 'engineering_review')
             else:
                 expected_decision = ('engineering_review' if abs(governing - 1) <= band else
                                      'preliminary_exceeds_limit' if governing > 1 else
