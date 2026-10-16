@@ -218,6 +218,13 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
                 primary + 1e-9 < native or primary_short + 1e-9 < native_short
             ):
                 raise ValueError("Default preliminary screening is less conservative than native")
+            if item.get("preliminary_basis") == "short_only_supplemental_full_load_solver":
+                if (item.get("preliminary_review_reason") !=
+                    "cracked_only_under_total_load_unvalidated_mcrc_threshold"
+                    or item.get("preliminary_decision") != "engineering_review"
+                    or primary != 0 or native != 0
+                    or primary_short <= 0 or native_short <= 0):
+                    raise ValueError("Invalid supplemental short-only SLS status")
         # A failed solver may omit preliminary fields, but it must remain indeterminate.
         if item.get("verified_for_design") is not False or (
             item.get("preliminary_is_final_approval") is True or
@@ -234,6 +241,8 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
             "method": item.get("preliminary_method"),
             "preliminary_basis": item.get("preliminary_basis"),
             "preliminary_status": item.get("preliminary_decision"),
+            "preliminary_review_reason": item.get("preliminary_review_reason"),
+            "crack_solver_path": item.get("crack_solver_path", "upstream_default"),
             "preliminary_width_mm": item.get("preliminary_width_long_mm"),
             "preliminary_utilization": primary if calculated else None,
             "preliminary_width_short_mm": item.get("preliminary_width_short_mm") if calculated else None,
