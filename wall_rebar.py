@@ -173,7 +173,11 @@ def build_engine_request(data, candidate):
                  'mesh_resolution':wall['mesh_resolution'],'bars':bars},
                'materials':copy.deepcopy(data['materials']),
                'loads':scaled_loads(data['loads'],width/1000),
-               'candidates':[copy.deepcopy(candidate)], 'sls_execution_policy':'uls_pass_only'}
+               # CScore rejects unknown JSON fields. Keep report metadata local.
+               'candidates':[{key:candidate[key] for key in (
+                   'id','bar_count','bar_diameter_mm','rotation_deg',
+                   'bar_axis_radius_mm','steel_area_mm2','clearance_mm')}],
+               'sls_execution_policy':'uls_pass_only'}
     if 'sls_probe' in data:
         request['sls_probe'] = copy.deepcopy(data['sls_probe'])
         request['sls_probe']['loads'] = scaled_loads(data['sls_probe']['loads'],width/1000,True)
@@ -186,7 +190,8 @@ def calculate(data, engine):
     calculated = []
     for candidate in candidates:
         request = build_engine_request(data,candidate)
-        row = parse_runner_results(request,engine(request))[0]
+        validated = parse_runner_results(request,engine(request))[0]
+        row = {**copy.deepcopy(candidate), **validated}
         # C# legacy ULS parser accepts bool as a number; do not inherit that ambiguity here.
         for load in row['loads']:
             if any(isinstance(load.get(k),bool) for k in ('factor','utilization')):

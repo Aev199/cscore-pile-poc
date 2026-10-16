@@ -57,6 +57,28 @@ class WallTests(unittest.TestCase):
         self.assertAlmostEqual(sum(math.pi*b['diameter_mm']**2/4 for b in bars), c['steel_area_mm2'])
         self.assertEqual({b['diameter_mm'] for b in bars}, {20,25})
 
+    def test_wire_request_matches_strict_csharp_dtos(self):
+        import re
+        source=Path('src/CScorePileRunner/Program.cs').read_text(encoding='utf-8')
+        def check(dto,obj):
+            body=source.split('internal sealed class '+dto+'\n',1)[1].split('internal sealed class ',1)[0]
+            allowed=set(re.findall(r'JsonPropertyName\("([^"\n]+)"\)',body))
+            self.assertTrue(allowed,dto)
+            self.assertEqual(set(obj)-allowed,set(),dto)
+        d=example(); c=self.candidates(d)[0][0]
+        request=w.build_engine_request(d,c)
+        check('BatchInput',request)
+        for key,dto in [('pile','Pile'),('materials','Materials'),('research_rectangle','ResearchRectangle'),('sls_probe','SlsProbe')]:
+            check(dto,request[key])
+        for obj in request['candidates']: check('Candidate',obj)
+        for obj in request['loads']: check('LoadCase',obj)
+        for obj in request['research_rectangle']['bars']: check('ResearchBar',obj)
+        for obj in request['sls_probe']['loads']: check('SlsLoad',obj)
+        for key in ('short_materials','long_materials'): check('Materials',request['sls_probe'][key])
+        # Serialization must not strip the separate engineering report data.
+        self.assertEqual(len(c['actual_bars']),30)
+        self.assertEqual(c['face_negative']['equivalent_spacing_mm'],200)
+
     def test_all_forces_scaled_once_without_mutation(self):
         d = example(); before = copy.deepcopy(d)
         req = w.build_engine_request(d, self.candidates(d)[0][0])
@@ -128,6 +150,8 @@ class WallTests(unittest.TestCase):
         chosen='3c_neg5d25_pos5d25'
         self.assertEqual(result['selected_uls_candidate'],chosen)
         self.assertEqual(result['selected_preliminary_uls_sls_research_candidate'],chosen)
+        self.assertEqual(len(result['cases'][0]['actual_bars']),30)
+        self.assertEqual(result['cases'][0]['face_negative']['equivalent_spacing_mm'],200)
         self.assertEqual(result['cases'][0]['governing_uls_id'],'U1')
         self.assertEqual(result['cases'][0]['governing_sls_id'],'S1')
         self.assertEqual(result['design_status'],'NOT_VERIFIED')
