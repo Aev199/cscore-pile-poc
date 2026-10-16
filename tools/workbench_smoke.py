@@ -29,5 +29,26 @@ def main():
         assert recheck['all_checked']
         assert recheck['stations'][0]['adopted']['areas'][0]>result['stations'][0]['adopted']['areas'][0]
         print(f'{kind}: UI selection and edited reinforcement checked by real CScore')
+        if kind == 'wall':
+            # True SP63 shear computations on a real CScore rectangular section.
+            # They are CONSTANT-PROFILE screening only, never normative approval.
+            transverse = copy.deepcopy(p)
+            transverse['transverse'] = dict(mode='screen', diameter_mm=10,
+                spacing_mm=200, effective_legs_per_cage=2, rsw_kpa=170000,
+                constructive_confirmed=True)
+            q_result = model.design(transverse, runner=args.runner, recheck=True, progress=print)
+            (args.output_dir/'wall_q_screen.json').write_text(
+                json.dumps(q_result, indent=2, ensure_ascii=False), encoding='utf-8')
+            assert q_result['shear_scope']=='local_constant_profile_research_screen_only'
+            assert q_result['shear_checked_for_design'] is False
+            assert all(s['shear_screening'] for s in q_result['stations'])
+            assert all(len(s['shear_screening'])==2 for s in q_result['stations'])
+            all_q = [v for s in q_result['stations'] for v in s['shear_screening']]
+            assert any(v['status']!='indeterminate' for v in all_q), all_q
+            assert all(v['verified_for_design'] is False for v in all_q)
+            assert all(v.get('support_model')=='constant_profile_no_support'
+                       for v in all_q if v['status']!='indeterminate')
+            print('wall: real CScore Q screened; every verdict explicitly research-only')
+
 
 if __name__=='__main__':main()
