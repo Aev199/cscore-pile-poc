@@ -3,6 +3,7 @@
 import argparse
 import copy
 import json
+import math
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -46,6 +47,12 @@ def main():
             all_q = [v for s in q_result['stations'] for v in s['shear_screening']]
             assert any(v['status']!='indeterminate' for v in all_q), all_q
             assert all(v['verified_for_design'] is False for v in all_q)
+            # Verify actual link contribution uses ALL physical cages exactly once.
+            expected_qsw = 3 * 2 * math.pi * (0.01 ** 2) / 4 * 170000 / 0.2
+            resolved = [v for v in all_q if v['status'] != 'indeterminate']
+            assert resolved
+            assert all(math.isclose(v['active_qsw_kn_per_m'], expected_qsw, rel_tol=1e-6)
+                       for v in resolved), resolved
             assert all(v.get('support_model')=='constant_profile_no_support'
                        for v in all_q if v['status']!='indeterminate')
             print('wall: real CScore Q screened; every verdict explicitly research-only')
