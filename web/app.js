@@ -106,13 +106,25 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
       if(r.governing_formula)html+=metric('Условие',r.governing_formula);
       if(r.governing_s_m!=null)html+=metric('Стоянка от верха',fmt(r.governing_s_m)+' м');
       if(r.pitch_windows?.length){
-        const zTop=zs()[0];
+        const zTop=zs()[0], groups=[];
         for(const w of r.pitch_windows){
-          html+='<p class="small">Отм. '+fmt(zTop-w.start_s_m)+'…'+fmt(zTop-w.end_s_m)+' м</p>';
-          html+=metric('Шаг принят / учтён',fmt(w.adopted_pitch_mm)+' / '+fmt(w.governing_neighbor_pitch_mm)+' мм');
-          html+=metric('η Q участка',fmt(w.utilization,3));
+          const previous=groups.at(-1);
+          if(previous && Math.abs(previous.end-w.start_s_m)<1e-7 &&
+             previous.adopted===w.adopted_pitch_mm){
+            previous.end=w.end_s_m;
+            previous.effective=Math.max(previous.effective,w.governing_neighbor_pitch_mm);
+            previous.eta=Math.max(previous.eta,w.utilization);
+          }else groups.push({start:w.start_s_m,end:w.end_s_m,
+            adopted:w.adopted_pitch_mm,effective:w.governing_neighbor_pitch_mm,eta:w.utilization});
         }
-        html+='<p class="hint">Учтено влияние более редких хомутов соседних зон. Фактическая раскладка и анкеровка не подтверждены.</p>';
+        html+='<p class="hint">Коэффициент по каждому участку — максимум его расчётных окон.</p>';
+        for(const g of groups.slice(0,12)){
+          html+='<p class="small">Отм. '+fmt(zTop-g.start)+'…'+fmt(zTop-g.end)+' м</p>';
+          html+=metric('Шаг / учтено',fmt(g.adopted)+' / '+fmt(g.effective)+' мм');
+          html+=metric('η Q',fmt(g.eta,3));
+        }
+        if(groups.length>12)html+='<p class="hint">Показаны первые 12 участков из '+groups.length+'. Полные данные сохраняются в ответе расчёта.</p>';
+        html+='<p class="hint">Учитываются редкие хомуты соседних зон в пределах 3h₀. Раскладка, опоры и анкеровка не подтверждены.</p>';
       }
       if(r.error)html+='<p class="hint">'+esc(r.error)+'</p>';
     }
