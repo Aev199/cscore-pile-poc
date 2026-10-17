@@ -27,7 +27,7 @@ function renderForms(){
  $('geometry').innerHTML=(kind==='wall'?fieldsWall:fieldsPile).map(([k,l])=>inputField(l,geom[k],`data-geom="${k}" min="0" step="1"`)).join('');
  $('reinforcement').innerHTML=kind==='wall'?['Грань y−','Грань y+'].map((f,i)=>inputField(`${f} · стержней фона на каркас`,project.background[i],`data-bg="${i}" min="2" step="1"`)+inputField(`${f} · диаметр, мм`,project.diameters[i],`data-dia="${i}" min="1"`)).join(''):inputField('Стержней фона в кольце',project.pile_background,'data-pile="pile_background" min="6" step="1"')+inputField('Диаметр стержня, мм',project.pile_diameter,'data-pile="pile_diameter" min="1"');
  $('spacingLabel').hidden=kind!=='pile'||project.force_scale!=='per_metre';
- document.querySelectorAll('[data-geom]').forEach(e=>e.onchange=()=>{project[kind][e.dataset.geom]=Number(e.value);dirty();});
+ document.querySelectorAll('[data-geom]').forEach(e=>e.onchange=()=>{project[kind][e.dataset.geom]=Number(e.value);if(kind==='wall')invalidateTieGeometry();dirty();});
  document.querySelectorAll('[data-bg]').forEach(e=>e.onchange=()=>{project.background[+e.dataset.bg]=Number(e.value);dirty();renderZones();});
  document.querySelectorAll('[data-dia]').forEach(e=>e.onchange=()=>{project.diameters[+e.dataset.dia]=Number(e.value);dirty();});
  document.querySelectorAll('[data-pile]').forEach(e=>e.onchange=()=>{project[e.dataset.pile]=Number(e.value);dirty();renderZones();});
