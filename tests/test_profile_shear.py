@@ -27,7 +27,9 @@ def mocked_profile(req, case, util=.6):
         pitch_windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
             adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=max(
                 z['spacing_mm'] for z in req['pitch_bands']),
-            influence_each_side_m=1.5,boundary_verified=False)
+            influence_each_side_m=1.5,boundary_verified=False,
+            verified_for_design=False,utilization=util,
+            status='research_zone_below_one' if util<=1 else 'research_zone_exceeds_one')
             for b in req['pitch_bands']])
 
 
@@ -121,6 +123,14 @@ class PhaseProfileContracts(unittest.TestCase):
         cases[0]=mocked_profile(inp,'A')
         cases[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=100
         with self.assertRaisesRegex(ValueError,'соседних'):
+            validate_profile_results(inp,cases)
+        cases[0]=mocked_profile(inp,'A')
+        cases[0]['pitch_windows'][0]['utilization']=1.2
+        with self.assertRaisesRegex(ValueError,'статус участка'):
+            validate_profile_results(inp,cases)
+        cases[0]=mocked_profile(inp,'A')
+        cases[0]['pitch_windows'][0]['utilization']=0.4
+        with self.assertRaisesRegex(ValueError,'худшему участку'):
             validate_profile_results(inp,cases)
 
     def test_json_contract_uses_declared_csharp_fields(self):
