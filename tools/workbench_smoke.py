@@ -71,6 +71,9 @@ def main():
                 {'z':-float(i),'case':'Q ULS','basis':'ULS','n':-100.,
                  'm':50.+20.*i,'q':20.,'m_long':None}
                 for i in range(5)]
+            profile_project['transverse_zones']=[
+                {'top':0.,'bottom':-2.,'spacing_mm':300.},
+                {'top':-2.,'bottom':-4.,'spacing_mm':125.}]
             profile_result=model.screen_background_profile(
                 profile_project,runner=args.runner)
             (args.output_dir/'wall_q_phase_profile.json').write_text(
@@ -85,6 +88,13 @@ def main():
             assert math.isfinite(phase['utilization'])
             assert phase['verified_for_design'] is False
             assert phase['sampled_stations']>2
+            # Two zones cover the whole wall: unused background pitch = 200 mm
+            # must NOT be included; conservative full-profile pitch is 300 mm.
+            assert profile_result['transverse_envelope']['uniform_pitch_mm']==300
+            assert profile_result['transverse_envelope']['background_used'] is False
+            assert profile_result['transverse_envelope']['boundary_verified'] is False
+            qsw_uniform = 3 * 2 * math.pi * (0.01 ** 2) / 4 * 170000 / 0.3
+            assert math.isclose(phase['qsw_kn_per_m'], qsw_uniform, rel_tol=1e-6)
             print('wall: full-phase SampledProfile CScore Q research diagnostic succeeded')
 
 
