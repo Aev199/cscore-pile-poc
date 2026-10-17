@@ -10,6 +10,8 @@ from pathlib import Path
 import pile_rebar as pile
 import wall_rebar as wall
 
+from .profile_audit import audit as audit_profiles
+
 ROOT=Path(__file__).resolve().parents[1]
 FIELDS=['z','case','basis','n','m','q','m_long']
 
@@ -236,4 +238,5 @@ def design(p,engine=None,progress=lambda v:None,recheck=False,runner=None):
             'design_status':'NOT_VERIFIED','scope':'discrete_sections_only_no_shear_no_anchorage',
             'has_sls':any(r['basis']=='SLS' for r in rows),'recheck':recheck,
             'shear_scope':'local_constant_profile_research_screen_only' if p['kind']=='wall' and p.get('transverse',{}).get('mode')=='screen' else 'not_evaluated',
-            'shear_checked_for_design':False}
+            'shear_checked_for_design':False,
+            'force_profile_audit':audit_profiles(rows)}
