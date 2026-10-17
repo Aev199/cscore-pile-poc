@@ -108,7 +108,9 @@ class PhaseProfileContracts(unittest.TestCase):
         p=project()
         normalized=model.normalized_rows(p)
         profile=build_profiles(normalized,3,'same',True)
-        self.assertEqual(set(profile), fields('ShearProfileBatch'))
+        self.assertEqual(set(profile)|{'pitch_bands'}, fields('ShearProfileBatch'))
+        self.assertEqual(fields('ShearPitchBand'),
+                         {'start_s_m','end_s_m','spacing_mm'})
         self.assertEqual(set(profile['profiles'][0]),fields('ShearPhase'))
         self.assertEqual(set(profile['profiles'][0]['samples'][0]),fields('ShearSample'))
         self.assertIn('new SampledProfile(',cs)
@@ -134,6 +136,9 @@ class PhaseProfileContracts(unittest.TestCase):
             }]}
         result=model.screen_background_profile(p,engine=engine)
         self.assertEqual(seen[0]['shear_screening']['spacing_mm'],300)
+        self.assertEqual(seen[0]['shear_profile']['pitch_bands'],[
+            dict(start_s_m=0,end_s_m=2,spacing_mm=300),
+            dict(start_s_m=2,end_s_m=4,spacing_mm=125)])
         self.assertEqual(p['transverse']['spacing_mm'],200)
         self.assertFalse(result['transverse_envelope']['background_used'])
         self.assertEqual(result['transverse_envelope']['uniform_pitch_mm'],300)
