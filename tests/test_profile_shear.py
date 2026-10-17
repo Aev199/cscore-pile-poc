@@ -20,6 +20,17 @@ def project():
     return p
 
 
+def mocked_profile(req, case, util=.6):
+    return dict(id=case,status='research_profile_below_one',
+        utilization=util,verified_for_design=False,support_model='none',
+        reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
+        pitch_windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
+            adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=max(
+                z['spacing_mm'] for z in req['pitch_bands']),
+            influence_each_side_m=1.5,boundary_verified=False)
+            for b in req['pitch_bands']])
+
+
 class PhaseProfileContracts(unittest.TestCase):
     def test_two_phases_have_separate_joint_tuples_and_width_scales_once(self):
         p=project();orig=copy.deepcopy(p)
@@ -76,9 +87,7 @@ class PhaseProfileContracts(unittest.TestCase):
             seen.append(request)
             result=[]
             for phase in request['shear_profile']['profiles']:
-                result.append(dict(id=phase['id'],status='research_profile_below_one',
-                                   utilization=.6,verified_for_design=False,
-                                   support_model='none'))
+                result.append(mocked_profile(request['shear_profile'],phase['id']))
             return {'schema_version':1,'cases':[{
                 'id':request['candidates'][0]['id'],
                 'loads':[dict(id=l['id'],converged=True,factor=2,utilization=.5,error=None)
@@ -95,6 +104,24 @@ class PhaseProfileContracts(unittest.TestCase):
         self.assertEqual(len(seen),1)
         self.assertEqual(seen[0]['shear_profile']['profiles'][0]['samples'][1]['q_kn'],60)
         self.assertEqual(seen[0]['shear_screening']['cage_count'],3)
+
+    def test_false_or_missing_zone_transition_metadata_fails_closed(self):
+        p=project()
+        inp=build_profiles(model.normalized_rows(p),3,'same',True)
+        inp['pitch_bands']=[{'start_s_m':0,'end_s_m':4,'spacing_mm':200}]
+        cases=[mocked_profile(inp,case) for case in ('A','B')]
+        self.assertEqual(len(validate_profile_results(inp,cases)),2)
+        cases[0]['pitch_windows']=[]
+        with self.assertRaisesRegex(ValueError,'разбиение'):
+            validate_profile_results(inp,cases)
+        cases[0]=mocked_profile(inp,'A')
+        cases[0]['pitch_windows'][0]['boundary_verified']=True
+        with self.assertRaisesRegex(ValueError,'перехода'):
+            validate_profile_results(inp,cases)
+        cases[0]=mocked_profile(inp,'A')
+        cases[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=100
+        with self.assertRaisesRegex(ValueError,'соседних'):
+            validate_profile_results(inp,cases)
 
     def test_json_contract_uses_declared_csharp_fields(self):
         from pathlib import Path
@@ -130,8 +157,7 @@ class PhaseProfileContracts(unittest.TestCase):
                               utilization=.5,error=None) for l in req['loads']],
                 'shear_screening':[dict(id=l['id'],status='indeterminate',
                     utilization=None,verified_for_design=False) for l in req['loads']],
-                'shear_profiles':[dict(id=x['id'],status='research_profile_below_one',
-                    utilization=.6,support_model='none',verified_for_design=False)
+                'shear_profiles':[mocked_profile(req['shear_profile'],x['id'])
                     for x in req['shear_profile']['profiles']]
             }]}
         result=model.screen_background_profile(p,engine=engine)
