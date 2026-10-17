@@ -103,8 +103,8 @@ def validate_profile_results(request, response):
                         or not math.isfinite(neighboring)):
                     raise ValueError('CScore: недопустимый учёт соседних участков Q')
                 effective=max(b['spacing_mm'] for b in physical
-                              if b['end_s_m'] >= lo-influence-1e-9
-                              and b['start_s_m'] <= hi+influence+1e-9)
+                              if b['end_s_m'] > lo-influence+1e-9
+                              and b['start_s_m'] < hi+influence-1e-9)
                 if not math.isclose(neighboring,effective,rel_tol=1e-7,abs_tol=1e-6):
                     raise ValueError('CScore: неверный шаг соседних участков Q')
                 possible=[other['spacing_mm'] for other in expected_bands
