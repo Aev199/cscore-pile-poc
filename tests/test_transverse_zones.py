@@ -3,7 +3,7 @@ import copy
 import unittest
 
 from workbench import model
-from workbench.transverse_zones import validate, envelope
+from workbench.transverse_zones import validate, envelope, pitch_bands
 
 
 class TransverseZonesTests(unittest.TestCase):
@@ -54,6 +54,25 @@ class TransverseZonesTests(unittest.TestCase):
         p['transverse_zones'].append({'top':-5,'bottom':-12,'spacing_mm':170})
         with self.assertRaisesRegex(ValueError,'перекрываются'):
             model.validate_project(p)
+
+    def test_station_bands_cover_zones_and_background_gaps(self):
+        zones=[{'top':-2,'bottom':-5,'spacing_mm':125},
+               {'top':-7,'bottom':-10,'spacing_mm':300}]
+        self.assertEqual(pitch_bands(zones,0,-12,200),[
+            dict(start_s_m=0,end_s_m=2,spacing_mm=200),
+            dict(start_s_m=2,end_s_m=5,spacing_mm=125),
+            dict(start_s_m=5,end_s_m=7,spacing_mm=200),
+            dict(start_s_m=7,end_s_m=10,spacing_mm=300),
+            dict(start_s_m=10,end_s_m=12,spacing_mm=200)])
+        self.assertEqual(pitch_bands([],0,-12,200),
+                         [dict(start_s_m=0,end_s_m=12,spacing_mm=200)])
+
+    def test_station_bands_keep_touching_boundary_without_fabricated_gap(self):
+        zones=[{'top':0,'bottom':-6,'spacing_mm':300},
+               {'top':-6,'bottom':-12,'spacing_mm':125}]
+        self.assertEqual(pitch_bands(zones,0,-12,200),[
+            dict(start_s_m=0,end_s_m=6,spacing_mm=300),
+            dict(start_s_m=6,end_s_m=12,spacing_mm=125)])
 
     def test_pile_cannot_acquire_wall_pitch_zones(self):
         p=model.default_project()
