@@ -14,6 +14,7 @@ from .profile_audit import audit as audit_profiles
 from .profile_shear import build_profiles, validate_profile_results
 from .transverse_zones import validate as validate_transverse_zones, envelope as transverse_envelope, pitch_bands
 from .stirrup_layout import proposed_positions, count_in_projection, proposal_summary, specified_positions, specified_summary
+from .reinforcement_schedule import allowed_pitches, schedule as make_reinforcement_schedule
 
 ROOT=Path(__file__).resolve().parents[1]
 FIELDS=['z','case','basis','n','m','q','m_long']
@@ -28,6 +29,7 @@ def default_project():
        'moment_sign':1,'materials_confirmed':False,'eccentricity_confirmed':False,
        'background':[4,4],'pile_background':8,'diameters':[25,25],'pile_diameter':25,
        'max_tier':3,
+       'q_allowed_steps_mm':[100,150,200,300],
        'transverse_layout':{'mode':'proposed','positions_mm':[], 'geometry_confirmed':False},
        'profile_options':{'orientation':'same','axes_confirmed':False},
        'transverse':{'mode':'off','diameter_mm':10,'spacing_mm':200,
@@ -104,6 +106,7 @@ def validate_project(p):
     if not isinstance(p,dict) or p.get('version')!=1:raise ValueError('Неподдерживаемый формат проекта')
     rows=normalized_rows(p)
     wall.integer(p.get('max_tier'),1,3,'Ступеней усиления')
+    allowed_pitches(p.get('q_allowed_steps_mm'))
     if p['kind']=='wall':
         for x in p.get('background',[]):wall.integer(x,2,20,'Стержней фона')
         if len(p.get('background',[]))!=2 or len(p.get('diameters',[]))!=2:raise ValueError('Нужны две грани')
@@ -261,6 +264,12 @@ def design(p,engine=None,progress=lambda v:None,recheck=False,runner=None):
             'shear_scope':'local_constant_profile_research_screen_only' if p['kind']=='wall' and p.get('transverse',{}).get('mode')=='screen' else 'not_evaluated',
             'shear_checked_for_design':False,
             'force_profile_audit':audit_profiles(rows)}
+
+
+def reinforcement_schedule(p):
+    """Draft wall reinforcement zones, independent of the normative design verdict."""
+    rows=validate_project(p)
+    return make_reinforcement_schedule(p,rows)
 
 
 def screen_background_profile(p, engine=None, runner=None):
