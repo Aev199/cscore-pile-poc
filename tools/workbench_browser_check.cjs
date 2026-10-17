@@ -19,7 +19,15 @@ const path=require('path');
   await page.waitForFunction(() => document.querySelector('#inspection').textContent.includes('Согласованность M–Q'));
   assert(await page.locator('#inspection').textContent().then(s=>s.includes('Диагностика эпюр не подтверждает')));
 
-  // Q is visible but deliberately remains unverified until explicitly screened.
+  // Ordinary reinforcement zones and typical pitches are visible; Q solver
+  // experiments stay behind one explicitly opened section.
+  assert(await page.locator('#qPitchOptions').isVisible());
+  assert(await page.locator('#addQZone').isVisible());
+  assert(!(await page.locator('#screenQ').isVisible()));
+  await page.locator('#qPitchOptions').fill('100; 125; 150; 200; 300');
+  await page.locator('#qPitchOptions').dispatchEvent('change');
+  assert.equal(await page.locator('#qPitchChoices option').count(),5);
+  await page.locator('#advancedQ summary').first().click();
   assert(await page.locator('#profileCheck').isDisabled());
   await page.locator('#screenQ').check();
   assert(await page.locator('#qFields').isVisible());
@@ -57,6 +65,16 @@ const path=require('path');
   assert.equal(qData.transverse_layout.mode,'specified');
   assert.equal(qData.transverse_layout.positions_mm.length,60);
   assert.equal(qData.transverse_layout.geometry_confirmed,true);
+  assert.deepEqual(qData.q_allowed_steps_mm,[100,125,150,200,300]);
+  // Export draft working zones without issuing engineering approval.
+  const scheduleReady=page.waitForEvent('download');
+  await page.locator('#exportSchedule').click();
+  const scheduleDownload=await scheduleReady;
+  assert(scheduleDownload.suggestedFilename().includes('черновик.csv'));
+  const scheduleStream=await scheduleDownload.createReadStream();
+  const scheduleParts=[];for await(const part of scheduleStream)scheduleParts.push(part);
+  const scheduleCsv=Buffer.concat(scheduleParts).toString();
+  assert(scheduleCsv.includes('ЧЕРНОВИК, НЕ ПРОВЕРЕНО'));
   await page.locator('#qSpacing').fill('150');
   await page.locator('#qSpacing').dispatchEvent('change');
   assert(!(await page.locator('#qConstructive').isChecked()));
@@ -91,6 +109,6 @@ const path=require('path');
   const json=Buffer.concat(chunks).toString();assert(!json.includes('not-to-be-saved'));assert.equal(JSON.parse(json).kind,'pile');
   await page.reload();await page.waitForSelector('#charts svg');
   await page.screenshot({path:process.env.SCREENSHOT||'/tmp/workbench-initial.png',fullPage:true});
-  assert.deepEqual(errors,[]);console.log('Browser QA passed: Q controls, phase profile axis confirmation, diagrams, selection, table replacement/errors, pile mode, project download, no secret persistence.');
+  assert.deepEqual(errors,[]);console.log('Browser QA passed: simplified Q editor, hidden advanced diagnostics, draft schedule CSV, Q controls, diagrams and secure project persistence.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
