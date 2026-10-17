@@ -84,6 +84,12 @@ Branch: `feat/section-workbench`. Based on pinned OpenCS commit
 - [x] Zone-aware CScore Q screening partitions the full phase into physical pitch bands and then subwindows split at each ±3h₀ influence boundary; checks local interior and both transition sides, and reports each research-only `eta`.
 - [x] Result contract cross-checks contiguous interval coverage, physical vs neighboring pitch, status, and governing overall utilization, rejecting inconsistencies.
 - [x] Static interface/source review, scope guards and negative tests for window coverage; force-density conservatism **does not automatically prove** conservative SP63 strength at low qsw.
+- [x] Windows CI #39020642458 passed for zone-transition segmentation (log: real CScore zone-aware Q, SampledProfile and browser QA); this covers SHA `15f2edf3` only.
+- [x] Separate provisional stirrup positions (`first_link_at_start_of_every_pitch_band` explicitly **assumed**, never verified) and directional critical 8.56 projection metadata from pinned CScore; count the assumed ties on that C.
+- [x] Fail closed on missing critical C/direction and report a projection outside source-profile extent instead of inventing ties. Show exploratory tie counts in inspector.
+- [x] Isolated geometry unit tests passed; extended repo tests and new real-CScore Windows smoke added.
+- [ ] Windows CI of the new discrete-projection diagnostic commits is **pending**.
+- [ ] Engineer-specified first-link offsets, physical stirrup shapes, anchorage, effective branches and independent normative `qsw(s)` projection checks.
 - [ ] Run Windows CI for the latest **subwindow CScore implementation** (not yet verified by a new workflow run).
 - [ ] Implement genuine zone-dependent `qsw(s)`, actual stirrup trajectories and transitions, true support model, bar cutoffs/anchorage, and inclination moment (8.63); independently benchmark before design verification.
 - [ ] Replace constant profile by trustworthy phase-specific longitudinal profile and support model.
