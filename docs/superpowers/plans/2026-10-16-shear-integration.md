@@ -73,6 +73,11 @@ Branch: `feat/section-workbench`. Based on pinned OpenCS commit
 - [x] Windows CI #39010091725 passed (111 Python tests, real CScore Q, browser QA).
 - [x] Phase-wise M/Q consistency audit: two diagnostic sign hypotheses, no force mutation, warnings for missing/duplicate/inconsistent data, UI and API; new tests.
 - [ ] Windows CI verification of the new profile-audit commit.
+- [x] Build a phase-specific `SampledProfile` using explicitly confirmed M/Q axis convention; call pinned CScore on a **constant background section only**, with no inferred supports, and expose the separate research-only result via UI/API.
+- [x] Add negative tests for absent sign confirmation, mixed phases, duplicate levels, malformed/missing solver results, and strict C# DTO fields.
+- [x] Add a real-engine Windows smoke for an equilibrium-compatible full-phase M/Q profile and browser checks for the axis confirmation controls.
+- [ ] Windows CI build and real CScore profile smoke for these new commits — **not yet run**.
+- [ ] Handle actual supports and load distribution, bar cutoff/anchorage, transverse zones and inclination moment (8.63) before claiming design verification.
 - [ ] Replace constant profile by trustworthy phase-specific longitudinal profile and support model.
 - [ ] Prove cage-link mechanical model, detailing and anchorage; enable zoning / pitch selection.
 - [ ] Independent wall benchmarks; circular BNS separately.
