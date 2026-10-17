@@ -23,6 +23,8 @@ def project():
 def mocked_profile(req, case, util=.6):
     return dict(id=case,status='research_profile_below_one',
         utilization=util,verified_for_design=False,support_model='none',
+        critical_shear_s_m=0.5,critical_shear_c_m=1.0,
+        critical_shear_direction=1,critical_shear_eta=util,
         reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
         pitch_windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
             adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=max(
@@ -102,6 +104,12 @@ class PhaseProfileContracts(unittest.TestCase):
         self.assertEqual(result['verified_for_design'],False)
         self.assertEqual(result['design_status'],'NOT_VERIFIED')
         self.assertEqual(result['reinforcement'],'background_only')
+        self.assertEqual(result['proposed_stirrup_layout']['status'],'UNVERIFIED_PROPOSAL')
+        self.assertFalse(result['proposed_stirrup_layout']['verified_for_design'])
+        self.assertTrue(all(x['status']=='proposed_layout_count_only'
+                            for x in result['critical_projection_links']))
+        self.assertTrue(all(x['actual_layout_confirmed'] is False
+                            for x in result['critical_projection_links']))
         self.assertEqual(len(result['profile_results']),2)
         self.assertEqual(len(seen),1)
         self.assertEqual(seen[0]['shear_profile']['profiles'][0]['samples'][1]['q_kn'],60)
@@ -156,6 +164,8 @@ class PhaseProfileContracts(unittest.TestCase):
                         utilization=0.6,verified_for_design=False,
                         support_model='none',
                         reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
+                        critical_shear_s_m=1.0,critical_shear_c_m=1.0,
+                        critical_shear_direction=-1,critical_shear_eta=0.6,
                         pitch_windows=[makewin(x) for x in windows])
         cases=[makecase('A'),makecase('B')]
         # The boundary at s=2 must be represented and every mm covered.
@@ -166,6 +176,10 @@ class PhaseProfileContracts(unittest.TestCase):
         cases[0]=makecase('A')
         cases[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=300
         with self.assertRaisesRegex(ValueError,'соседних'):
+            validate_profile_results(req,cases)
+        cases[0]=makecase('A')
+        cases[0]['critical_shear_direction']=0
+        with self.assertRaisesRegex(ValueError,'геометрии критического'):
             validate_profile_results(req,cases)
         cases[0]=makecase('A')
         cases[0]['pitch_windows'][1]['end_s_m']=2.5
