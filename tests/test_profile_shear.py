@@ -205,6 +205,8 @@ class PhaseProfileContracts(unittest.TestCase):
                  for b,pitch in zip(req['pitch_bands'],(150,300,300))]
         good=[dict(id=case,status='research_profile_below_one',
                    utilization=.5,support_model='none',verified_for_design=False,
+                   critical_shear_s_m=1.0,critical_shear_c_m=1.0,
+                   critical_shear_direction=1,critical_shear_eta=.5,
                    reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
                    pitch_windows=[dict(w) for w in windows])
               for case in ('A','B')]
