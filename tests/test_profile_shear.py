@@ -114,6 +114,32 @@ class PhaseProfileContracts(unittest.TestCase):
         self.assertIn('new SampledProfile(',cs)
         self.assertIn('supportAtStart: false, supportAtEnd: false',cs)
 
+    def test_background_profile_uses_worst_actual_zone_spacing(self):
+        p=project()
+        p['transverse_zones']=[
+            {'top':0,'bottom':-2,'spacing_mm':300},
+            {'top':-2,'bottom':-4,'spacing_mm':125}]
+        seen=[]
+        def engine(req):
+            seen.append(req)
+            return {'schema_version':1,'cases':[{
+                'id':req['candidates'][0]['id'],
+                'loads':[dict(id=l['id'],converged=True,factor=2,
+                              utilization=.5,error=None) for l in req['loads']],
+                'shear_screening':[dict(id=l['id'],status='indeterminate',
+                    utilization=None,verified_for_design=False) for l in req['loads']],
+                'shear_profiles':[dict(id=x['id'],status='research_profile_below_one',
+                    utilization=.6,support_model='none',verified_for_design=False)
+                    for x in req['shear_profile']['profiles']]
+            }]}
+        result=model.screen_background_profile(p,engine=engine)
+        self.assertEqual(seen[0]['shear_screening']['spacing_mm'],300)
+        self.assertEqual(p['transverse']['spacing_mm'],200)
+        self.assertFalse(result['transverse_envelope']['background_used'])
+        self.assertEqual(result['transverse_envelope']['uniform_pitch_mm'],300)
+        self.assertFalse(result['transverse_envelope']['boundary_verified'])
+        self.assertFalse(result['verified_for_design'])
+
     def test_background_run_never_uses_unconfirmed_axes(self):
         p=project();p['profile_options']['axes_confirmed']=False
         with self.assertRaisesRegex(ValueError,'Подтвердите'):
