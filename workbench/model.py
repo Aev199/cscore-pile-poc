@@ -13,7 +13,7 @@ import wall_rebar as wall
 from .profile_audit import audit as audit_profiles
 from .profile_shear import build_profiles, validate_profile_results
 from .transverse_zones import validate as validate_transverse_zones, envelope as transverse_envelope, pitch_bands
-from .stirrup_layout import proposed_positions, count_in_projection, proposal_summary
+from .stirrup_layout import proposed_positions, count_in_projection, proposal_summary, specified_positions, specified_summary
 
 ROOT=Path(__file__).resolve().parents[1]
 FIELDS=['z','case','basis','n','m','q','m_long']
@@ -28,6 +28,7 @@ def default_project():
        'moment_sign':1,'materials_confirmed':False,'eccentricity_confirmed':False,
        'background':[4,4],'pile_background':8,'diameters':[25,25],'pile_diameter':25,
        'max_tier':3,
+       'transverse_layout':{'mode':'proposed','positions_mm':[], 'geometry_confirmed':False},
        'profile_options':{'orientation':'same','axes_confirmed':False},
        'transverse':{'mode':'off','diameter_mm':10,'spacing_mm':200,
                      'effective_legs_per_cage':2,'rsw_kpa':170000,
@@ -125,6 +126,17 @@ def validate_project(p):
     if p['kind']=='wall':
         validate_transverse_zones(p.get('transverse_zones',[]),max(stations),min(stations),
                                   p.get('transverse',{}).get('spacing_mm',200))
+    layout=p.get('transverse_layout') or {'mode':'proposed'}
+    if not isinstance(layout,dict) or layout.get('mode') not in ('proposed','specified'):
+        raise ValueError('Неизвестный режим расположения хомутов')
+    if layout['mode']=='specified':
+        if p['kind']!='wall':
+            raise ValueError('Фактические координаты поперечных стержней доступны только для стены')
+        bands=pitch_bands(p.get('transverse_zones',[]),max(stations),min(stations),
+                          p.get('transverse',{}).get('spacing_mm',200))
+        specified_positions(bands,layout.get('positions_mm'))
+        if type(layout.get('geometry_confirmed')) is not bool:
+            raise ValueError('Подтверждение расположения хомутов должно быть логическим')
     # Validate engine inputs even before starting the worker.
     section=section_input(p,[r for r in rows if r['z']==max(stations)])
     (wall.validate_input if p['kind']=='wall' else pile.validate_input)(section)
@@ -298,13 +310,19 @@ def screen_background_profile(p, engine=None, runner=None):
     if not isinstance(items,list) or len(items)!=1:
         raise ValueError('CScore: отсутствуют данные расчёта эпюр')
     evaluated=validate_profile_results(profiles,items[0].get('shear_profiles'))
-    positions=proposed_positions(bands)
-    layout=proposal_summary(bands)
+    layout_source=p.get('transverse_layout') or {'mode':'proposed'}
+    if layout_source['mode']=='specified':
+        positions=specified_positions(bands,layout_source.get('positions_mm'))
+        layout=specified_summary(positions,layout_source.get('geometry_confirmed'))
+    else:
+        positions=proposed_positions(bands)
+        layout=proposal_summary(bands)
     critical_layout=[]
     wall_length=bands[-1]['end_s_m']
     for r in evaluated:
         item={'id':r['id'],'status':'not_evaluated',
-              'verified_for_design':False,'actual_layout_confirmed':False}
+              'verified_for_design':False,
+              'actual_layout_confirmed':layout.get('actual_layout_confirmed') is True}
         if r['status']!='indeterminate':
             s=r.get('critical_shear_s_m')
             projection=r.get('critical_shear_c_m')
@@ -319,7 +337,9 @@ def screen_background_profile(p, engine=None, runner=None):
                 if min(s,edge)<-1e-8 or max(s,edge)>wall_length+1e-8:
                     item['status']='outside_sampled_profile'
                 else:
-                    item['status']='proposed_layout_count_only'
+                    item['status']=('specified_layout_count_only'
+                                    if layout_source['mode']=='specified'
+                                    else 'proposed_layout_count_only')
                     item['ties_crossing_per_cage']=count_in_projection(
                         positions,s,projection,direction)
         critical_layout.append(item)
