@@ -153,10 +153,13 @@ function renderQZones(){
  </div>`).join(''):'<p class="hint">Участков нет — основной шаг по всей длине.</p>';
  host.querySelectorAll('[data-q-zone]').forEach(el=>el.onchange=()=>{
    project.transverse_zones[+el.dataset.qZone][el.dataset.qKey]=Number(el.value);
+   project.transverse.constructive_confirmed=false;$('qConstructive').checked=false;
    dirty();
  });
  host.querySelectorAll('[data-q-remove]').forEach(el=>el.onclick=()=>{
-   project.transverse_zones.splice(+el.dataset.qRemove,1);dirty();renderQZones();
+   project.transverse_zones.splice(+el.dataset.qRemove,1);
+   project.transverse.constructive_confirmed=false;$('qConstructive').checked=false;
+   dirty();renderQZones();
  });
 }
 function renderZones(){if(!project.zones.length){$('zoneTable').innerHTML='<p class="empty">Усилений нет. Выполните подбор или добавьте участок вручную.</p>';return;}
@@ -217,6 +220,7 @@ $('addQZone').onclick=()=>{
  if(!gap&&cursor>bottom+1e-8)gap={top:cursor,bottom};
  if(!gap){message('Сначала освободите часть длины, изменив границы существующих участков.');return;}
  project.transverse_zones.push({...gap,spacing_mm:150});
+ project.transverse.constructive_confirmed=false;$('qConstructive').checked=false;
  dirty();renderQZones();message();
 };
 $('profileCheck').onclick=calculateProfile;
