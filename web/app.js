@@ -1,11 +1,21 @@
 'use strict';
 const $=id=>document.getElementById(id),token=document.querySelector('meta[name=session]').content;
-let project,result=null,stale=false,revision=0,selectedZ=0,phase='all',busy=false,catalog=null;
+let project,result=null,stale=false,revision=0,selectedZ=0,phase='all',busy=false,catalog=null,profileAudit=null;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(v,n=2)=>Number.isFinite(v)?v.toLocaleString('ru-RU',{maximumFractionDigits:n}):'—';
 function message(s=''){ $('message').hidden=!s;$('message').textContent=s;document.querySelectorAll('.dialogerror').forEach(x=>x.remove());const d=document.querySelector('dialog[open]');if(s&&d){const p=document.createElement('p');p.className='dialogerror notice';p.textContent=s;d.prepend(p);} }
 async function api(path,data){const r=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{'X-Session':token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const v=await r.json();if(!r.ok)throw Error(v.error||'Ошибка запроса');return v;}
-function dirty(){revision++;stale=true;$('resultState').textContent=result?'Данные изменены · пересчитайте':'Расчёт не выполнен';renderCharts();renderInspection();}
+// Diagnostic only: the closest M'≈±Q convention never modifies imported forces.
+function refreshProfileAudit(){
+ if(!project)return;
+ const rev=revision;
+ api('profile-audit',project).then(value=>{
+   if(rev===revision){profileAudit=value;renderInspection();}
+ }).catch(error=>{
+   if(rev===revision){profileAudit={error:error.message};renderInspection();}
+ });
+}
+function dirty(){revision++;profileAudit=null;refreshProfileAudit();stale=true;$('resultState').textContent=result?'Данные изменены · пересчитайте':'Расчёт не выполнен';renderCharts();renderInspection();}
 const fieldsWall=[['panel_width_mm','Ширина захватки, мм'],['thickness_mm','Толщина стены, мм'],['cage_count','Число каркасов'],['cage_width_mm','Ширина каркаса, мм'],['end_cover_mm','Торцевой защитный слой, мм'],['cover_mm','Защитный слой до хомута, мм'],['ties_diameter_mm','Диаметр хомута, мм'],['min_clear_spacing_mm','Минимальный просвет, мм'],['min_cage_gap_mm','Промежуток каркасов, мм']];
 const fieldsPile=[['diameter_mm','Диаметр сваи, мм'],['cover_mm','Защитный слой до хомута, мм'],['ties_diameter_mm','Диаметр хомута, мм'],['min_clear_spacing_mm','Минимальный просвет, мм']];
 function inputField(label,value,attrs){return `<label>${esc(label)}<input type="number" value="${esc(value)}" ${attrs}></label>`;}
@@ -75,6 +85,23 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
  html+='<h3>Совместные усилия</h3>';for(const r of rows().filter(r=>r.z===selectedZ&&(phase==='all'||r.basis+' · '+r.case===phase)))html+=`<p class="small">${esc(r.case)} · ${esc(r.basis)}</p>`+metric('N / M',fmt(r.n)+' / '+fmt(r.m));
  if(project.kind==='wall'){
   html+='<h3>Поперечная сила Q</h3>';
+  if(profileAudit?.error){
+    html+='<p class="hint">Диагностика M/Q недоступна: '+esc(profileAudit.error)+'</p>';
+  }else if(profileAudit?.profiles){
+    const profiles=profileAudit.profiles.filter(r=>r.basis==='ULS');
+    const problematic=profiles.filter(r=>r.status!=='compatible');
+    const base=profiles.length?profiles.length+' сочетаний; '+problematic.length+' требуют проверки':'нет расчётных ULS эпюр';
+    html+=metric('Согласованность M–Q',base);
+    for(const p of problematic.slice(0,4)){
+      const label=({'inconsistent':'M и Q не согласованы','duplicate_station':'повторные отметки','sign_ambiguous':'знак Q неоднозначен','zero_signal':'нет изменений M/Q','insufficient':'недостаточно точек'})[p.status]||p.status;
+      html+='<p class="hint">'+esc(p.case)+': '+label+'</p>';
+    }
+    if(!problematic.length&&profiles.length){
+      const signs=[...new Set(profiles.map(p=>p.closest_convention))];
+      html+='<p class="hint">По производной M ближе знак '+esc(signs.join(', '))+'. Знак не меняется автоматически.</p>';
+    }
+    html+='<p class="hint">Диагностика эпюр не подтверждает несущую способность.</p>';
+  }
   if(!station?.shear_screening)html+='<div class="status">Q не проверена. Включите оценку и пересчитайте.</div>';
   else{
    const shear=station.shear_screening;
@@ -97,7 +124,7 @@ function renderZones(){if(!project.zones.length){$('zoneTable').innerHTML='<p cl
  document.querySelectorAll('[data-zone]').forEach(e=>e.onchange=()=>{let z=project.zones[+e.dataset.zone];if(e.dataset.key)z[e.dataset.key]=+e.value;else z.tiers[+e.dataset.tier]=+e.value;dirty();});
  document.querySelectorAll('[data-delete]').forEach(e=>e.onclick=()=>{project.zones.splice(+e.dataset.delete,1);dirty();renderZones();});
 }
-function render(){renderForms();renderCharts();renderZones();renderInspection();}
+function render(){renderForms();renderCharts();renderZones();renderInspection();refreshProfileAudit();}
 async function calculate(recheck){if(busy)return;message();const rev=revision;busy=true;document.body.classList.add('busy');
  try{const start=await api('calculate',{project,recheck});while(true){await new Promise(r=>setTimeout(r,600));const job=await api('job?id='+encodeURIComponent(start.job));$('progress').textContent=job.message;if(job.status==='error')throw Error(job.message);if(job.status==='done'){if(revision!==rev){message('Во время расчёта данные изменились. Результат не применён; запустите расчёт заново.');break;}result=job.result;project.zones=result.zones;stale=false;$('resultState').textContent=result.all_checked?'N/M предварительно пройдены · Q не является допуском':'Есть непрошедшие нормальные сечения';renderZones();renderCharts();renderInspection();break;}}}
  catch(e){message(e.message);}finally{busy=false;document.body.classList.remove('busy');$('progress').textContent='Локальный расчёт · данные остаются на компьютере';}}
