@@ -16,8 +16,8 @@ const path=require('path');
   await page.goto(url);await page.waitForSelector('#charts svg');
   assert.equal(await page.locator('#charts svg').count(),5);
   assert(!(await page.locator('#spacingLabel').isVisible()));
-  await page.waitForFunction(() => document.querySelector('#inspection').textContent.includes('Согласованность M–Q'));
-  assert(await page.locator('#inspection').textContent().then(s=>s.includes('Диагностика эпюр не подтверждает')));
+  // No hidden background audit until the engineer explicitly opens diagnostics.
+  assert(!(await page.locator('#advancedQ').getAttribute('open')));
 
   // Ordinary reinforcement zones and typical pitches are visible; Q solver
   // experiments stay behind one explicitly opened section.
@@ -28,6 +28,8 @@ const path=require('path');
   await page.locator('#qPitchOptions').dispatchEvent('change');
   assert.equal(await page.locator('#qPitchChoices option').count(),5);
   await page.locator('#advancedQ summary').first().click();
+  await page.waitForFunction(() => document.querySelector('#inspection').textContent.includes('Согласованность M–Q'));
+  assert(await page.locator('#inspection').textContent().then(s=>s.includes('Диагностика эпюр не подтверждает')));
   assert(await page.locator('#profileCheck').isDisabled());
   await page.locator('#screenQ').check();
   assert(await page.locator('#qFields').isVisible());
