@@ -72,33 +72,52 @@ def validate_profile_results(request, response):
                           'indeterminate'):
             raise ValueError('CScore вернул неизвестный статус эпюры Q')
         if request.get('pitch_bands') and status != 'indeterminate':
-            expected_bands=request['pitch_bands']
+            physical=request['pitch_bands']
             windows=r.get('pitch_windows')
-            if (not isinstance(windows,list) or len(windows)!=len(expected_bands)
+            if (not isinstance(windows,list) or not 1<=len(windows)<=400
                     or r.get('reinforcement_model')!='constant_background_longitudinal_projection_neighborhood_pitch'):
                 raise ValueError('CScore: отсутствует разбиение наклонных сечений по участкам')
-            for band,win in zip(expected_bands,windows):
-                if not isinstance(win,dict) or win.get('boundary_verified') is not False or win.get('verified_for_design') is not False:
+            cursor=physical[0]['start_s_m']
+            for win in windows:
+                if (not isinstance(win,dict) or win.get('boundary_verified') is not False
+                        or win.get('verified_for_design') is not False):
                     raise ValueError('CScore: недостоверный статус перехода хомутов')
-                for field,expected in (('start_s_m',band['start_s_m']),
-                                       ('end_s_m',band['end_s_m']),
-                                       ('adopted_pitch_mm',band['spacing_mm'])):
-                    value=win.get(field)
-                    if type(value) not in (int,float) or not math.isfinite(value) or abs(value-expected)>1e-6:
-                        raise ValueError('CScore: границы расчётных участков Q не совпадают')
-                neighboring=win.get('governing_neighbor_pitch_mm')
+                lo=win.get('start_s_m');hi=win.get('end_s_m')
+                if (type(lo) not in (int,float) or type(hi) not in (int,float)
+                        or not math.isfinite(lo) or not math.isfinite(hi)
+                        or abs(lo-cursor)>1e-6 or hi<=lo+1e-9):
+                    raise ValueError('CScore: разрыв, перекрытие или неверные границы расчётных участков Q')
+                band=next((b for b in physical
+                           if lo>=b['start_s_m']-1e-6
+                           and hi<=b['end_s_m']+1e-6),None)
+                if band is None:
+                    raise ValueError('CScore: окно Q пересекает границу физического шага')
+                pitch=win.get('adopted_pitch_mm')
+                if (type(pitch) not in (int,float) or not math.isfinite(pitch)
+                        or abs(pitch-band['spacing_mm'])>1e-6):
+                    raise ValueError('CScore: принятый шаг Q не соответствует проекту')
                 influence=win.get('influence_each_side_m')
-                if (type(neighboring) not in (float,int) or not math.isfinite(neighboring)
-                        or neighboring+1e-9 < band['spacing_mm']
-                        or type(influence) not in (float,int) or not math.isfinite(influence)
-                        or influence<=0):
+                neighboring=win.get('governing_neighbor_pitch_mm')
+                if (type(influence) not in (int,float) or not math.isfinite(influence)
+                        or influence<=0 or type(neighboring) not in (int,float)
+                        or not math.isfinite(neighboring)):
                     raise ValueError('CScore: недопустимый учёт соседних участков Q')
+                effective=max(b['spacing_mm'] for b in physical
+                              if b['end_s_m'] >= lo-influence-1e-9
+                              and b['start_s_m'] <= hi+influence+1e-9)
+                if not math.isclose(neighboring,effective,rel_tol=1e-7,abs_tol=1e-6):
+                    raise ValueError('CScore: неверный шаг соседних участков Q')
                 zone_eta=win.get('utilization')
                 if type(zone_eta) not in (int,float) or not math.isfinite(zone_eta) or zone_eta<0:
                     raise ValueError('CScore: отсутствует достоверный коэффициент участка Q')
                 if win.get('status') != ('research_zone_below_one'
                                         if zone_eta<=1 else 'research_zone_exceeds_one'):
                     raise ValueError('CScore: несогласованный статус участка Q')
+                if win.get('method') not in ('split_at_pitch_boundaries_and_3h0_influence',):
+                    raise ValueError('CScore: неподтверждённый метод проверки границ Q')
+                cursor=hi
+            if abs(cursor-physical[-1]['end_s_m'])>1e-6:
+                raise ValueError('CScore: не охвачена вся длина стены при проверке Q')
             combined_max=max(w['utilization'] for w in windows)
             overall_eta=r.get('utilization')
             if (type(overall_eta) not in (int,float) or not math.isfinite(overall_eta)
