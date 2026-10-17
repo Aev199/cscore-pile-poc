@@ -101,9 +101,10 @@ class PhaseProfileContracts(unittest.TestCase):
         import re
         cs=Path('src/CScorePileRunner/Program.cs').read_text(encoding='utf-8')
         def fields(dto):
-            body=cs.split('internal sealed class '+dto+'\\n',1)[1]
+            body=cs.split('internal sealed class '+dto+chr(10),1)[1]
             body=body.split('internal sealed class ',1)[0]
-            return set(re.findall(r'JsonPropertyName\\("([^"\\n]+)"\\)',body))
+            return {line.split('JsonPropertyName("',1)[1].split('"',1)[0]
+                    for line in body.splitlines() if 'JsonPropertyName("' in line}
         p=project()
         normalized=model.normalized_rows(p)
         profile=build_profiles(normalized,3,'same',True)
