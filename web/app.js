@@ -93,6 +93,12 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
   html+='<h3>Поперечная сила Q</h3>';
   if(profileResult?.profile_results){
     html+='<h3>Эпюры Q · фоновое армирование</h3>';
+    if(profileResult.proposed_stirrup_layout){
+      const l=profileResult.proposed_stirrup_layout;
+      html+=metric('Хомутов в условной раскладке',fmt(l.link_count_per_cage,0)+' на каркас');
+      html+=metric('Максимальный промежуток',fmt(l.maximum_center_to_center_gap_mm)+' мм');
+      html+='<p class="hint">Первый хомут условно поставлен в начале каждого участка. Фактическое положение и анкеровка не подтверждены.</p>';
+    }
     if(profileResult.transverse_envelope){
       const env=profileResult.transverse_envelope;
       html+=metric('Контрольный худший шаг',fmt(env.uniform_pitch_mm)+' мм');
@@ -104,6 +110,14 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
       html+='<p class="small">'+esc(r.id)+' · '+esc(meaning)+'</p>';
       html+=metric('η по эпюре',fmt(r.utilization,3));
       if(r.governing_formula)html+=metric('Условие',r.governing_formula);
+      const linkCount=profileResult.critical_projection_links?.find(x=>x.id===r.id);
+      if(linkCount?.status==='proposed_layout_count_only'){
+        html+=metric('Хомутов на критической проекции',fmt(linkCount.ties_crossing_per_cage,0)+' на каркас');
+      }else if(linkCount?.status==='outside_sampled_profile'){
+        html+='<p class="hint">Критическая проекция Q выходит за пределы заданной эпюры: количество хомутов не определено.</p>';
+      }else if(linkCount){
+        html+='<p class="hint">Расположение хомутов на критической проекции не определено.</p>';
+      }
       if(r.governing_s_m!=null)html+=metric('Стоянка от верха',fmt(r.governing_s_m)+' м');
       if(r.pitch_windows?.length){
         const zTop=zs()[0], groups=[];
