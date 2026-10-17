@@ -12,7 +12,7 @@ import wall_rebar as wall
 
 from .profile_audit import audit as audit_profiles
 from .profile_shear import build_profiles, validate_profile_results
-from .transverse_zones import validate as validate_transverse_zones, envelope as transverse_envelope
+from .transverse_zones import validate as validate_transverse_zones, envelope as transverse_envelope, pitch_bands
 
 ROOT=Path(__file__).resolve().parents[1]
 FIELDS=['z','case','basis','n','m','q','m_long']
@@ -278,6 +278,14 @@ def screen_background_profile(p, engine=None, runner=None):
     envelope=transverse_envelope(p.get('transverse_zones',[]),
                                  max(r['z'] for r in rows),min(r['z'] for r in rows),
                                  p['transverse']['spacing_mm'])
+    # The old whole-wall maximum-pitch envelope is retained for comparison.
+    # The new CScore research path uses a stronger local guarantee: each
+    # station band's check uses the WORST pitch intersecting the band expanded
+    # by 3*h0 in both directions (including every crossing into adjacent zones).
+    bands=pitch_bands(p.get('transverse_zones',[]),
+                      max(r['z'] for r in rows),min(r['z'] for r in rows),
+                      p['transverse']['spacing_mm'])
+    profiles['pitch_bands']=bands
     request['shear_screening']['spacing_mm']=envelope['uniform_pitch_mm']
     request['shear_profile']=profiles
     engine=engine or (lambda req:wall.invoke_engine(runner,req))
