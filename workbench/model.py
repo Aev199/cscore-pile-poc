@@ -11,6 +11,7 @@ import pile_rebar as pile
 import wall_rebar as wall
 
 from .profile_audit import audit as audit_profiles
+from .profile_shear import build_profiles, validate_profile_results
 
 ROOT=Path(__file__).resolve().parents[1]
 FIELDS=['z','case','basis','n','m','q','m_long']
@@ -25,6 +26,7 @@ def default_project():
        'moment_sign':1,'materials_confirmed':False,'eccentricity_confirmed':False,
        'background':[4,4],'pile_background':8,'diameters':[25,25],'pile_diameter':25,
        'max_tier':3,
+       'profile_options':{'orientation':'same','axes_confirmed':False},
        'transverse':{'mode':'off','diameter_mm':10,'spacing_mm':200,
                      'effective_legs_per_cage':2,'rsw_kpa':170000,
                      'constructive_confirmed':False},'wall':{'panel_width_mm':3000,'thickness_mm':800,'cage_count':3,
@@ -240,3 +242,46 @@ def design(p,engine=None,progress=lambda v:None,recheck=False,runner=None):
             'shear_scope':'local_constant_profile_research_screen_only' if p['kind']=='wall' and p.get('transverse',{}).get('mode')=='screen' else 'not_evaluated',
             'shear_checked_for_design':False,
             'force_profile_audit':audit_profiles(rows)}
+
+
+def screen_background_profile(p, engine=None, runner=None):
+    """Run a real CScore phase-profile diagnostic for CONSTANT BACKGROUND bars.
+
+    Independent of (and never replacing) depth-wise longitudinal selection.
+    No bars are assumed continuous through reinforcement zones; no supports
+    are invented. An unconfirmed M/Q direction is a hard error.
+    """
+    rows=validate_project(p)
+    if p['kind']!='wall' or p.get('transverse',{}).get('mode')!='screen':
+        raise ValueError('Включите оценку Q для стены в грунте')
+    if p.get('materials_confirmed') is not True:
+        raise ValueError('Подтвердите исходные характеристики материалов')
+    opts=p.get('profile_options') or {}
+    width=p['wall']['panel_width_mm']/1000
+    profiles=build_profiles(rows,width,opts.get('orientation'),opts.get('axes_confirmed'))
+    top=max(r['z'] for r in rows)
+    local=[r for r in rows if r['z']==top]
+    inp=section_input(p,local,tiers=[1,1])
+    wall.validate_input(inp)
+    candidates,_=wall.make_candidates(inp)
+    if len(candidates)!=1:
+        raise ValueError('Фоновое армирование геометрически недопустимо')
+    request=wall.build_engine_request(inp,candidates[0])
+    request['shear_profile']=profiles
+    engine=engine or (lambda req:wall.invoke_engine(runner,req))
+    raw=engine(request)
+    # Validate both the existing N/M and local Q contracts, independently of
+    # the new sampled Q result, without treating any of them as a design pass.
+    pile.parse_runner_results(request,raw)
+    items=raw.get('cases')
+    if not isinstance(items,list) or len(items)!=1:
+        raise ValueError('CScore: отсутствуют данные расчёта эпюр')
+    evaluated=validate_profile_results(profiles,items[0].get('shear_profiles'))
+    return {'scope':'full_phase_profile_research_constant_background_only',
+            'candidate':candidates[0]['id'],
+            'reinforcement':'background_only',
+            'support_model':'none',
+            'profile_results':evaluated,
+            'audit':audit_profiles(rows),
+            'design_status':'NOT_VERIFIED',
+            'verified_for_design':False}
