@@ -24,6 +24,8 @@ const path=require('path');
   await page.locator('#screenQ').check();
   assert(await page.locator('#qFields').isVisible());
   assert(await page.locator('#profileCheck').isEnabled());
+  await page.locator('#profileFields summary').click();
+  assert(await page.locator('#profileCheck').isVisible());
   assert(!(await page.locator('#profileAxesConfirmed').isChecked()));
   await page.locator('#profileAxesConfirmed').check();
   await page.locator('#profileOrientation').selectOption('opposite');
