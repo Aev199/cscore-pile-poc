@@ -44,6 +44,11 @@ function renderForms(){
  $('profileFields').hidden=kind!=='wall';
  $('profileCheck').disabled=t.mode!=='screen';
  renderQZones();
+ const ties=project.transverse_layout||(project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false});
+ $('tieMode').value=ties.mode;
+ $('tiePositionsFields').hidden=ties.mode!=='specified';
+ $('tiePositions').value=(ties.positions_mm||[]).join('; ');
+ $('tieGeometryConfirmed').checked=ties.geometry_confirmed===true;
  $('sourceLabel').textContent=project.source?.type==='plaxis_output'?'PLAXIS Output':project.source?.note?'Пример · ручной ввод':'Ручной ввод';
  $('table').textContent=`Таблица усилий · ${project.rows.length}`;
  const phases=[...new Set(project.rows.map(r=>r.basis+' · '+r.case))];
@@ -183,6 +188,10 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
  $('inspection').innerHTML=html;
 }
 function tierOptions(i,t){return [1,2,3].map(x=>`<option value="${x}" ${x===t?'selected':''}>${countAt(x,i)} ст.</option>`).join('');}
+function invalidateTieGeometry(){
+ if(project.transverse_layout)project.transverse_layout.geometry_confirmed=false;
+ if($('tieGeometryConfirmed'))$('tieGeometryConfirmed').checked=false;
+}
 function renderQZones(){
  const host=$('qZoneTable');if(!host)return;
  const zones=project.transverse_zones||(project.transverse_zones=[]);
@@ -195,12 +204,12 @@ function renderQZones(){
  host.querySelectorAll('[data-q-zone]').forEach(el=>el.onchange=()=>{
    project.transverse_zones[+el.dataset.qZone][el.dataset.qKey]=Number(el.value);
    project.transverse.constructive_confirmed=false;$('qConstructive').checked=false;
-   dirty();
+   invalidateTieGeometry();dirty();
  });
  host.querySelectorAll('[data-q-remove]').forEach(el=>el.onclick=()=>{
    project.transverse_zones.splice(+el.dataset.qRemove,1);
    project.transverse.constructive_confirmed=false;$('qConstructive').checked=false;
-   dirty();renderQZones();
+   invalidateTieGeometry();dirty();renderQZones();
  });
 }
 function renderZones(){if(!project.zones.length){$('zoneTable').innerHTML='<p class="empty">Усилений нет. Выполните подбор или добавьте участок вручную.</p>';return;}
@@ -238,11 +247,11 @@ async function calculateProfile(){
  }catch(e){message(e.message);}
  finally{busy=false;document.body.classList.remove('busy');$('progress').textContent='Локальный расчёт · данные остаются на компьютере';}
 }
-function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse','transverse_zones','profile_options'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse','transverse_zones','transverse_layout','profile_options'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 $('screenQ').onchange=e=>{project.transverse.mode=e.target.checked?'screen':'off';dirty();renderForms();};
 for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).onchange=e=>{
  project.transverse[key]=Number(e.target.value);
- project.transverse.constructive_confirmed=false;dirty();renderForms();
+ project.transverse.constructive_confirmed=false;if(key==='spacing_mm')invalidateTieGeometry();dirty();renderForms();
 };
 $('qConstructive').onchange=e=>{project.transverse.constructive_confirmed=e.target.checked;dirty();};
 $('profileOrientation').onchange=e=>{project.profile_options.orientation=e.target.value;
@@ -262,15 +271,30 @@ $('addQZone').onclick=()=>{
  if(!gap){message('Сначала освободите часть длины, изменив границы существующих участков.');return;}
  project.transverse_zones.push({...gap,spacing_mm:150});
  project.transverse.constructive_confirmed=false;$('qConstructive').checked=false;
- dirty();renderQZones();message();
+ invalidateTieGeometry();dirty();renderQZones();message();
+};
+$('tieMode').onchange=e=>{
+ const ties=project.transverse_layout||(project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false});
+ ties.mode=e.target.value;ties.geometry_confirmed=false;dirty();renderForms();
+};
+$('tiePositions').onchange=e=>{
+ const ties=project.transverse_layout;
+ const raw=e.target.value.trim();
+ const values=raw?raw.split(/[;\\s]+/).map(x=>Number(x.replace(',','.'))):[];
+ if(values.some(x=>!Number.isFinite(x))){message('Некорректная отметка хомута. Используйте мм через точку с запятой.');return;}
+ ties.positions_mm=values;ties.geometry_confirmed=false;
+ $('tieGeometryConfirmed').checked=false;dirty();
+};
+$('tieGeometryConfirmed').onchange=e=>{
+ project.transverse_layout.geometry_confirmed=e.target.checked;dirty();
 };
 $('profileCheck').onclick=calculateProfile;
-$('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
-$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];project.transverse_zones=[];result=null;dirty();render();};
+$('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];project.transverse_layout=p.transverse_layout||{mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
+$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];project.transverse_zones=[];project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;dirty();render();};
 for(const id of ['force_scale','spacing_m','moment_sign','max_tier','materials_confirmed','eccentricity_confirmed'])$(id).onchange=e=>{project[id]=e.target.type==='checkbox'?e.target.checked:['spacing_m','moment_sign','max_tier'].includes(id)?Number(e.target.value):e.target.value;dirty();renderForms();};
 $('phase').onchange=e=>{phase=e.target.value;renderCharts();renderInspection();};$('showQ').onchange=renderCharts;
 $('table').onclick=()=>{$('tableText').value='z\tcase\tbasis\tn\tm\tq\tm_long\n'+project.rows.map(r=>['z','case','basis','n','m','q','m_long'].map(k=>r[k]??'').join('\t')).join('\n');$('tableDialog').showModal();};
-$('applyTable').onclick=async()=>{try{const v=await api('table',{text:$('tableText').value});const p={...project,rows:v.rows,zones:[],transverse_zones:[]};await api('preview',p);project.rows=v.rows;project.source={type:'manual'};selectedZ=zs()[0];project.zones=[];project.transverse_zones=[];dirty();render();$('tableDialog').close();message();}catch(e){message(e.message);}};
+$('applyTable').onclick=async()=>{try{const v=await api('table',{text:$('tableText').value});const p={...project,rows:v.rows,zones:[],transverse_zones:[]};await api('preview',p);project.rows=v.rows;project.source={type:'manual'};selectedZ=zs()[0];project.zones=[];project.transverse_zones=[];invalidateTieGeometry();dirty();render();$('tableDialog').close();message();}catch(e){message(e.message);}};
 $('materials').onclick=()=>{$('materialText').value=JSON.stringify({materials:project.materials,sls_settings:project.sls_settings},null,2);$('materialDialog').showModal();};
 $('applyMaterials').onclick=async()=>{try{const v=JSON.parse($('materialText').value),p={...project,materials:v.materials,sls_settings:v.sls_settings};await api('preview',p);project=p;project.materials_confirmed=false;dirty();render();$('materialDialog').close();message();}catch(e){message(e.message);}};
 $('addZone').onclick=()=>{const z=zs();project.zones.push({top:z[0],bottom:z.at(-1),tiers:[2,project.kind==='wall'?2:1]});dirty();renderZones();};
