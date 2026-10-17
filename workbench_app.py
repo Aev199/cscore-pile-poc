@@ -22,7 +22,7 @@ class App:
         self.runner=runner;self.token=secrets.token_urlsafe(32)
         self.jobs={};self.pool=ThreadPoolExecutor(max_workers=1);self.connection=None;self.guard=threading.Lock()
 
-    def start(self,p,recheck):
+    def start(self,p,recheck,profile=False):
         model.validate_project(p)
         if not self.runner.exists():raise ValueError('Нет CScorePileRunner.exe. Используйте Windows-архив сборки или укажите --runner.')
         with self.guard:
@@ -32,7 +32,8 @@ class App:
         def run():
             try:
                 def progress(msg):self.jobs[key]['message']=msg
-                result=model.design(p,runner=self.runner,progress=progress,recheck=recheck)
+                result=(model.screen_background_profile(p,runner=self.runner) if profile
+                        else model.design(p,runner=self.runner,progress=progress,recheck=recheck))
                 self.jobs[key].update(status='done',result=result,message='Расчёт завершён')
             except Exception as exc:self.jobs[key].update(status='error',message=str(exc))
         self.pool.submit(run)
@@ -80,6 +81,7 @@ def handler_for(app):
                 elif path=='/api/profile-audit':
                     rows=model.validate_project(data);result=audit_profiles(rows)
                 elif path=='/api/calculate':result=app.start(data['project'],data.get('recheck',False))
+                elif path=='/api/profile-calculate':result=app.start(data['project'],False,profile=True)
                 elif path=='/api/plaxis/connect':
                     with LOCK:
                         app.connection=None
