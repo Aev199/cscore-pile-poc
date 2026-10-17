@@ -123,6 +123,19 @@ def validate_profile_results(request, response):
             if (type(overall_eta) not in (int,float) or not math.isfinite(overall_eta)
                     or not math.isclose(overall_eta,combined_max,rel_tol=1e-7,abs_tol=1e-7)):
                 raise ValueError('CScore: итог Q не равен худшему участку')
+            # Critical 8.56 has a direction and projected length independent
+            # of the overall 8.55 strip ratio. Missing geometry invalidates
+            # the physical tie-count diagnostic; never infer the direction.
+            critical_s=r.get('critical_shear_s_m')
+            critical_c=r.get('critical_shear_c_m')
+            critical_dir=r.get('critical_shear_direction')
+            critical_eta=r.get('critical_shear_eta')
+            if (any(type(v) not in (int,float) or not math.isfinite(v)
+                    for v in (critical_s,critical_c,critical_eta))
+                    or critical_c<=0 or critical_eta<0
+                    or type(critical_dir) is not int or critical_dir not in (-1,1)
+                    or critical_eta>overall_eta+1e-7):
+                raise ValueError('CScore: нет достоверной геометрии критического наклонного сечения Q')
         ratio = r.get('utilization')
         if status == 'indeterminate':
             if ratio is not None:
