@@ -107,6 +107,12 @@ def validate_profile_results(request, response):
                               and b['start_s_m'] <= hi+influence+1e-9)
                 if not math.isclose(neighboring,effective,rel_tol=1e-7,abs_tol=1e-6):
                     raise ValueError('CScore: неверный шаг соседних участков Q')
+                possible=[other['spacing_mm'] for other in expected_bands
+                          if other['end_s_m']>=band['start_s_m']-influence-1e-9
+                          and other['start_s_m']<=band['end_s_m']+influence+1e-9]
+                if not possible or not math.isclose(neighboring,max(possible),
+                                                   rel_tol=1e-9,abs_tol=1e-6):
+                    raise ValueError('CScore: неверно учтены переходы между участками Q')
                 zone_eta=win.get('utilization')
                 if type(zone_eta) not in (int,float) or not math.isfinite(zone_eta) or zone_eta<0:
                     raise ValueError('CScore: отсутствует достоверный коэффициент участка Q')
