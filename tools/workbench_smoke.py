@@ -129,6 +129,26 @@ def main():
             assert math.isclose(phase['utilization'],
                                 max(x['utilization'] for x in bands),
                                 rel_tol=1e-8)
+            # Check engineer-specified coordinates on exactly the same CScore
+            # phase: real tie geometry must NOT silently modify its Q strength.
+            confirmed_profile=copy.deepcopy(profile_project)
+            actual_mm=([50+150*i for i in range(27)]
+                       +[4050+125*i for i in range(32)]
+                       +[8050+300*i for i in range(14)])
+            confirmed_profile['transverse_layout']={
+                'mode':'specified','positions_mm':actual_mm,
+                'geometry_confirmed':True}
+            measured=model.screen_background_profile(confirmed_profile,runner=args.runner)
+            assert measured['proposed_stirrup_layout']['status']=='SPECIFIED_GEOMETRY_ONLY'
+            assert measured['proposed_stirrup_layout']['actual_layout_confirmed'] is True
+            assert measured['proposed_stirrup_layout']['verified_for_design'] is False
+            assert measured['proposed_stirrup_layout']['link_count_per_cage']==len(actual_mm)
+            assert measured['critical_projection_links'][0]['actual_layout_confirmed']
+            assert measured['critical_projection_links'][0]['status'] in (
+                'specified_layout_count_only','outside_sampled_profile')
+            assert math.isclose(measured['profile_results'][0]['utilization'],
+                                phase['utilization'],rel_tol=1e-9)
+            print('wall: explicit stirrup coordinate geometry checked; no hidden change to CScore Q strength')
             print('wall: zone-aware phase Q checked with neighbor-aware pitch windows')
             print('wall: full-phase SampledProfile CScore Q research diagnostic succeeded')
 
