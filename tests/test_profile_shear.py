@@ -96,6 +96,23 @@ class PhaseProfileContracts(unittest.TestCase):
         self.assertEqual(seen[0]['shear_profile']['profiles'][0]['samples'][1]['q_kn'],60)
         self.assertEqual(seen[0]['shear_screening']['cage_count'],3)
 
+    def test_json_contract_uses_declared_csharp_fields(self):
+        from pathlib import Path
+        import re
+        cs=Path('src/CScorePileRunner/Program.cs').read_text(encoding='utf-8')
+        def fields(dto):
+            body=cs.split('internal sealed class '+dto+'\\n',1)[1]
+            body=body.split('internal sealed class ',1)[0]
+            return set(re.findall(r'JsonPropertyName\\("([^"\\n]+)"\\)',body))
+        p=project()
+        normalized=model.normalized_rows(p)
+        profile=build_profiles(normalized,3,'same',True)
+        self.assertEqual(set(profile), fields('ShearProfileBatch'))
+        self.assertEqual(set(profile['profiles'][0]),fields('ShearPhase'))
+        self.assertEqual(set(profile['profiles'][0]['samples'][0]),fields('ShearSample'))
+        self.assertIn('new SampledProfile(',cs)
+        self.assertIn('supportAtStart: false, supportAtEnd: false',cs)
+
     def test_background_run_never_uses_unconfirmed_axes(self):
         p=project();p['profile_options']['axes_confirmed']=False
         with self.assertRaisesRegex(ValueError,'Подтвердите'):
