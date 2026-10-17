@@ -88,7 +88,10 @@ Branch: `feat/section-workbench`. Based on pinned OpenCS commit
 - [x] Separate provisional stirrup positions (`first_link_at_start_of_every_pitch_band` explicitly **assumed**, never verified) and directional critical 8.56 projection metadata from pinned CScore; count the assumed ties on that C.
 - [x] Fail closed on missing critical C/direction and report a projection outside source-profile extent instead of inventing ties. Show exploratory tie counts in inspector.
 - [x] Isolated geometry unit tests passed; extended repo tests and new real-CScore Windows smoke added.
-- [ ] Windows CI of the new discrete-projection diagnostic commits is **pending**.
+- [x] Windows CI #39024075833 passed at commit `5274dbf`: 141 Python tests, CScore full Q profile, zone checks and browser QA.
+- [x] Optional engineer-specified absolute stirrup coordinates, strict physical pitch-zone spacing audit, geometric confirmation separate from design approval, and reset on profile/geometry edits.
+- [x] Explicit-tie position/unit contract tests, browser persistence/invalidation QA, and real CScore smoke proving explicit positions do **not** silently change `qsw` strength inputs.
+- [ ] Windows CI for explicit-coordinate layout implementation is **not yet executed**.
 - [ ] Engineer-specified first-link offsets, physical stirrup shapes, anchorage, effective branches and independent normative `qsw(s)` projection checks.
 - [ ] Run Windows CI for the latest **subwindow CScore implementation** (not yet verified by a new workflow run).
 - [ ] Implement genuine zone-dependent `qsw(s)`, actual stirrup trajectories and transitions, true support model, bar cutoffs/anchorage, and inclination moment (8.63); independently benchmark before design verification.
