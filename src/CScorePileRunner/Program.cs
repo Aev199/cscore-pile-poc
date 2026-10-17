@@ -3,6 +3,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CScore;
+using CScore.Sp63Shear;
 
 internal static class Program
 {
@@ -120,15 +121,22 @@ internal static class Program
                 object[]? slsValues =
                     slsGate is "calculated_research_override" or "calculated_uls_pass"
                         ? RunCrackProbe(input, candidate) : null;
+                object[]? shearValues = input.ShearScreening?.Enabled == true
+                    ? RunShearScreening(input, candidate) : null;
+                object[]? fullProfileValues = input.ShearProfile is not null
+                    ? RunShearProfiles(input, candidate) : null;
                 records.Add(new { id = candidate.Id, loads = values,
-                    sls_gate = slsGate, sls_probe = slsValues });
+                    sls_gate = slsGate, sls_probe = slsValues, shear_screening = shearValues,
+                    shear_profiles = fullProfileValues });
             }
             Console.Out.Write(JsonSerializer.Serialize(new
             {
                 schema_version = 1,
                 engine = "OpenCS.CScore.LimitForceSolver",
                 engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
-                scope = "uls_ndm_section_only_without_eta_shear_cracks",
+                scope = input.ShearScreening?.Enabled == true
+                    ? "uls_ndm_and_local_shear_research_screen_not_design_verified"
+                    : "uls_ndm_section_only_without_eta_shear_cracks",
                 cases = records
             }));
             return 0;
@@ -138,6 +146,294 @@ internal static class Program
             Console.Error.WriteLine(ex.ToString());
             return 2;
         }
+    }
+
+    // Local Q diagnostic, NOT a complete inclined-section verification.
+    // ConstantProfile is an upstream-supported model for one isolated force tuple,
+    // but it does not reconstruct reactions, applied distributed loads or bar cutoffs.
+    // A positive result must NEVER be described as normative approval.
+    private static object[] RunShearScreening(BatchInput input, Candidate candidate)
+    {
+        var options = input.ShearScreening!;
+        return input.Loads.Select(load =>
+        {
+            try
+            {
+                if (input.ResearchRectangle is null)
+                    throw new InvalidOperationException("circular_shear_requires_independent_method");
+                if (load.QKn is not double q || !double.IsFinite(q))
+                    throw new InvalidOperationException("missing_or_invalid_Q");
+                var section = MakeSection(input, candidate);
+                var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
+                var side = geometry.For(load.MxKnm);
+                if (!(side.B > 0 && side.H0 > 0))
+                    throw new InvalidOperationException("invalid_automatic_shear_geometry");
+                // Active branches per *physical* cage; never infer from longitudinal bars.
+                double effectiveLegs = options.ConstructiveConfirmed
+                    ? options.EffectiveLegsPerCage * options.CageCount : 0.0;
+                double areaM2 = effectiveLegs * Math.PI
+                    * Math.Pow(options.DiameterMm / 1000.0, 2) / 4.0;
+                double qsw = options.RswKpa * areaM2 / (options.SpacingMm / 1000.0);
+                var parameters = new ShearInclinedInput(
+                    B: side.B, H0: side.H0, Rb: side.Rb, Rbt: side.Rbt,
+                    Qsw: qsw, Sw: options.SpacingMm / 1000.0,
+                    Ns: side.Ns, Kind: ElementKind.Other,
+                    AnchorageFactor: 1.0, StationStep: 0.0, ProjectionStep: 0.0,
+                    MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
+                    CheckMoment: false, PhiNOverride: null);
+                var profile = new ConstantProfile(
+                    q: q, m: load.MxKnm, n: load.NKn, supportDistance: 0.0);
+                var outcome = ShearInclinedChecker.Check(parameters, profile, geometry, 0);
+                var exact = outcome.Details.Where(x => x.Formula is "8.55" or "8.56").ToList();
+                if (exact.Count != 2 || exact.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0))
+                    throw new InvalidOperationException("incomplete_or_nonfinite_shear_checks");
+                double util = exact.Max(x => x.Ratio);
+                var worst = exact.OrderByDescending(x => x.Ratio).First();
+                var station = outcome.Stations.FirstOrDefault();
+                return (object)new {
+                    id = load.Id,
+                    status = util <= 1.0 ? "research_screen_pass" : "research_screen_fail",
+                    utilization = (double?)util,
+                    governing_formula = worst.Formula,
+                    q_kn = (double?)q,
+                    qb_kn = station is not null && double.IsFinite(station.Qb)
+                        ? (double?)station.Qb : null,
+                    qsw_kn = station is not null && double.IsFinite(station.Qsw)
+                        ? (double?)station.Qsw : null,
+                    critical_c_m = station is not null && double.IsFinite(station.CriticalC)
+                        ? (double?)station.CriticalC : null,
+                    active_qsw_kn_per_m = qsw,
+                    b_m = side.B, h0_m = side.H0,
+                    rb_kpa = side.Rb, rbt_kpa = side.Rbt,
+                    phi_n = station is not null && double.IsFinite(station.PhiN)
+                        ? (double?)station.PhiN : null,
+                    support_model = "constant_profile_no_support",
+                    note = options.ConstructiveConfirmed
+                        ? "Unverified link geometry and local Q profile; no inclined moment check"
+                        : "Constructive 10.3 not confirmed; stirrup contribution ignored",
+                    verified_for_design = false
+                };
+            }
+            catch (Exception ex)
+            {
+                return (object)new {
+                    id = load.Id, status = "indeterminate",
+                    utilization = (double?)null,
+                    error = "shear_screen_error:" + ex.GetType().Name + ":" + ex.Message,
+                    verified_for_design = false
+                };
+            }
+        }).ToArray();
+    }
+
+    // Limit only the CHECKER'S STATION ITERATION to the assigned band; the
+    // actual force profile and projected maximum Q remain FULL-PHASE.
+    // Boundaries are also sampled explicitly so station grids cannot skip them.
+    private sealed class StationBandProfile(
+        IForceProfile original, double from, double to) : IForceProfile
+    {
+        public double Q(double s) => original.Q(s);
+        public double M(double s) => original.M(s);
+        public double N(double s) => original.N(s);
+        public double T(double s) => original.T(s);
+        public double Length => Math.Max(0.0, to - from);
+        public (double Min, double Max) StationRange => (from, to);
+        public double SupportDistanceAt(double s, int direction) =>
+            original.SupportDistanceAt(s, direction);
+        public bool HasSupport(int direction) => original.HasSupport(direction);
+        public double MaxAbsQ(double from, double to) =>
+            original.MaxAbsQ(from, to);
+        public double MaxAbsT(double from, double to) =>
+            original.MaxAbsT(from, to);
+    }
+
+    // The pinned upstream SP63 checker assumes a CONSTANT Qsw within a run.
+    // For every physical pitch band, determine the LOWEST transverse-steel
+    // density in its whole potential inclined-crack neighborhood, +/-3*h0,
+    // including adjacent zones. Then check all stations belonging to that
+    // band, using full N/M/Q samples for force projection. This is a
+    // projection-neighborhood research SCREEN, not true variable-qsw integration.
+    private static object[] RunShearProfiles(BatchInput input, Candidate candidate)
+    {
+        var batch = input.ShearProfile!;
+        var transverse = input.ShearScreening!;
+        return batch.Profiles.Select(phase =>
+        {
+            try
+            {
+                if (input.ResearchRectangle is null)
+                    throw new InvalidOperationException("not_rectangular");
+                var section = MakeSection(input, candidate);
+                var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
+                var samples = phase.Samples.Select(v =>
+                    new ForceSample(v.SM, v.QKn, v.MKnm, v.NKn)).ToArray();
+                var profile = new SampledProfile(
+                    samples, supportDistanceFromStart: 0.0,
+                    supportDistanceFromEnd: 0.0,
+                    supportAtStart: false, supportAtEnd: false);
+                if (profile.Warnings.Count != 0)
+                    throw new InvalidOperationException("upstream_profile_M_Q_mismatch");
+                var reference = geometry.For(samples[0].M);
+                double h0Max = Math.Max(geometry.TensionPositive.H0, geometry.TensionNegative.H0);
+                if (!double.IsFinite(h0Max) || h0Max <= 0.0)
+                    throw new InvalidOperationException("invalid_zone_influence_height");
+                // Every upstream shear projection is within 0.6..3*h0.
+                // Expanding both sides by 3*MAX(h0) includes EVERY stirrup
+                // zone potentially intersected from any station in this band.
+                double influence = 3.0 * h0Max;
+                double activeArea = transverse.ConstructiveConfirmed
+                    ? transverse.EffectiveLegsPerCage * transverse.CageCount
+                        * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0
+                    : 0.0;
+
+                var runs = new List<(ShearInclinedResult Outcome, ShearPitchBand Band, double Pitch, double Qsw, int Direction)>();
+                var zoneSummaries = new List<object>();
+                // A physical band is NOT one uniform influence neighborhood.
+                // Split it wherever the 3*h0 reach of another physical
+                // transition begins/ends, so remote sparse stirrups cannot
+                // spuriously govern an entire long dense zone.
+                var physical = batch.PitchBands!;
+                var transitions = physical.Skip(1).Select(x => x.StartSM).ToArray();
+                foreach (var band in physical)
+                {
+                    var cuts = new List<double> { band.StartSM, band.EndSM };
+                    foreach (double edge in transitions)
+                        foreach (double candidate in new[]
+                        {
+                            edge - influence, edge, edge + influence
+                        })
+                            if (candidate > band.StartSM + 1e-9
+                                && candidate < band.EndSM - 1e-9)
+                                cuts.Add(candidate);
+                    cuts.Sort();
+                    var unique = new List<double>();
+                    foreach (double cut in cuts)
+                        if (unique.Count == 0 || cut - unique[^1] > 1e-9)
+                            unique.Add(cut);
+                    for (int i = 0; i + 1 < unique.Count; i++)
+                    {
+                        double startS = unique[i], endS = unique[i + 1];
+                        if (endS - startS <= 1e-9) continue;
+                        // The entire potential inclined section, not only its
+                        // starting station, must see the weakest nearby pitch.
+                        double pitch = physical.Where(other =>
+                            other.EndSM > startS - influence + 1e-9
+                            && other.StartSM < endS + influence - 1e-9)
+                            .Max(other => other.SpacingMm);
+                        double qsw = transverse.RswKpa * activeArea / (pitch / 1000.0);
+                        var shearInput = new ShearInclinedInput(
+                            B: reference.B, H0: reference.H0,
+                            Rb: reference.Rb, Rbt: reference.Rbt, Qsw: qsw,
+                            Sw: pitch / 1000.0, Ns: reference.Ns,
+                            Kind: ElementKind.Other, AnchorageFactor: 1.0,
+                            StationStep: 0.0, ProjectionStep: 0.0,
+                            MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
+                            CheckMoment: false, PhiNOverride: null);
+                        var local = new List<ShearInclinedResult>();
+                        foreach (var scope in new[]
+                        {
+                            (Start: startS, End: endS),
+                            (Start: endS, End: endS)
+                        })
+                        {
+                            var sampled = new StationBandProfile(profile, scope.Start, scope.End);
+                            // Keep direction: the true stirrup count of an
+                            // inclined projection depends on whether it looks
+                            // toward increasing or decreasing wall depth.
+                            foreach (int direction in new[] { -1, +1 })
+                            {
+                                var outcome = ShearInclinedChecker.Check(
+                                    shearInput, sampled, geometry, direction);
+                                var details = outcome.Details
+                                    .Where(x => x.Formula is "8.55" or "8.56").ToList();
+                                if (details.Count != 2 ||
+                                    details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
+                                    throw new InvalidOperationException("incomplete_zone_shear_check");
+                                runs.Add((outcome, band, pitch, qsw, direction));
+                                local.Add(outcome);
+                            }
+                        }
+                        double windowWorst = local.SelectMany(o => o.Details
+                            .Where(d => d.Formula is "8.55" or "8.56"))
+                            .Max(d => d.Ratio);
+                        zoneSummaries.Add(new
+                        {
+                            start_s_m = startS, end_s_m = endS,
+                            adopted_pitch_mm = band.SpacingMm,
+                            governing_neighbor_pitch_mm = pitch,
+                            influence_each_side_m = influence,
+                            utilization = windowWorst,
+                            status = windowWorst <= 1.0 ? "research_zone_below_one"
+                                : "research_zone_exceeds_one",
+                            method = "split_at_pitch_boundaries_and_3h0_influence",
+                            boundary_verified = false,
+                            verified_for_design = false
+                        });
+                        if (zoneSummaries.Count > 400)
+                            throw new InvalidOperationException("too_many_shear_pitch_windows");
+                    }
+                }
+                var worst = runs.SelectMany(run => run.Outcome.Details
+                        .Where(x => x.Formula is "8.55" or "8.56")
+                        .Select(detail => (Detail: detail, Run: run)))
+                    .OrderByDescending(item => item.Detail.Ratio).First();
+                double eta = worst.Detail.Ratio;
+                var station = worst.Detail.Variables.TryGetValue("s", out var s)
+                    && double.IsFinite(s) ? (double?)s : null;
+                // The 8.55 strip may control without having a projection C.
+                // Always report a separate 8.56 critical section for tie
+                // counting, including the actual selected direction.
+                var shearCritical = runs.Select(run => (
+                        Run: run,
+                        Detail: run.Outcome.Details.First(x => x.Formula == "8.56")))
+                    .OrderByDescending(item => item.Detail.Ratio).First();
+                var critVariables = shearCritical.Detail.Variables;
+                double? critS = critVariables.TryGetValue("s", out var cs)
+                    && double.IsFinite(cs) ? cs : null;
+                double? critC = critVariables.TryGetValue("C", out var cc)
+                    && double.IsFinite(cc) && cc > 0 ? cc : null;
+                return (object)new
+                {
+                    id = phase.Id,
+                    status = eta <= 1.0 ? "research_profile_below_one"
+                        : "research_profile_exceeds_one",
+                    utilization = (double?)eta,
+                    governing_formula = worst.Detail.Formula,
+                    governing_s_m = station,
+                    critical_shear_s_m = critS,
+                    critical_shear_c_m = critC,
+                    critical_shear_direction = shearCritical.Run.Direction,
+                    critical_shear_eta = shearCritical.Detail.Ratio,
+                    sampled_stations = runs.Sum(r => r.Outcome.Stations.Count),
+                    max_abs_q_kn = profile.MaxAbsQ(
+                        profile.StationRange.Min, profile.StationRange.Max),
+                    qsw_kn_per_m = worst.Run.Qsw,
+                    governing_neighbor_pitch_mm = worst.Run.Pitch,
+                    pitch_windows = zoneSummaries,
+                    warnings = runs.SelectMany(r => r.Outcome.Warnings)
+                        .Distinct().Take(40).ToArray(),
+                    warnings_truncated = runs.SelectMany(r => r.Outcome.Warnings)
+                        .Distinct().Skip(40).Any(),
+                    support_model = "none",
+                    reinforcement_model = "constant_background_longitudinal_projection_neighborhood_pitch",
+                    note = "Research-only neighborhood lower-link-density screen. "
+                        + "No actual stirrup placement, transverse transitions, support model, "
+                        + "bar cutoffs, anchorage or inclined moment verification.",
+                    verified_for_design = false
+                };
+            }
+            catch (Exception ex)
+            {
+                return (object)new
+                {
+                    id = phase.Id, status = "indeterminate",
+                    utilization = (double?)null,
+                    error = "profile_shear_error:" + ex.GetType().Name + ":" + ex.Message,
+                    support_model = "none",
+                    verified_for_design = false
+                };
+            }
+        }).ToArray();
     }
 
     // Research probe: explicit service properties and separate total / sustained bending
@@ -797,6 +1093,48 @@ internal static class Program
                         <= (rect.Bars[i].DiameterMm + rect.Bars[j].DiameterMm) / 2)
                         throw new ArgumentException("Overlapping rectangular reinforcement bars");
         }
+        if (input.ShearScreening is { Enabled: true } shear)
+        {
+            if (!rectMode || !double.IsFinite(shear.DiameterMm) || shear.DiameterMm <= 0
+                || !double.IsFinite(shear.SpacingMm) || shear.SpacingMm <= 0
+                || !double.IsFinite(shear.RswKpa) || shear.RswKpa <= 0 || shear.RswKpa > 300_000
+                || shear.EffectiveLegsPerCage < 1 || shear.EffectiveLegsPerCage > 30
+                || shear.CageCount < 1 || shear.CageCount > 3
+                || input.Loads.Any(l => l.QKn is not double q || !double.IsFinite(q)))
+                throw new ArgumentException("Invalid shear screening geometry, steel or Q");
+        }
+        if (input.ShearProfile is { } profiles)
+        {
+            if (!rectMode || input.ShearScreening is not { Enabled: true }
+                || profiles.Scope != "full_phase_profile_research_constant_background_only"
+                || !profiles.AxisConfirmed
+                || profiles.Orientation is not ("same" or "opposite")
+                || profiles.SupportModel != "none"
+                || profiles.Profiles is null or { Count: 0 or > 200 }
+                || profiles.Profiles.Select(p => p.Id).Distinct().Count() != profiles.Profiles.Count
+                || profiles.Profiles.Any(p => string.IsNullOrWhiteSpace(p.Id)
+                    || p.Samples is null or { Count: < 2 or > 200 }
+                    || p.Samples.Any(s => !double.IsFinite(s.SM)
+                        || !double.IsFinite(s.NKn) || !double.IsFinite(s.MKnm)
+                        || !double.IsFinite(s.QKn))
+                    || p.Samples.Zip(p.Samples.Skip(1))
+                        .Any(v => v.Second.SM - v.First.SM <= 1e-9))
+                || profiles.PitchBands is null or { Count: 0 or > 201 }
+                || profiles.PitchBands.Any(b => !double.IsFinite(b.StartSM)
+                    || !double.IsFinite(b.EndSM) || !double.IsFinite(b.SpacingMm)
+                    || b.EndSM - b.StartSM <= 1e-9
+                    || b.SpacingMm <= 0.0 || b.SpacingMm > 2000.0)
+                || Math.Abs(profiles.PitchBands[0].StartSM
+                    - profiles.Profiles[0].Samples[0].SM)>1e-8
+                || Math.Abs(profiles.PitchBands[^1].EndSM
+                    - profiles.Profiles[0].Samples[^1].SM)>1e-8
+                || profiles.PitchBands.Zip(profiles.PitchBands.Skip(1))
+                    .Any(v => Math.Abs(v.First.EndSM-v.Second.StartSM)>1e-8)
+                || profiles.Profiles.Any(p =>
+                    Math.Abs(p.Samples[0].SM-profiles.PitchBands[0].StartSM)>1e-8
+                    || Math.Abs(p.Samples[^1].SM-profiles.PitchBands[^1].EndSM)>1e-8))
+                throw new ArgumentException("Invalid or unconfirmed shear phase profile");
+        }
         if (input.SlsExecutionPolicy is not ("uls_pass_only" or "research_all"))
             throw new ArgumentException("Unsupported SLS execution policy");
         if (input.SlsProbe is { } probe)
@@ -843,6 +1181,8 @@ internal sealed class BatchInput
     // Default is safe even when a direct consumer does not specify a policy.
     [JsonPropertyName("sls_execution_policy")] public string SlsExecutionPolicy { get; init; } = "uls_pass_only";
     [JsonPropertyName("research_rectangle")] public ResearchRectangle? ResearchRectangle { get; init; }
+    [JsonPropertyName("shear_screening")] public ShearScreening? ShearScreening { get; init; }
+    [JsonPropertyName("shear_profile")] public ShearProfileBatch? ShearProfile { get; init; }
 }
 
 internal sealed class Pile
@@ -873,6 +1213,48 @@ internal sealed class LoadCase
     [JsonPropertyName("n_kn")] public double NKn { get; init; }
     [JsonPropertyName("mx_knm")] public double MxKnm { get; init; }
     [JsonPropertyName("my_knm")] public double MyKnm { get; init; }
+    [JsonPropertyName("q_kn")] public double? QKn { get; init; }
+}
+
+
+internal sealed class ShearProfileBatch
+{
+    [JsonPropertyName("scope")] public string Scope { get; init; } = "";
+    [JsonPropertyName("orientation")] public string Orientation { get; init; } = "";
+    [JsonPropertyName("axis_confirmed")] public bool AxisConfirmed { get; init; }
+    [JsonPropertyName("support_model")] public string SupportModel { get; init; } = "";
+    [JsonPropertyName("profiles")] public List<ShearPhase> Profiles { get; init; } = [];
+    [JsonPropertyName("pitch_bands")] public List<ShearPitchBand>? PitchBands { get; init; }
+}
+internal sealed class ShearPitchBand
+{
+    [JsonRequired, JsonPropertyName("start_s_m")] public double StartSM { get; init; }
+    [JsonRequired, JsonPropertyName("end_s_m")] public double EndSM { get; init; }
+    [JsonRequired, JsonPropertyName("spacing_mm")] public double SpacingMm { get; init; }
+}
+internal sealed class ShearPhase
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("samples")] public List<ShearSample> Samples { get; init; } = [];
+}
+internal sealed class ShearSample
+{
+    // Reject omitted numbers instead of silently accepting the CLR default 0.
+    [JsonRequired, JsonPropertyName("s_m")] public double SM { get; init; }
+    [JsonRequired, JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonRequired, JsonPropertyName("m_knm")] public double MKnm { get; init; }
+    [JsonRequired, JsonPropertyName("q_kn")] public double QKn { get; init; }
+}
+
+internal sealed class ShearScreening
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; init; }
+    [JsonPropertyName("diameter_mm")] public double DiameterMm { get; init; }
+    [JsonPropertyName("spacing_mm")] public double SpacingMm { get; init; }
+    [JsonPropertyName("effective_legs_per_cage")] public int EffectiveLegsPerCage { get; init; }
+    [JsonPropertyName("cage_count")] public int CageCount { get; init; }
+    [JsonPropertyName("rsw_kpa")] public double RswKpa { get; init; }
+    [JsonPropertyName("constructive_confirmed")] public bool ConstructiveConfirmed { get; init; }
 }
 
 internal sealed class ResearchRectangle

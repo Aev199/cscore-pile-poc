@@ -392,6 +392,36 @@ def parse_runner_results(request: dict, raw: Any) -> list[dict]:
                     else 'engineering_review' if 'engineering_review' in decisions_sls
                     else 'preliminary_below_limit'
                 )
+        # Optional CScore SP63 Q check is only a constant-profile SCREEN.
+        # Never promote it into normal-section ULS or a final engineering PASS.
+        if 'shear_screening' in request:
+            shear_rows = item.get('shear_screening')
+            if not isinstance(shear_rows, list) or len(shear_rows) != len(expected_loads):
+                raise InputError(f'{name}: отсутствуют или неполны результаты Q')
+            shear_ids = set()
+            for shear in shear_rows:
+                if not isinstance(shear, dict) or shear.get('id') not in expected_loads or shear['id'] in shear_ids:
+                    raise InputError(f'{name}: дублированное/неизвестное сочетание Q')
+                shear_ids.add(shear['id'])
+                if shear.get('status') not in ('research_screen_pass','research_screen_fail','indeterminate'):
+                    raise InputError(f'{name}: недопустимый статус расчёта Q')
+                if shear.get('verified_for_design') is not False:
+                    raise InputError(f'{name}: Q screening не является нормативным допуском')
+                if shear['status'] != 'indeterminate':
+                    utilization = shear.get('utilization')
+                    if type(utilization) not in (float, int) or not math.isfinite(utilization) or utilization < 0:
+                        raise InputError(f'{name}: недостоверный коэффициент Q')
+                    if (utilization <= 1) != (shear['status'] == 'research_screen_pass'):
+                        raise InputError(f'{name}: несогласованный статус Q')
+                elif shear.get('utilization') is not None:
+                    raise InputError(f'{name}: у неопределённого Q не должно быть коэффициента')
+            validated['shear_screening'] = shear_rows
+            validated['shear_status'] = ('indeterminate' if any(s['status']=='indeterminate' for s in shear_rows)
+                                         else 'research_screen_fail' if any(s['status']=='research_screen_fail' for s in shear_rows)
+                                         else 'research_screen_pass')
+        else:
+            validated['shear_screening'] = None
+            validated['shear_status'] = 'not_evaluated'
         validated['max_utilization'] = max((l['utilization'] for l in decisions if l['decision'] != 'indeterminate'), default=None)
         result.append(validated)
     if seen != set(expected_candidates):
