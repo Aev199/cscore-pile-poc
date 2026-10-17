@@ -95,8 +95,8 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
     html+='<h3>Эпюры Q · фоновое армирование</h3>';
     if(profileResult.transverse_envelope){
       const env=profileResult.transverse_envelope;
-      html+=metric('Шаг для расчёта',fmt(env.uniform_pitch_mm)+' мм');
-      html+='<p class="hint">Для всей стены взят максимальный шаг из заданных участков. Переходы между участками не проверены.</p>';
+      html+=metric('Контрольный худший шаг',fmt(env.uniform_pitch_mm)+' мм');
+      html+='<p class="hint">Максимальный шаг по всей стене — справочное сравнение. Расчёт выполняется по участкам с учётом соседних шагов в пределах 3h₀.</p>';
     }
     html+='<p class="hint">Исследовательский расчёт CScore по профилю без опор и усилений. Не нормативный допуск.</p>';
     for(const r of profileResult.profile_results){
@@ -105,6 +105,15 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
       html+=metric('η по эпюре',fmt(r.utilization,3));
       if(r.governing_formula)html+=metric('Условие',r.governing_formula);
       if(r.governing_s_m!=null)html+=metric('Стоянка от верха',fmt(r.governing_s_m)+' м');
+      if(r.pitch_windows?.length){
+        const zTop=zs()[0];
+        for(const w of r.pitch_windows){
+          html+='<p class="small">Отм. '+fmt(zTop-w.start_s_m)+'…'+fmt(zTop-w.end_s_m)+' м</p>';
+          html+=metric('Шаг принят / учтён',fmt(w.adopted_pitch_mm)+' / '+fmt(w.governing_neighbor_pitch_mm)+' мм');
+          html+=metric('η Q участка',fmt(w.utilization,3));
+        }
+        html+='<p class="hint">Учтено влияние более редких хомутов соседних зон. Фактическая раскладка и анкеровка не подтверждены.</p>';
+      }
       if(r.error)html+='<p class="hint">'+esc(r.error)+'</p>';
     }
   }
