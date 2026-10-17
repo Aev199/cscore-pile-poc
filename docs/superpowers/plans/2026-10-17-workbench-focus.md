@@ -8,6 +8,9 @@
 - [x] Export a DRAFT_NOT_VERIFIED CSV of merged reinforcement intervals, split at changes in longitudinal or transverse reinforcement.
 - [x] Maintain compatibility with previous projects, CScore and PLAXIS imports.
 - [x] Add Python/API and browser tests.
+- [x] Windows CI #39047191930 (SHA 434b109): 152 Python tests, real CScore wall/pile smoke, browser QA and Windows archive all succeeded.
+- [x] Begin independent numeric shear audit: separate SP63 (8.55)-(8.59) reference formulas, fixed-value cases, and cross-check of CScore Qb/Qsw/eta in Windows smoke.
+- [ ] Verify the independent shear benchmark addition in a NEW Windows CI run (not yet checked).
 
 ## Next gates in strict order
 
