@@ -1087,10 +1087,11 @@ internal sealed class ShearPhase
 }
 internal sealed class ShearSample
 {
-    [JsonPropertyName("s_m")] public double SM { get; init; }
-    [JsonPropertyName("n_kn")] public double NKn { get; init; }
-    [JsonPropertyName("m_knm")] public double MKnm { get; init; }
-    [JsonPropertyName("q_kn")] public double QKn { get; init; }
+    // Reject omitted numbers instead of silently accepting the CLR default 0.
+    [JsonRequired, JsonPropertyName("s_m")] public double SM { get; init; }
+    [JsonRequired, JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonRequired, JsonPropertyName("m_knm")] public double MKnm { get; init; }
+    [JsonRequired, JsonPropertyName("q_kn")] public double QKn { get; init; }
 }
 
 internal sealed class ShearScreening
