@@ -43,6 +43,7 @@ function renderForms(){
  $('profileAxesConfirmed').checked=po.axes_confirmed===true;
  $('profileFields').hidden=kind!=='wall';
  $('profileCheck').disabled=t.mode!=='screen';
+ renderQZones();
  $('sourceLabel').textContent=project.source?.type==='plaxis_output'?'PLAXIS Output':project.source?.note?'Пример · ручной ввод':'Ручной ввод';
  $('table').textContent=`Таблица усилий · ${project.rows.length}`;
  const phases=[...new Set(project.rows.map(r=>r.basis+' · '+r.case))];
@@ -92,6 +93,11 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
   html+='<h3>Поперечная сила Q</h3>';
   if(profileResult?.profile_results){
     html+='<h3>Эпюры Q · фоновое армирование</h3>';
+    if(profileResult.transverse_envelope){
+      const env=profileResult.transverse_envelope;
+      html+=metric('Шаг для расчёта',fmt(env.uniform_pitch_mm)+' мм');
+      html+='<p class="hint">Для всей стены взят максимальный шаг из заданных участков. Переходы между участками не проверены.</p>';
+    }
     html+='<p class="hint">Исследовательский расчёт CScore по профилю без опор и усилений. Не нормативный допуск.</p>';
     for(const r of profileResult.profile_results){
       const meaning=({'research_profile_below_one':'расчётный η ≤ 1','research_profile_exceeds_one':'расчётный η > 1','indeterminate':'не определено'})[r.status]||'не определено';
@@ -136,6 +142,23 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
  $('inspection').innerHTML=html;
 }
 function tierOptions(i,t){return [1,2,3].map(x=>`<option value="${x}" ${x===t?'selected':''}>${countAt(x,i)} ст.</option>`).join('');}
+function renderQZones(){
+ const host=$('qZoneTable');if(!host)return;
+ const zones=project.transverse_zones||(project.transverse_zones=[]);
+ host.innerHTML=zones.length?zones.map((z,i)=>`<div class="q-zone">
+  <label>Верх, м<input aria-label="Q верх ${i+1}" data-q-zone="${i}" data-q-key="top" type="number" step="0.1" value="${esc(z.top)}"></label>
+  <label>Низ, м<input aria-label="Q низ ${i+1}" data-q-zone="${i}" data-q-key="bottom" type="number" step="0.1" value="${esc(z.bottom)}"></label>
+  <label>Шаг, мм<input aria-label="Q шаг ${i+1}" data-q-zone="${i}" data-q-key="spacing_mm" type="number" min="1" step="5" value="${esc(z.spacing_mm)}"></label>
+  <button type="button" data-q-remove="${i}" title="Удалить участок Q">×</button>
+ </div>`).join(''):'<p class="hint">Участков нет — основной шаг по всей длине.</p>';
+ host.querySelectorAll('[data-q-zone]').forEach(el=>el.onchange=()=>{
+   project.transverse_zones[+el.dataset.qZone][el.dataset.qKey]=Number(el.value);
+   dirty();
+ });
+ host.querySelectorAll('[data-q-remove]').forEach(el=>el.onclick=()=>{
+   project.transverse_zones.splice(+el.dataset.qRemove,1);dirty();renderQZones();
+ });
+}
 function renderZones(){if(!project.zones.length){$('zoneTable').innerHTML='<p class="empty">Усилений нет. Выполните подбор или добавьте участок вручную.</p>';return;}
  $('zoneTable').innerHTML='<table><thead><tr><th>Верх, м</th><th>Низ, м</th><th>Всего '+(project.kind==='wall'?'y−':'кольцо')+'</th>'+(project.kind==='wall'?'<th>Всего y+</th>':'')+'<th></th></tr></thead><tbody>'+project.zones.map((z,j)=>`<tr><td><input aria-label="Верх участка ${j+1}" type="number" step="0.1" value="${z.top}" data-zone="${j}" data-key="top"></td><td><input aria-label="Низ участка ${j+1}" type="number" step="0.1" value="${z.bottom}" data-zone="${j}" data-key="bottom"></td><td><select aria-label="Армирование первой грани" data-zone="${j}" data-tier="0">${tierOptions(0,z.tiers[0])}</select></td>${project.kind==='wall'?`<td><select aria-label="Армирование второй грани" data-zone="${j}" data-tier="1">${tierOptions(1,z.tiers[1])}</select></td>`:''}<td><button data-delete="${j}" title="Удалить участок">×</button></td></tr>`).join('')+'</tbody></table>';
  document.querySelectorAll('[data-zone]').forEach(e=>e.onchange=()=>{let z=project.zones[+e.dataset.zone];if(e.dataset.key)z[e.dataset.key]=+e.value;else z.tiers[+e.dataset.tier]=+e.value;dirty();});
@@ -171,7 +194,7 @@ async function calculateProfile(){
  }catch(e){message(e.message);}
  finally{busy=false;document.body.classList.remove('busy');$('progress').textContent='Локальный расчёт · данные остаются на компьютере';}
 }
-function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse','profile_options'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse','transverse_zones','profile_options'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 $('screenQ').onchange=e=>{project.transverse.mode=e.target.checked?'screen':'off';dirty();renderForms();};
 for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).onchange=e=>{
  project.transverse[key]=Number(e.target.value);
@@ -183,17 +206,30 @@ $('profileOrientation').onchange=e=>{project.profile_options.orientation=e.targe
  $('profileAxesConfirmed').checked=false;revision++;profileResult=null;renderInspection();};
 $('profileAxesConfirmed').onchange=e=>{project.profile_options.axes_confirmed=e.target.checked;
  revision++;profileResult=null;renderInspection();};
+$('addQZone').onclick=()=>{
+ const levels=zs(),top=levels[0],bottom=levels.at(-1);
+ const sorted=[...(project.transverse_zones||[])].sort((a,b)=>b.top-a.top);
+ let cursor=top,gap=null;
+ for(const z of sorted){
+  if(z.top<cursor-1e-8){gap={top:cursor,bottom:z.top};break;}
+  cursor=Math.min(cursor,z.bottom);
+ }
+ if(!gap&&cursor>bottom+1e-8)gap={top:cursor,bottom};
+ if(!gap){message('Сначала освободите часть длины, изменив границы существующих участков.');return;}
+ project.transverse_zones.push({...gap,spacing_mm:150});
+ dirty();renderQZones();message();
+};
 $('profileCheck').onclick=calculateProfile;
-$('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
-$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];result=null;dirty();render();};
+$('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
+$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];project.transverse_zones=[];result=null;dirty();render();};
 for(const id of ['force_scale','spacing_m','moment_sign','max_tier','materials_confirmed','eccentricity_confirmed'])$(id).onchange=e=>{project[id]=e.target.type==='checkbox'?e.target.checked:['spacing_m','moment_sign','max_tier'].includes(id)?Number(e.target.value):e.target.value;dirty();renderForms();};
 $('phase').onchange=e=>{phase=e.target.value;renderCharts();renderInspection();};$('showQ').onchange=renderCharts;
 $('table').onclick=()=>{$('tableText').value='z\tcase\tbasis\tn\tm\tq\tm_long\n'+project.rows.map(r=>['z','case','basis','n','m','q','m_long'].map(k=>r[k]??'').join('\t')).join('\n');$('tableDialog').showModal();};
-$('applyTable').onclick=async()=>{try{const v=await api('table',{text:$('tableText').value});const p={...project,rows:v.rows,zones:[]};await api('preview',p);project.rows=v.rows;project.source={type:'manual'};selectedZ=zs()[0];project.zones=[];dirty();render();$('tableDialog').close();message();}catch(e){message(e.message);}};
+$('applyTable').onclick=async()=>{try{const v=await api('table',{text:$('tableText').value});const p={...project,rows:v.rows,zones:[],transverse_zones:[]};await api('preview',p);project.rows=v.rows;project.source={type:'manual'};selectedZ=zs()[0];project.zones=[];project.transverse_zones=[];dirty();render();$('tableDialog').close();message();}catch(e){message(e.message);}};
 $('materials').onclick=()=>{$('materialText').value=JSON.stringify({materials:project.materials,sls_settings:project.sls_settings},null,2);$('materialDialog').showModal();};
 $('applyMaterials').onclick=async()=>{try{const v=JSON.parse($('materialText').value),p={...project,materials:v.materials,sls_settings:v.sls_settings};await api('preview',p);project=p;project.materials_confirmed=false;dirty();render();$('materialDialog').close();message();}catch(e){message(e.message);}};
 $('addZone').onclick=()=>{const z=zs();project.zones.push({top:z[0],bottom:z.at(-1),tiers:[2,project.kind==='wall'?2:1]});dirty();renderZones();};
 $('design').onclick=()=>calculate(false);$('check').onclick=()=>calculate(true);document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('plaxis').onclick=()=>$('plaxisDialog').showModal();$('connect').onclick=async()=>{try{catalog=null;$('objects').innerHTML='';$('phases').innerHTML='';$('extract').disabled=true;$('plaxisInfo').textContent='Подключение…';catalog=await api('plaxis/connect',{port:Number($('plaxisPort').value),password:$('plaxisPassword').value});$('plaxisPassword').value='';$('extract').disabled=false;$('objects').innerHTML=catalog.objects.map(o=>`<option value="${o.id}">${esc(o.name)} · ${esc(o.kind)}</option>`).join('');$('phases').innerHTML=catalog.phases.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('');$('plaxisInfo').textContent=Object.entries(catalog.info).map(([k,v])=>k+': '+v).join(' · ');}catch(e){$('plaxisInfo').textContent=e.message;}};
-$('extract').disabled=true;$('extract').onclick=async()=>{try{if(!catalog)throw Error('Сначала подключитесь к Output');const v=await api('plaxis/extract',{objects:[...$('objects').selectedOptions].map(o=>+o.value),phases:[...$('phases').selectedOptions].map(o=>+o.value),basis:$('importBasis').value,force_unit:$('forceUnit').value,length_unit:$('lengthUnit').value,force_scale:$('importScale').value,confirmed:$('importConfirmed').checked,fully_sustained:$('sustained').checked});if($('appendRows').checked&&v.force_scale!==project.force_scale)throw Error('Масштаб текущей таблицы и импорта различается');const p={...project,rows:$('appendRows').checked?[...project.rows,...v.rows]:v.rows,force_scale:v.force_scale,zones:[]};await api('preview',p);project=p;project.source=v.source;project.zones=[];selectedZ=zs()[0];dirty();render();$('plaxisDialog').close();message();}catch(e){$('plaxisInfo').textContent=e.message;}};
+$('extract').disabled=true;$('extract').onclick=async()=>{try{if(!catalog)throw Error('Сначала подключитесь к Output');const v=await api('plaxis/extract',{objects:[...$('objects').selectedOptions].map(o=>+o.value),phases:[...$('phases').selectedOptions].map(o=>+o.value),basis:$('importBasis').value,force_unit:$('forceUnit').value,length_unit:$('lengthUnit').value,force_scale:$('importScale').value,confirmed:$('importConfirmed').checked,fully_sustained:$('sustained').checked});if($('appendRows').checked&&v.force_scale!==project.force_scale)throw Error('Масштаб текущей таблицы и импорта различается');const p={...project,rows:$('appendRows').checked?[...project.rows,...v.rows]:v.rows,force_scale:v.force_scale,zones:[],transverse_zones:[]};await api('preview',p);project=p;project.source=v.source;project.zones=[];selectedZ=zs()[0];dirty();render();$('plaxisDialog').close();message();}catch(e){$('plaxisInfo').textContent=e.message;}};
 api('default').then(p=>{project=p;selectedZ=zs()[2];render();refreshProfileAudit();}).catch(e=>message(e.message));
