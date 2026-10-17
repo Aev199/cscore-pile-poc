@@ -71,6 +71,28 @@ def validate_profile_results(request, response):
         if status not in ('research_profile_below_one', 'research_profile_exceeds_one',
                           'indeterminate'):
             raise ValueError('CScore вернул неизвестный статус эпюры Q')
+        if request.get('pitch_bands') and status != 'indeterminate':
+            expected_bands=request['pitch_bands']
+            windows=r.get('pitch_windows')
+            if (not isinstance(windows,list) or len(windows)!=len(expected_bands)
+                    or r.get('reinforcement_model')!='constant_background_longitudinal_projection_neighborhood_pitch'):
+                raise ValueError('CScore: отсутствует разбиение наклонных сечений по участкам')
+            for band,win in zip(expected_bands,windows):
+                if not isinstance(win,dict) or win.get('boundary_verified') is not False:
+                    raise ValueError('CScore: недостоверный статус перехода хомутов')
+                for field,expected in (('start_s_m',band['start_s_m']),
+                                       ('end_s_m',band['end_s_m']),
+                                       ('adopted_pitch_mm',band['spacing_mm'])):
+                    value=win.get(field)
+                    if type(value) not in (int,float) or not math.isfinite(value) or abs(value-expected)>1e-6:
+                        raise ValueError('CScore: границы расчётных участков Q не совпадают')
+                neighboring=win.get('governing_neighbor_pitch_mm')
+                influence=win.get('influence_each_side_m')
+                if (type(neighboring) not in (float,int) or not math.isfinite(neighboring)
+                        or neighboring+1e-9 < band['spacing_mm']
+                        or type(influence) not in (float,int) or not math.isfinite(influence)
+                        or influence<=0):
+                    raise ValueError('CScore: недопустимый учёт соседних участков Q')
         ratio = r.get('utilization')
         if status == 'indeterminate':
             if ratio is not None:
