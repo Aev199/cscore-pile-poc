@@ -7,7 +7,7 @@ function message(s=''){ $('message').hidden=!s;$('message').textContent=s;docume
 async function api(path,data){const r=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:{'X-Session':token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const v=await r.json();if(!r.ok)throw Error(v.error||'Ошибка запроса');return v;}
 // Diagnostic only: the closest M'≈±Q convention never modifies imported forces.
 function refreshProfileAudit(){
- if(!project)return;
+ if(!project||!$('advancedQ').open)return;
  const rev=revision;
  api('profile-audit',project).then(value=>{
    if(rev===revision){profileAudit=value;renderInspection();}
@@ -324,6 +324,7 @@ $('exportSchedule').onclick=async()=>{
   message('Сохранён черновик ведомости участков. Для выпуска КЖ расчёты и деталировка требуют проверки.');
  }catch(e){message(e.message);}
 };
+$('advancedQ').ontoggle=()=>{if($('advancedQ').open)refreshProfileAudit();};
 $('profileCheck').onclick=calculateProfile;
 $('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];project.transverse_layout=p.transverse_layout||{mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
 $('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];project.transverse_zones=[];project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;dirty();render();};
