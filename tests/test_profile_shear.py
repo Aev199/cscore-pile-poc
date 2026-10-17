@@ -140,9 +140,9 @@ class PhaseProfileContracts(unittest.TestCase):
             {'start_s_m':0,'end_s_m':2,'spacing_mm':150},
             {'start_s_m':2,'end_s_m':4,'spacing_mm':300}]
         windows=[
-            {'start_s_m':0,'end_s_m':0.5,'adopted_pitch_mm':150,
+            {'start_s_m':0,'end_s_m':0.3,'adopted_pitch_mm':150,
              'governing_neighbor_pitch_mm':150},
-            {'start_s_m':0.5,'end_s_m':2,'adopted_pitch_mm':150,
+            {'start_s_m':0.3,'end_s_m':2,'adopted_pitch_mm':150,
              'governing_neighbor_pitch_mm':300},
             {'start_s_m':2,'end_s_m':4,'adopted_pitch_mm':300,
              'governing_neighbor_pitch_mm':300}]
@@ -160,7 +160,7 @@ class PhaseProfileContracts(unittest.TestCase):
         cases=[makecase('A'),makecase('B')]
         # The boundary at s=2 must be represented and every mm covered.
         validate_profile_results(req,cases)
-        cases[0]['pitch_windows'][1]['start_s_m']=0.6
+        cases[0]['pitch_windows'][1]['start_s_m']=0.4
         with self.assertRaisesRegex(ValueError,'разрыв'):
             validate_profile_results(req,cases)
         cases[0]=makecase('A')
