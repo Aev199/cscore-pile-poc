@@ -184,6 +184,7 @@ class PhaseProfileContracts(unittest.TestCase):
         windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
                       adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=pitch,
                       influence_each_side_m=1.5,boundary_verified=False,
+                      method='split_at_pitch_boundaries_and_3h0_influence',
                       verified_for_design=False,utilization=.5,
                       status='research_zone_below_one')
                  for b,pitch in zip(req['pitch_bands'],(150,300,300))]
