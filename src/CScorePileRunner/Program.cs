@@ -204,6 +204,9 @@ internal static class Program
                         ? (double?)station.CriticalC : null,
                     active_qsw_kn_per_m = qsw,
                     b_m = side.B, h0_m = side.H0,
+                    rb_kpa = side.Rb, rbt_kpa = side.Rbt,
+                    phi_n = station is not null && double.IsFinite(station.PhiN)
+                        ? (double?)station.PhiN : null,
                     support_model = "constant_profile_no_support",
                     note = options.ConstructiveConfirmed
                         ? "Unverified link geometry and local Q profile; no inclined moment check"
