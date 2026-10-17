@@ -20,13 +20,21 @@ const path=require('path');
   assert(await page.locator('#inspection').textContent().then(s=>s.includes('Диагностика эпюр не подтверждает')));
 
   // Q is visible but deliberately remains unverified until explicitly screened.
+  assert(await page.locator('#profileCheck').isDisabled());
   await page.locator('#screenQ').check();
   assert(await page.locator('#qFields').isVisible());
+  assert(await page.locator('#profileCheck').isEnabled());
+  assert(!(await page.locator('#profileAxesConfirmed').isChecked()));
+  await page.locator('#profileAxesConfirmed').check();
+  await page.locator('#profileOrientation').selectOption('opposite');
+  assert(!(await page.locator('#profileAxesConfirmed').isChecked()));
+  await page.locator('#profileOrientation').selectOption('same');
   await page.locator('#qSpacing').fill('150');
   await page.locator('#qSpacing').dispatchEvent('change');
   assert(!(await page.locator('#qConstructive').isChecked()));
   await page.locator('#screenQ').uncheck();
   assert(!(await page.locator('#qFields').isVisible()));
+  assert(await page.locator('#profileCheck').isDisabled());
   await page.locator('#charts svg').first().click({position:{x:60,y:240}});
   assert.notEqual(await page.locator('#elevation').textContent(),'—');
   await page.locator('#showQ').check();assert.equal(await page.locator('#charts svg').count(),5);
@@ -53,6 +61,6 @@ const path=require('path');
   const json=Buffer.concat(chunks).toString();assert(!json.includes('not-to-be-saved'));assert.equal(JSON.parse(json).kind,'pile');
   await page.reload();await page.waitForSelector('#charts svg');
   await page.screenshot({path:process.env.SCREENSHOT||'/tmp/workbench-initial.png',fullPage:true});
-  assert.deepEqual(errors,[]);console.log('Browser QA passed: Q controls, diagrams, selection, table replacement/errors, pile mode, project download, no secret persistence.');
+  assert.deepEqual(errors,[]);console.log('Browser QA passed: Q controls, phase profile axis confirmation, diagrams, selection, table replacement/errors, pile mode, project download, no secret persistence.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
