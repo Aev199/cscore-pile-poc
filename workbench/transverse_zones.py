@@ -64,3 +64,35 @@ def envelope(zones, top, bottom, base_pitch):
             'verified_for_design':False,
             'note':'Whole profile evaluated with largest actual spacing; '
                    'physical transitions, shear zones and anchorage remain unverified'}
+
+
+def pitch_bands(zones, top, bottom, base_pitch):
+    """Partition the entire wall into physical constant-pitch bands.
+
+    s = top - z (metres), positive downwards. Continuous adjacent bands cover
+    every depth exactly, with the base pitch only in gaps. Intersections at
+    boundaries are not independently verified; the CScore adapter uses the
+    largest pitch over each band expanded by up to 3*h0 on BOTH sides.
+    """
+    ordered=validate(zones,top,bottom,base_pitch)
+    result=[]
+    cursor=0.0
+    length=float(top)-float(bottom)
+    for zone in ordered:
+        start=float(top)-zone['top']
+        end=float(top)-zone['bottom']
+        if start>cursor+1e-9:
+            result.append({'start_s_m':cursor,'end_s_m':start,
+                           'spacing_mm':float(base_pitch)})
+        result.append({'start_s_m':start,'end_s_m':end,
+                       'spacing_mm':zone['spacing_mm']})
+        cursor=end
+    if length>cursor+1e-9:
+        result.append({'start_s_m':cursor,'end_s_m':length,
+                       'spacing_mm':float(base_pitch)})
+    if not result or abs(result[0]['start_s_m'])>1e-8 or abs(result[-1]['end_s_m']-length)>1e-8:
+        raise ValueError('Поперечная арматура не покрывает длину стены')
+    for a,b in zip(result,result[1:]):
+        if abs(a['end_s_m']-b['start_s_m'])>1e-8:
+            raise ValueError('Разрыв в участках поперечной арматуры')
+    return result
