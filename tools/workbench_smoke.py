@@ -61,6 +61,31 @@ def main():
             assert all(v.get('support_model')=='constant_profile_no_support'
                        for v in all_q if v['status']!='indeterminate')
             print('wall: real CScore Q screened; every verdict explicitly research-only')
+            # Independent full-phase SampledProfile check for CONSTANT BACKGROUND.
+            # Use a deliberately equilibrium-compatible M'=Q profile, not the
+            # unrelated illustrative stage data of the workbench demo.
+            profile_project=copy.deepcopy(transverse)
+            profile_project['zones']=[]
+            profile_project['profile_options']={'orientation':'same','axes_confirmed':True}
+            profile_project['rows']=[
+                {'z':-float(i),'case':'Q ULS','basis':'ULS','n':-100.,
+                 'm':50.+20.*i,'q':20.,'m_long':None}
+                for i in range(5)]
+            profile_result=model.screen_background_profile(
+                profile_project,runner=args.runner)
+            (args.output_dir/'wall_q_phase_profile.json').write_text(
+                json.dumps(profile_result,indent=2,ensure_ascii=False),encoding='utf-8')
+            assert profile_result['verified_for_design'] is False
+            assert profile_result['support_model']=='none'
+            assert profile_result['reinforcement']=='background_only'
+            assert len(profile_result['profile_results'])==1
+            phase=profile_result['profile_results'][0]
+            assert phase['status'] in ('research_profile_below_one',
+                                       'research_profile_exceeds_one'),phase
+            assert math.isfinite(phase['utilization'])
+            assert phase['verified_for_design'] is False
+            assert phase['sampled_stations']>2
+            print('wall: full-phase SampledProfile CScore Q research diagnostic succeeded')
 
 
 if __name__=='__main__':main()
