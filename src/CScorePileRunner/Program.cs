@@ -319,14 +319,22 @@ internal static class Program
                             throw new InvalidOperationException("incomplete_band_shear_check");
                         runs.Add((outcome, band, pitch, qsw));
                     }
+                    var bandWorst = runs.Where(r => ReferenceEquals(r.Band, band))
+                        .SelectMany(r => r.Outcome.Details
+                            .Where(d => d.Formula is "8.55" or "8.56"))
+                        .Max(d => d.Ratio);
                     zoneSummaries.Add(new
                     {
                         start_s_m = band.StartSM, end_s_m = band.EndSM,
                         adopted_pitch_mm = band.SpacingMm,
                         governing_neighbor_pitch_mm = pitch,
                         influence_each_side_m = influence,
+                        utilization = bandWorst,
+                        status = bandWorst <= 1.0 ? "research_zone_below_one"
+                            : "research_zone_exceeds_one",
                         method = "adjacent_max_pitch_in_3h0_projection_neighborhood",
-                        boundary_verified = false
+                        boundary_verified = false,
+                        verified_for_design = false
                     });
                 }
                 var worst = runs.SelectMany(run => run.Outcome.Details
