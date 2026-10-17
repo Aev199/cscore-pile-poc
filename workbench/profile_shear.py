@@ -78,7 +78,7 @@ def validate_profile_results(request, response):
                     or r.get('reinforcement_model')!='constant_background_longitudinal_projection_neighborhood_pitch'):
                 raise ValueError('CScore: отсутствует разбиение наклонных сечений по участкам')
             for band,win in zip(expected_bands,windows):
-                if not isinstance(win,dict) or win.get('boundary_verified') is not False:
+                if not isinstance(win,dict) or win.get('boundary_verified') is not False or win.get('verified_for_design') is not False:
                     raise ValueError('CScore: недостоверный статус перехода хомутов')
                 for field,expected in (('start_s_m',band['start_s_m']),
                                        ('end_s_m',band['end_s_m']),
@@ -93,6 +93,17 @@ def validate_profile_results(request, response):
                         or type(influence) not in (float,int) or not math.isfinite(influence)
                         or influence<=0):
                     raise ValueError('CScore: недопустимый учёт соседних участков Q')
+                zone_eta=win.get('utilization')
+                if type(zone_eta) not in (int,float) or not math.isfinite(zone_eta) or zone_eta<0:
+                    raise ValueError('CScore: отсутствует достоверный коэффициент участка Q')
+                if win.get('status') != ('research_zone_below_one'
+                                        if zone_eta<=1 else 'research_zone_exceeds_one'):
+                    raise ValueError('CScore: несогласованный статус участка Q')
+            combined_max=max(w['utilization'] for w in windows)
+            overall_eta=r.get('utilization')
+            if (type(overall_eta) not in (int,float) or not math.isfinite(overall_eta)
+                    or not math.isclose(overall_eta,combined_max,rel_tol=1e-7,abs_tol=1e-7)):
+                raise ValueError('CScore: итог Q не равен худшему участку')
         ratio = r.get('utilization')
         if status == 'indeterminate':
             if ratio is not None:
