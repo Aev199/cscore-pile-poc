@@ -95,12 +95,18 @@ def main():
             assert profile_result['transverse_envelope']['background_used'] is False
             assert profile_result['transverse_envelope']['boundary_verified'] is False
             bands=phase['pitch_windows']
-            assert len(bands)==3,phase
-            assert [x['adopted_pitch_mm'] for x in bands]==[150.,125.,300.],bands
-            # Far-apart bands must NOT inherit a distant weak band. The
-            # transition between closer bands is checked using that neighbor.
-            assert bands[0]['governing_neighbor_pitch_mm']==150.,bands
-            assert bands[2]['governing_neighbor_pitch_mm']==300.,bands
+            assert len(bands)>3,phase
+            assert bands[0]['start_s_m']==0 and bands[-1]['end_s_m']==12
+            assert all(math.isclose(a['end_s_m'],b['start_s_m'],abs_tol=1e-7)
+                       for a,b in zip(bands,bands[1:]))
+            assert {x['adopted_pitch_mm'] for x in bands}=={150.,125.,300.}
+            # The first zone has a truly remote interior that must NOT
+            # inherit the sparse 300-mm links located 8+ meters away.
+            assert any(x['adopted_pitch_mm']==150
+                       and x['governing_neighbor_pitch_mm']==150 for x in bands),bands
+            # A zone near the 125→300 transition MUST see the sparse neighbor.
+            assert any(x['adopted_pitch_mm']==125
+                       and x['governing_neighbor_pitch_mm']==300 for x in bands),bands
             assert all(x['verified_for_design'] is False
                        and x['boundary_verified'] is False for x in bands)
             assert all(math.isfinite(x['utilization']) for x in bands)
