@@ -19,6 +19,11 @@ def main():
         p['force_scale']='per_metre' if kind=='wall' else 'per_member'
         p['rows']=[r for r in p['rows'] if r['z'] in (0,-2)]
         result=model.design(p,runner=args.runner,progress=print)
+        audit=result['force_profile_audit']
+        assert audit['scope']=='diagnostic_only_no_shear_approval'
+        assert audit['usable_for_design'] is False
+        assert len(audit['profiles'])==3
+
         (args.output_dir/f'{kind}.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf-8')
         assert len(result['stations'])==2
         assert result['all_checked'],f'{kind}: preliminary checks not passed; inspect artifact'
