@@ -98,8 +98,8 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
   html+='<h3>Поперечная сила Q</h3>';
   if(profileResult?.profile_results){
     html+='<h3>Эпюры Q · фоновое армирование</h3>';
-    if(profileResult.proposed_stirrup_layout){
-      const l=profileResult.proposed_stirrup_layout;
+    const l=profileResult.stirrup_layout||profileResult.proposed_stirrup_layout;
+    if(l){
       const specified=l.assumption==='user_supplied_absolute_tie_coordinates';
       html+=metric(specified?'Хомутов по заданным координатам':'Хомутов в условной раскладке',
                    fmt(l.link_count_per_cage,0)+' на каркас');
