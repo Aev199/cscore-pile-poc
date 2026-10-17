@@ -12,6 +12,7 @@ import wall_rebar as wall
 
 from .profile_audit import audit as audit_profiles
 from .profile_shear import build_profiles, validate_profile_results
+from .transverse_zones import validate as validate_transverse_zones, envelope as transverse_envelope
 
 ROOT=Path(__file__).resolve().parents[1]
 FIELDS=['z','case','basis','n','m','q','m_long']
@@ -35,7 +36,7 @@ def default_project():
        'pile':{'diameter_mm':800,'cover_mm':60,'ties_diameter_mm':10,
          'min_clear_spacing_mm':25,'mesh_resolution':41,'polygon_sides':96},
        'materials':b['materials'],'sls_settings':{k:v for k,v in b['sls_probe'].items() if k!='loads'},
-       'rows':[],'zones':[],'source':{'type':'manual','note':'Иллюстративные данные; замените своими'}}
+       'rows':[],'zones':[],'transverse_zones':[],'source':{'type':'manual','note':'Иллюстративные данные; замените своими'}}
     for i,z in enumerate([0,-2,-4,-6,-8,-10,-12]):
         m=[40,150,290,420,310,160,30][i]
         for case,basis,n,mult in [('Выемка 1','ULS',-100, .7),('Выемка 2','ULS',-180,1),('Эксплуатация','SLS',-130,.8)]:
@@ -118,6 +119,11 @@ def validate_project(p):
     if p['kind']=='pile' and p.get('transverse',{}).get('mode')=='screen':
         raise ValueError('Для круглой БНС расчёт Q ещё не верифицирован и не подключён')
     validate_zones(p.get('zones',[]),max(stations),min(stations))
+    if p.get('transverse_zones',[]):
+        if p['kind']!='wall':raise ValueError('Участки шага Q доступны только для стены')
+    if p['kind']=='wall':
+        validate_transverse_zones(p.get('transverse_zones',[]),max(stations),min(stations),
+                                  p.get('transverse',{}).get('spacing_mm',200))
     # Validate engine inputs even before starting the worker.
     section=section_input(p,[r for r in rows if r['z']==max(stations)])
     (wall.validate_input if p['kind']=='wall' else pile.validate_input)(section)
@@ -267,6 +273,12 @@ def screen_background_profile(p, engine=None, runner=None):
     if len(candidates)!=1:
         raise ValueError('Фоновое армирование геометрически недопустимо')
     request=wall.build_engine_request(inp,candidates[0])
+    # The first zone-aware Q screen is deliberately ALL-WALL and uses the
+    # weakest transverse-link density everywhere, not imaginary sharp joints.
+    envelope=transverse_envelope(p.get('transverse_zones',[]),
+                                 max(r['z'] for r in rows),min(r['z'] for r in rows),
+                                 p['transverse']['spacing_mm'])
+    request['shear_screening']['spacing_mm']=envelope['uniform_pitch_mm']
     request['shear_profile']=profiles
     engine=engine or (lambda req:wall.invoke_engine(runner,req))
     raw=engine(request)
@@ -282,6 +294,7 @@ def screen_background_profile(p, engine=None, runner=None):
             'reinforcement':'background_only',
             'support_model':'none',
             'profile_results':evaluated,
+            'transverse_envelope':envelope,
             'audit':audit_profiles(rows),
             'design_status':'NOT_VERIFIED',
             'verified_for_design':False}
