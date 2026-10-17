@@ -285,57 +285,84 @@ internal static class Program
 
                 var runs = new List<(ShearInclinedResult Outcome, ShearPitchBand Band, double Pitch, double Qsw)>();
                 var zoneSummaries = new List<object>();
-                foreach (var band in batch.PitchBands!)
+                // A physical band is NOT one uniform influence neighborhood.
+                // Split it wherever the 3*h0 reach of another physical
+                // transition begins/ends, so remote sparse stirrups cannot
+                // spuriously govern an entire long dense zone.
+                var physical = batch.PitchBands!;
+                var transitions = physical.Skip(1).Select(x => x.StartSM).ToArray();
+                foreach (var band in physical)
                 {
-                    double pitch = batch.PitchBands
-                        .Where(other => other.EndSM >= band.StartSM - influence - 1e-9
-                            && other.StartSM <= band.EndSM + influence + 1e-9)
-                        .Max(other => other.SpacingMm);
-                    double qsw = transverse.RswKpa * activeArea / (pitch / 1000.0);
-                    var shearInput = new ShearInclinedInput(
-                        B: reference.B, H0: reference.H0,
-                        Rb: reference.Rb, Rbt: reference.Rbt, Qsw: qsw,
-                        Sw: pitch / 1000.0, Ns: reference.Ns,
-                        Kind: ElementKind.Other, AnchorageFactor: 1.0,
-                        StationStep: 0.0, ProjectionStep: 0.0,
-                        MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
-                        CheckMoment: false, PhiNOverride: null);
-                    // The final station may be skipped by the native grid
-                    // when (end-start) is not a multiple of the sampling step.
-                    // Perform an explicit boundary check in addition.
-                    foreach (var scope in new[]
+                    var cuts = new List<double> { band.StartSM, band.EndSM };
+                    foreach (double edge in transitions)
+                        foreach (double candidate in new[]
+                        {
+                            edge - influence, edge, edge + influence
+                        })
+                            if (candidate > band.StartSM + 1e-9
+                                && candidate < band.EndSM - 1e-9)
+                                cuts.Add(candidate);
+                    cuts.Sort();
+                    var unique = new List<double>();
+                    foreach (double cut in cuts)
+                        if (unique.Count == 0 || cut - unique[^1] > 1e-9)
+                            unique.Add(cut);
+                    for (int i = 0; i + 1 < unique.Count; i++)
                     {
-                        (Start: band.StartSM, End: band.EndSM),
-                        (Start: band.EndSM, End: band.EndSM)
-                    })
-                    {
-                        var sampled = new StationBandProfile(profile, scope.Start, scope.End);
-                        var outcome = ShearInclinedChecker.Check(
-                            shearInput, sampled, geometry, direction: 0);
-                        var details = outcome.Details
-                            .Where(x => x.Formula is "8.55" or "8.56").ToList();
-                        if (details.Count != 2 ||
-                            details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
-                            throw new InvalidOperationException("incomplete_band_shear_check");
-                        runs.Add((outcome, band, pitch, qsw));
-                    }
-                    var bandWorst = runs.Where(r => ReferenceEquals(r.Band, band))
-                        .SelectMany(r => r.Outcome.Details
+                        double startS = unique[i], endS = unique[i + 1];
+                        if (endS - startS <= 1e-9) continue;
+                        // The entire potential inclined section, not only its
+                        // starting station, must see the weakest nearby pitch.
+                        double pitch = physical.Where(other =>
+                            other.EndSM >= startS - influence - 1e-9
+                            && other.StartSM <= endS + influence + 1e-9)
+                            .Max(other => other.SpacingMm);
+                        double qsw = transverse.RswKpa * activeArea / (pitch / 1000.0);
+                        var shearInput = new ShearInclinedInput(
+                            B: reference.B, H0: reference.H0,
+                            Rb: reference.Rb, Rbt: reference.Rbt, Qsw: qsw,
+                            Sw: pitch / 1000.0, Ns: reference.Ns,
+                            Kind: ElementKind.Other, AnchorageFactor: 1.0,
+                            StationStep: 0.0, ProjectionStep: 0.0,
+                            MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
+                            CheckMoment: false, PhiNOverride: null);
+                        var local = new List<ShearInclinedResult>();
+                        foreach (var scope in new[]
+                        {
+                            (Start: startS, End: endS),
+                            (Start: endS, End: endS)
+                        })
+                        {
+                            var sampled = new StationBandProfile(profile, scope.Start, scope.End);
+                            var outcome = ShearInclinedChecker.Check(
+                                shearInput, sampled, geometry, direction: 0);
+                            var details = outcome.Details
+                                .Where(x => x.Formula is "8.55" or "8.56").ToList();
+                            if (details.Count != 2 ||
+                                details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
+                                throw new InvalidOperationException("incomplete_zone_shear_check");
+                            runs.Add((outcome, band, pitch, qsw));
+                            local.Add(outcome);
+                        }
+                        double windowWorst = local.SelectMany(o => o.Details
                             .Where(d => d.Formula is "8.55" or "8.56"))
-                        .Max(d => d.Ratio);
-                    zoneSummaries.Add(new
-                    {
-                        start_s_m = band.StartSM, end_s_m = band.EndSM,
-                        adopted_pitch_mm = band.SpacingMm,
-                        governing_neighbor_pitch_mm = pitch,
-                        influence_each_side_m = influence,
-                        utilization = bandWorst,
-                        status = bandWorst <= 1.0 ? "research_zone_below_one"
-                            : "research_zone_exceeds_one",
-                        method = "adjacent_max_pitch_in_3h0_projection_neighborhood",
-                        boundary_verified = false,
-                        verified_for_design = false
-                    });
+                            .Max(d => d.Ratio);
+                        zoneSummaries.Add(new
+                        {
+                            start_s_m = startS, end_s_m = endS,
+                            adopted_pitch_mm = band.SpacingMm,
+                            governing_neighbor_pitch_mm = pitch,
+                            influence_each_side_m = influence,
+                            utilization = windowWorst,
+                            status = windowWorst <= 1.0 ? "research_zone_below_one"
+                                : "research_zone_exceeds_one",
+                            method = "split_at_pitch_boundaries_and_3h0_influence",
+                            boundary_verified = false,
+                            verified_for_design = false
+                        });
+                        if (zoneSummaries.Count > 400)
+                            throw new InvalidOperationException("too_many_shear_pitch_windows");
+                    }
                 }
                 var worst = runs.SelectMany(run => run.Outcome.Details
                         .Where(x => x.Formula is "8.55" or "8.56")
