@@ -27,7 +27,7 @@ def mocked_profile(req, case, util=.6):
         pitch_windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
             adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=max(
                 z['spacing_mm'] for z in req['pitch_bands']),
-            influence_each_side_m=1.5,boundary_verified=False,
+            influence_each_side_m=1.5,method='split_at_pitch_boundaries_and_3h0_influence',boundary_verified=False,
             verified_for_design=False,utilization=util,
             status='research_zone_below_one' if util<=1 else 'research_zone_exceeds_one')
             for b in req['pitch_bands']])
@@ -132,6 +132,45 @@ class PhaseProfileContracts(unittest.TestCase):
         cases[0]['pitch_windows'][0]['utilization']=0.4
         with self.assertRaisesRegex(ValueError,'худшему участку'):
             validate_profile_results(inp,cases)
+
+    def test_subwindows_cover_full_span_without_crossing_pitch_transition(self):
+        p=project()
+        req=build_profiles(model.normalized_rows(p),3,'same',True)
+        req['pitch_bands']=[
+            {'start_s_m':0,'end_s_m':2,'spacing_mm':150},
+            {'start_s_m':2,'end_s_m':4,'spacing_mm':300}]
+        windows=[
+            {'start_s_m':0,'end_s_m':0.5,'adopted_pitch_mm':150,
+             'governing_neighbor_pitch_mm':150},
+            {'start_s_m':0.5,'end_s_m':2,'adopted_pitch_mm':150,
+             'governing_neighbor_pitch_mm':300},
+            {'start_s_m':2,'end_s_m':4,'adopted_pitch_mm':300,
+             'governing_neighbor_pitch_mm':300}]
+        def makewin(w):
+            return {**w,'influence_each_side_m':1.5,
+                    'method':'split_at_pitch_boundaries_and_3h0_influence',
+                    'boundary_verified':False,'verified_for_design':False,
+                    'utilization':0.6,'status':'research_zone_below_one'}
+        def makecase(case):
+            return dict(id=case,status='research_profile_below_one',
+                        utilization=0.6,verified_for_design=False,
+                        support_model='none',
+                        reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
+                        pitch_windows=[makewin(x) for x in windows])
+        cases=[makecase('A'),makecase('B')]
+        # The boundary at s=2 must be represented and every mm covered.
+        validate_profile_results(req,cases)
+        cases[0]['pitch_windows'][1]['start_s_m']=0.6
+        with self.assertRaisesRegex(ValueError,'разрыв'):
+            validate_profile_results(req,cases)
+        cases[0]=makecase('A')
+        cases[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=300
+        with self.assertRaisesRegex(ValueError,'соседних'):
+            validate_profile_results(req,cases)
+        cases[0]=makecase('A')
+        cases[0]['pitch_windows'][1]['end_s_m']=2.5
+        with self.assertRaisesRegex(ValueError,'границу'):
+            validate_profile_results(req,cases)
 
     def test_json_contract_uses_declared_csharp_fields(self):
         from pathlib import Path
