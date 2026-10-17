@@ -172,6 +172,31 @@ class PhaseProfileContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'границу'):
             validate_profile_results(req,cases)
 
+    def test_neighbor_pitch_respects_projection_reach_and_distant_zones(self):
+        p=project()
+        # Reference profile results are constructed with 3 bands far enough
+        # apart that the worst 300 mm pitch does not affect the first band.
+        req=build_profiles(model.normalized_rows(p),3,'same',True)
+        req['pitch_bands']=[
+            {'start_s_m':0,'end_s_m':4,'spacing_mm':150},
+            {'start_s_m':4,'end_s_m':8,'spacing_mm':125},
+            {'start_s_m':8,'end_s_m':12,'spacing_mm':300}]
+        windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
+                      adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=pitch,
+                      influence_each_side_m=1.5,boundary_verified=False,
+                      verified_for_design=False,utilization=.5,
+                      status='research_zone_below_one')
+                 for b,pitch in zip(req['pitch_bands'],(150,300,300))]
+        good=[dict(id=case,status='research_profile_below_one',
+                   utilization=.5,support_model='none',verified_for_design=False,
+                   reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
+                   pitch_windows=[dict(w) for w in windows])
+              for case in ('A','B')]
+        self.assertEqual(len(validate_profile_results(req,good)),2)
+        good[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=300
+        with self.assertRaisesRegex(ValueError,'переходы'):
+            validate_profile_results(req,good)
+
     def test_json_contract_uses_declared_csharp_fields(self):
         from pathlib import Path
         import re
