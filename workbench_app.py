@@ -11,6 +11,7 @@ from urllib.parse import urlparse,parse_qs
 import webbrowser
 
 from workbench import model
+from workbench.profile_audit import audit as audit_profiles
 from workbench.plaxis import OutputConnection,LOCK
 
 ROOT=Path(__file__).resolve().parent
@@ -76,6 +77,8 @@ def handler_for(app):
                 if path=='/api/table':result={'rows':model.parse_table(data['text'])}
                 elif path=='/api/preview':
                     rows=model.validate_project(data);result={'rows':rows}
+                elif path=='/api/profile-audit':
+                    rows=model.validate_project(data);result=audit_profiles(rows)
                 elif path=='/api/calculate':result=app.start(data['project'],data.get('recheck',False))
                 elif path=='/api/plaxis/connect':
                     with LOCK:
