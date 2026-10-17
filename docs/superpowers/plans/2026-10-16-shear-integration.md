@@ -81,8 +81,9 @@ Branch: `feat/section-workbench`. Based on pinned OpenCS commit
 - [x] Whole-phase CScore research screen with the **largest adopted pitch over all active zones and uncovered base regions**, equivalent to the weakest **uniform** link density; explicitly does NOT verify boundaries, real variable-pitch reinforcement, or normative adequacy.
 - [x] Unit tests and Windows real-CScore smoke for the conservative uniform-pitch envelope, browser QA for editing/saving stepped zones.
 - [x] Successful Windows CI #39017682889 checked 132 Python tests, real CScore phase profile Q, and browser pitch-zone UI against the earlier uniform-envelope implementation.
-- [x] Station-by-station CScore Q profile now uses physical pitch bands and subwindows split at zone boundaries and their 3h₀ influence reach; each subwindow reports its own research-only `eta`.
+- [x] Zone-aware CScore Q screening partitions the full phase into physical pitch bands and then subwindows split at each ±3h₀ influence boundary; checks local interior and both transition sides, and reports each research-only `eta`.
 - [x] Result contract cross-checks contiguous interval coverage, physical vs neighboring pitch, status, and governing overall utilization, rejecting inconsistencies.
+- [x] Static interface/source review, scope guards and negative tests for window coverage; force-density conservatism **does not automatically prove** conservative SP63 strength at low qsw.
 - [ ] Run Windows CI for the latest **subwindow CScore implementation** (not yet verified by a new workflow run).
 - [ ] Implement genuine zone-dependent `qsw(s)`, actual stirrup trajectories and transitions, true support model, bar cutoffs/anchorage, and inclination moment (8.63); independently benchmark before design verification.
 - [ ] Replace constant profile by trustworthy phase-specific longitudinal profile and support model.
