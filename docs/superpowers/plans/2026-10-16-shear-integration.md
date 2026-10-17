@@ -77,7 +77,11 @@ Branch: `feat/section-workbench`. Based on pinned OpenCS commit
 - [x] Add negative tests for absent sign confirmation, mixed phases, duplicate levels, malformed/missing solver results, and strict C# DTO fields.
 - [x] Add a real-engine Windows smoke for an equilibrium-compatible full-phase M/Q profile and browser checks for the axis confirmation controls.
 - [ ] Windows CI build and real CScore profile smoke for these new commits — **not yet run**.
-- [ ] Handle actual supports and load distribution, bar cutoff/anchorage, transverse zones and inclination moment (8.63) before claiming design verification.
+- [x] Transverse spacing zone editor and validated `transverse_zones` project data, including touching boundaries, rejected overlap, persistence and confirmation invalidation.
+- [x] Whole-phase CScore research screen with the **largest adopted pitch over all active zones and uncovered base regions**, equivalent to the weakest **uniform** link density; explicitly does NOT verify boundaries, real variable-pitch reinforcement, or normative adequacy.
+- [x] Unit tests and Windows real-CScore smoke for the conservative uniform-pitch envelope, browser QA for editing/saving stepped zones.
+- [ ] Run Windows CI for the new pitch-zone commits — cannot claim this build is green yet.
+- [ ] Implement genuine zone-dependent `qsw(s)`, actual stirrup trajectories and transitions, true support model, bar cutoffs/anchorage, and inclination moment (8.63); independently benchmark before design verification.
 - [ ] Replace constant profile by trustworthy phase-specific longitudinal profile and support model.
 - [ ] Prove cage-link mechanical model, detailing and anchorage; enable zoning / pitch selection.
 - [ ] Independent wall benchmarks; circular BNS separately.
