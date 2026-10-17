@@ -89,6 +89,22 @@ def main():
             assert math.isfinite(phase['utilization'])
             assert phase['verified_for_design'] is False
             assert phase['sampled_stations']>2
+            assert phase['critical_shear_direction'] in (-1,1)
+            assert math.isfinite(phase['critical_shear_c_m'])
+            assert phase['critical_shear_c_m'] > 0
+            assert math.isfinite(phase['critical_shear_s_m'])
+            proposed=profile_result['proposed_stirrup_layout']
+            assert proposed['status']=='UNVERIFIED_PROPOSAL'
+            assert proposed['link_count_per_cage'] > 0
+            assert proposed['verified_for_design'] is False
+            projection=profile_result['critical_projection_links'][0]
+            assert projection['verified_for_design'] is False
+            assert projection['actual_layout_confirmed'] is False
+            assert projection['status'] in ('proposed_layout_count_only',
+                                             'outside_sampled_profile'),projection
+            if projection['status']=='proposed_layout_count_only':
+                assert isinstance(projection['ties_crossing_per_cage'],int)
+                assert projection['ties_crossing_per_cage'] >= 0
             # Three zones cover the whole wall: unused background pitch = 200 mm
             # must NOT be included; reference uniform envelope pitch is 300 mm.
             assert profile_result['transverse_envelope']['uniform_pitch_mm']==300
