@@ -123,8 +123,11 @@ internal static class Program
                         ? RunCrackProbe(input, candidate) : null;
                 object[]? shearValues = input.ShearScreening?.Enabled == true
                     ? RunShearScreening(input, candidate) : null;
+                object[]? fullProfileValues = input.ShearProfile is not null
+                    ? RunShearProfiles(input, candidate) : null;
                 records.Add(new { id = candidate.Id, loads = values,
-                    sls_gate = slsGate, sls_probe = slsValues, shear_screening = shearValues });
+                    sls_gate = slsGate, sls_probe = slsValues, shear_screening = shearValues,
+                    shear_profiles = fullProfileValues });
             }
             Console.Out.Write(JsonSerializer.Serialize(new
             {
@@ -214,6 +217,88 @@ internal static class Program
                     id = load.Id, status = "indeterminate",
                     utilization = (double?)null,
                     error = "shear_screen_error:" + ex.GetType().Name + ":" + ex.Message,
+                    verified_for_design = false
+                };
+            }
+        }).ToArray();
+    }
+
+    // Exploratory whole-phase response for a SINGLE CONSTANT reinforcement layout.
+    // This is NOT a full check of a wall with zones, real supports or anchorage.
+    // Input Q follows an explicitly confirmed M'=Q convention, never guessed.
+    private static object[] RunShearProfiles(BatchInput input, Candidate candidate)
+    {
+        var batch = input.ShearProfile!;
+        var transverse = input.ShearScreening!;
+        return batch.Profiles.Select(phase =>
+        {
+            try
+            {
+                if (input.ResearchRectangle is null)
+                    throw new InvalidOperationException("not_rectangular");
+                var section = MakeSection(input, candidate);
+                var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
+                double areaM2 = transverse.ConstructiveConfirmed
+                    ? transverse.EffectiveLegsPerCage * transverse.CageCount
+                        * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0
+                    : 0.0;
+                double qsw = transverse.RswKpa * areaM2 / (transverse.SpacingMm / 1000.0);
+                var samples = phase.Samples.Select(v =>
+                    new ForceSample(v.SM, v.QKn, v.MKnm, v.NKn)).ToArray();
+                var profile = new SampledProfile(
+                    samples, supportDistanceFromStart: 0.0,
+                    supportDistanceFromEnd: 0.0,
+                    supportAtStart: false, supportAtEnd: false);
+                // Upstream silently switches to LINEAR M on segments that fail its
+                // stricter 1% derivative consistency check. Do not silently accept.
+                if (profile.Warnings.Count != 0)
+                    throw new InvalidOperationException("upstream_profile_M_Q_mismatch");
+                var reference = geometry.For(samples[0].M);
+                var shearInput = new ShearInclinedInput(
+                    B: reference.B, H0: reference.H0,
+                    Rb: reference.Rb, Rbt: reference.Rbt, Qsw: qsw,
+                    Sw: transverse.SpacingMm / 1000.0, Ns: reference.Ns,
+                    Kind: ElementKind.Other, AnchorageFactor: 1.0,
+                    StationStep: 0.0, ProjectionStep: 0.0,
+                    MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
+                    CheckMoment: false, PhiNOverride: null);
+                var outcome = ShearInclinedChecker.Check(
+                    shearInput, profile, geometry, direction: 0);
+                var details = outcome.Details
+                    .Where(x => x.Formula is "8.55" or "8.56").ToList();
+                if (details.Count != 2 ||
+                    details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
+                    throw new InvalidOperationException("incomplete_phase_shear_check");
+                double eta = details.Max(x => x.Ratio);
+                var worst = details.OrderByDescending(x => x.Ratio).First();
+                var worstStation = worst.Variables.TryGetValue("s", out var s)
+                    && double.IsFinite(s) ? (double?)s : null;
+                return (object)new
+                {
+                    id = phase.Id,
+                    status = eta <= 1.0 ? "research_profile_below_one"
+                        : "research_profile_exceeds_one",
+                    utilization = (double?)eta,
+                    governing_formula = worst.Formula,
+                    governing_s_m = worstStation,
+                    sampled_stations = outcome.Stations.Count,
+                    max_abs_q_kn = profile.MaxAbsQ(
+                        profile.StationRange.Min, profile.StationRange.Max),
+                    qsw_kn_per_m = qsw,
+                    support_model = "none",
+                    reinforcement_model = "constant_background_only",
+                    note = "No verified supports, zone changes, bar cutoffs, anchorage or inclined moment",
+                    verified_for_design = false
+                };
+            }
+            catch (Exception ex)
+            {
+                return (object)new
+                {
+                    id = phase.Id, status = "indeterminate",
+                    utilization = (double?)null,
+                    error = "profile_shear_error:" + ex.GetType().Name + ":" + ex.Message,
+                    support_model = "none",
                     verified_for_design = false
                 };
             }
@@ -887,6 +972,24 @@ internal static class Program
                 || input.Loads.Any(l => l.QKn is not double q || !double.IsFinite(q)))
                 throw new ArgumentException("Invalid shear screening geometry, steel or Q");
         }
+        if (input.ShearProfile is { } profiles)
+        {
+            if (!rectMode || input.ShearScreening is not { Enabled: true }
+                || profiles.Scope != "full_phase_profile_research_constant_background_only"
+                || !profiles.AxisConfirmed
+                || profiles.Orientation is not ("same" or "opposite")
+                || profiles.SupportModel != "none"
+                || profiles.Profiles is null or { Count: 0 or > 200 }
+                || profiles.Profiles.Select(p => p.Id).Distinct().Count() != profiles.Profiles.Count
+                || profiles.Profiles.Any(p => string.IsNullOrWhiteSpace(p.Id)
+                    || p.Samples is null or { Count: < 2 or > 200 }
+                    || p.Samples.Any(s => !double.IsFinite(s.SM)
+                        || !double.IsFinite(s.NKn) || !double.IsFinite(s.MKnm)
+                        || !double.IsFinite(s.QKn))
+                    || p.Samples.Zip(p.Samples.Skip(1))
+                        .Any(v => v.Second.SM - v.First.SM <= 1e-9)))
+                throw new ArgumentException("Invalid or unconfirmed shear phase profile");
+        }
         if (input.SlsExecutionPolicy is not ("uls_pass_only" or "research_all"))
             throw new ArgumentException("Unsupported SLS execution policy");
         if (input.SlsProbe is { } probe)
@@ -934,6 +1037,7 @@ internal sealed class BatchInput
     [JsonPropertyName("sls_execution_policy")] public string SlsExecutionPolicy { get; init; } = "uls_pass_only";
     [JsonPropertyName("research_rectangle")] public ResearchRectangle? ResearchRectangle { get; init; }
     [JsonPropertyName("shear_screening")] public ShearScreening? ShearScreening { get; init; }
+    [JsonPropertyName("shear_profile")] public ShearProfileBatch? ShearProfile { get; init; }
 }
 
 internal sealed class Pile
@@ -967,6 +1071,27 @@ internal sealed class LoadCase
     [JsonPropertyName("q_kn")] public double? QKn { get; init; }
 }
 
+
+internal sealed class ShearProfileBatch
+{
+    [JsonPropertyName("scope")] public string Scope { get; init; } = "";
+    [JsonPropertyName("orientation")] public string Orientation { get; init; } = "";
+    [JsonPropertyName("axis_confirmed")] public bool AxisConfirmed { get; init; }
+    [JsonPropertyName("support_model")] public string SupportModel { get; init; } = "";
+    [JsonPropertyName("profiles")] public List<ShearPhase> Profiles { get; init; } = [];
+}
+internal sealed class ShearPhase
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("samples")] public List<ShearSample> Samples { get; init; } = [];
+}
+internal sealed class ShearSample
+{
+    [JsonPropertyName("s_m")] public double SM { get; init; }
+    [JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonPropertyName("m_knm")] public double MKnm { get; init; }
+    [JsonPropertyName("q_kn")] public double QKn { get; init; }
+}
 
 internal sealed class ShearScreening
 {
