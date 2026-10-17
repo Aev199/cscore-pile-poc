@@ -169,6 +169,7 @@ class PhaseProfileContracts(unittest.TestCase):
             validate_profile_results(req,cases)
         cases[0]=makecase('A')
         cases[0]['pitch_windows'][1]['end_s_m']=2.5
+        cases[0]['pitch_windows'][2]['start_s_m']=2.5
         with self.assertRaisesRegex(ValueError,'границу'):
             validate_profile_results(req,cases)
 
