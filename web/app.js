@@ -99,7 +99,11 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
  else html+=`<div class="status">${stale&&result?'Результат устарел. Перепроверьте принятое.':'Расчёт сечения не выполнен'}</div>`;
  html+='<h3>Совместные усилия</h3>';for(const r of rows().filter(r=>r.z===selectedZ&&(phase==='all'||r.basis+' · '+r.case===phase)))html+=`<p class="small">${esc(r.case)} · ${esc(r.basis)}</p>`+metric('N / M',fmt(r.n)+' / '+fmt(r.m));
  if(project.kind==='wall'){
-  html+='<h3>Поперечная сила Q</h3>';
+  html+='<h3>Поперечное армирование</h3>';
+  const q=project.transverse||{};
+  html+=metric('Хомут Ø / основной шаг',fmt(q.diameter_mm,0)+' / '+fmt(q.spacing_mm,0)+' мм');
+  html+='<p class="hint">Проверка Q для выпуска КЖ ещё не подтверждена.</p>';
+  html+='<details class="q-inspection-advanced"><summary>Расчёт Q и замечания</summary>';
   if(profileResult?.profile_results){
     html+='<h3>Эпюры Q · фоновое армирование</h3>';
     const l=profileResult.stirrup_layout||profileResult.proposed_stirrup_layout;
@@ -192,6 +196,7 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
    }
    html+='<p class="hint">Без профиля усилий, опор и анкеровки нормативного допуска нет.</p>';
   }
+  html+='</details>';
  }
  $('inspection').innerHTML=html;
 }
