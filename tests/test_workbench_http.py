@@ -38,6 +38,24 @@ class HttpTests(unittest.TestCase):
             with self.assertRaises(HTTPError):urlopen(r)
         self.assertIsNone(self.app.connection)
 
+    def test_mq_audit_api_is_diagnostic_only(self):
+        from workbench.model import default_project
+        p=default_project()
+        r=Request(self.url+'/api/profile-audit',
+                  data=json.dumps(p).encode(),
+                  headers={'X-Session':self.app.token})
+        result=json.load(urlopen(r))
+        self.assertFalse(result['usable_for_design'])
+        self.assertEqual(result['scope'],'diagnostic_only_no_shear_approval')
+        self.assertEqual(len(result['profiles']),3)
+        self.assertTrue(all(x['usable_for_design'] is False for x in result['profiles']))
+        # Faulty or incomplete projects cannot get an optimistic profile label.
+        p['rows'][0]['q']='NaN'
+        r=Request(self.url+'/api/profile-audit',
+                  data=json.dumps(p).encode(),
+                  headers={'X-Session':self.app.token})
+        with self.assertRaises(HTTPError):urlopen(r)
+
     def test_path_not_exposed(self):
         with self.assertRaises(HTTPError):urlopen(self.url+'/workbench/model.py')
 
