@@ -16,6 +16,9 @@ const path=require('path');
   await page.goto(url);await page.waitForSelector('#charts svg');
   assert.equal(await page.locator('#charts svg').count(),5);
   assert(!(await page.locator('#spacingLabel').isVisible()));
+  await page.waitForFunction(() => document.querySelector('#inspection').textContent.includes('Согласованность M–Q'));
+  assert(await page.locator('#inspection').textContent().then(s=>s.includes('Диагностика эпюр не подтверждает')));
+
   // Q is visible but deliberately remains unverified until explicitly screened.
   await page.locator('#screenQ').check();
   assert(await page.locator('#qFields').isVisible());
