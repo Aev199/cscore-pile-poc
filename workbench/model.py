@@ -13,6 +13,7 @@ import wall_rebar as wall
 from .profile_audit import audit as audit_profiles
 from .profile_shear import build_profiles, validate_profile_results
 from .transverse_zones import validate as validate_transverse_zones, envelope as transverse_envelope, pitch_bands
+from .stirrup_layout import proposed_positions, count_in_projection, proposal_summary
 
 ROOT=Path(__file__).resolve().parents[1]
 FIELDS=['z','case','basis','n','m','q','m_long']
@@ -297,12 +298,39 @@ def screen_background_profile(p, engine=None, runner=None):
     if not isinstance(items,list) or len(items)!=1:
         raise ValueError('CScore: отсутствуют данные расчёта эпюр')
     evaluated=validate_profile_results(profiles,items[0].get('shear_profiles'))
+    positions=proposed_positions(bands)
+    layout=proposal_summary(bands)
+    critical_layout=[]
+    wall_length=bands[-1]['end_s_m']
+    for r in evaluated:
+        item={'id':r['id'],'status':'not_evaluated',
+              'verified_for_design':False,'actual_layout_confirmed':False}
+        if r['status']!='indeterminate':
+            s=r.get('critical_shear_s_m')
+            projection=r.get('critical_shear_c_m')
+            direction=r.get('critical_shear_direction')
+            if (type(s) in (int,float) and math.isfinite(s)
+                    and type(projection) in (int,float) and math.isfinite(projection)
+                    and projection>0 and type(direction) is int
+                    and direction in (-1,1)):
+                edge=s+direction*projection
+                item.update(station_s_m=s,projection_m=projection,
+                            direction=direction,far_end_s_m=edge)
+                if min(s,edge)<-1e-8 or max(s,edge)>wall_length+1e-8:
+                    item['status']='outside_sampled_profile'
+                else:
+                    item['status']='proposed_layout_count_only'
+                    item['ties_crossing_per_cage']=count_in_projection(
+                        positions,s,projection,direction)
+        critical_layout.append(item)
     return {'scope':'full_phase_profile_research_constant_background_only',
             'candidate':candidates[0]['id'],
             'reinforcement':'background_only',
             'support_model':'none',
             'profile_results':evaluated,
             'transverse_envelope':envelope,
+            'proposed_stirrup_layout':layout,
+            'critical_projection_links':critical_layout,
             'audit':audit_profiles(rows),
             'design_status':'NOT_VERIFIED',
             'verified_for_design':False}
