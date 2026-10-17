@@ -349,7 +349,8 @@ def screen_background_profile(p, engine=None, runner=None):
             'support_model':'none',
             'profile_results':evaluated,
             'transverse_envelope':envelope,
-            'proposed_stirrup_layout':layout,
+            'stirrup_layout':layout,
+            'proposed_stirrup_layout':layout,  # compatibility with previous saved results
             'critical_projection_links':critical_layout,
             'audit':audit_profiles(rows),
             'design_status':'NOT_VERIFIED',
