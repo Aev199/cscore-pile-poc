@@ -194,7 +194,7 @@ class PhaseProfileContracts(unittest.TestCase):
               for case in ('A','B')]
         self.assertEqual(len(validate_profile_results(req,good)),2)
         good[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=300
-        with self.assertRaisesRegex(ValueError,'переходы'):
+        with self.assertRaisesRegex(ValueError,'шаг соседних'):
             validate_profile_results(req,good)
 
     def test_json_contract_uses_declared_csharp_fields(self):
