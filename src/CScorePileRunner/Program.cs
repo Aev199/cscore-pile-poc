@@ -283,7 +283,7 @@ internal static class Program
                         * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0
                     : 0.0;
 
-                var runs = new List<(ShearInclinedResult Outcome, ShearPitchBand Band, double Pitch, double Qsw)>();
+                var runs = new List<(ShearInclinedResult Outcome, ShearPitchBand Band, double Pitch, double Qsw, int Direction)>();
                 var zoneSummaries = new List<object>();
                 // A physical band is NOT one uniform influence neighborhood.
                 // Split it wherever the 3*h0 reach of another physical
@@ -334,15 +334,21 @@ internal static class Program
                         })
                         {
                             var sampled = new StationBandProfile(profile, scope.Start, scope.End);
-                            var outcome = ShearInclinedChecker.Check(
-                                shearInput, sampled, geometry, direction: 0);
-                            var details = outcome.Details
-                                .Where(x => x.Formula is "8.55" or "8.56").ToList();
-                            if (details.Count != 2 ||
-                                details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
-                                throw new InvalidOperationException("incomplete_zone_shear_check");
-                            runs.Add((outcome, band, pitch, qsw));
-                            local.Add(outcome);
+                            // Keep direction: the true stirrup count of an
+                            // inclined projection depends on whether it looks
+                            // toward increasing or decreasing wall depth.
+                            foreach (int direction in new[] { -1, +1 })
+                            {
+                                var outcome = ShearInclinedChecker.Check(
+                                    shearInput, sampled, geometry, direction);
+                                var details = outcome.Details
+                                    .Where(x => x.Formula is "8.55" or "8.56").ToList();
+                                if (details.Count != 2 ||
+                                    details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
+                                    throw new InvalidOperationException("incomplete_zone_shear_check");
+                                runs.Add((outcome, band, pitch, qsw, direction));
+                                local.Add(outcome);
+                            }
                         }
                         double windowWorst = local.SelectMany(o => o.Details
                             .Where(d => d.Formula is "8.55" or "8.56"))
@@ -371,6 +377,18 @@ internal static class Program
                 double eta = worst.Detail.Ratio;
                 var station = worst.Detail.Variables.TryGetValue("s", out var s)
                     && double.IsFinite(s) ? (double?)s : null;
+                // The 8.55 strip may control without having a projection C.
+                // Always report a separate 8.56 critical section for tie
+                // counting, including the actual selected direction.
+                var shearCritical = runs.Select(run => (
+                        Run: run,
+                        Detail: run.Outcome.Details.First(x => x.Formula == "8.56")))
+                    .OrderByDescending(item => item.Detail.Ratio).First();
+                var critVariables = shearCritical.Detail.Variables;
+                double? critS = critVariables.TryGetValue("s", out var cs)
+                    && double.IsFinite(cs) ? cs : null;
+                double? critC = critVariables.TryGetValue("C", out var cc)
+                    && double.IsFinite(cc) && cc > 0 ? cc : null;
                 return (object)new
                 {
                     id = phase.Id,
@@ -379,6 +397,10 @@ internal static class Program
                     utilization = (double?)eta,
                     governing_formula = worst.Detail.Formula,
                     governing_s_m = station,
+                    critical_shear_s_m = critS,
+                    critical_shear_c_m = critC,
+                    critical_shear_direction = shearCritical.Run.Direction,
+                    critical_shear_eta = shearCritical.Detail.Ratio,
                     sampled_stations = runs.Sum(r => r.Outcome.Stations.Count),
                     max_abs_q_kn = profile.MaxAbsQ(
                         profile.StationRange.Min, profile.StationRange.Max),
