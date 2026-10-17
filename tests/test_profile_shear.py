@@ -263,6 +263,50 @@ class PhaseProfileContracts(unittest.TestCase):
         self.assertFalse(result['transverse_envelope']['boundary_verified'])
         self.assertFalse(result['verified_for_design'])
 
+    def test_explicit_ties_change_only_layout_diagnostics_not_Q_strength(self):
+        p=project()
+        positions=list(range(50,4000,200))
+        p['transverse_layout']={'mode':'specified','positions_mm':positions,
+                                 'geometry_confirmed':True}
+        seen=[]
+        def engine(req):
+            seen.append(req)
+            return {'schema_version':1,'cases':[{
+                'id':req['candidates'][0]['id'],
+                'loads':[dict(id=v['id'],converged=True,factor=2,
+                    utilization=.5,error=None) for v in req['loads']],
+                'shear_screening':[dict(id=v['id'],status='indeterminate',
+                    utilization=None,verified_for_design=False) for v in req['loads']],
+                'shear_profiles':[mocked_profile(req['shear_profile'],x['id'])
+                    for x in req['shear_profile']['profiles']]
+            }]}
+        result=model.screen_background_profile(p,engine=engine)
+        layout=result['proposed_stirrup_layout']
+        self.assertEqual(layout['status'],'SPECIFIED_GEOMETRY_ONLY')
+        self.assertEqual(layout['link_count_per_cage'],len(positions))
+        self.assertTrue(layout['actual_layout_confirmed'])
+        self.assertFalse(layout['verified_for_design'])
+        self.assertTrue(all(x['status']=='specified_layout_count_only'
+                            for x in result['critical_projection_links']))
+        self.assertTrue(all(x['actual_layout_confirmed']
+                            for x in result['critical_projection_links']))
+        self.assertFalse(result['verified_for_design'])
+        self.assertNotIn('transverse_layout',seen[0]['shear_profile'])
+        # Engineer-confirmed positions are a separate geometry observation,
+        # NOT a secret change to upstream CScore's nominal qsw(s).
+        p['transverse_layout']['geometry_confirmed']=False
+        other=model.screen_background_profile(p,engine=engine)
+        self.assertFalse(other['proposed_stirrup_layout']['actual_layout_confirmed'])
+        self.assertEqual([x['utilization'] for x in result['profile_results']],
+                         [x['utilization'] for x in other['profile_results']])
+
+    def test_explicit_tie_layout_rejects_overspacing_before_engine(self):
+        p=project()
+        p['transverse_layout']={'mode':'specified','positions_mm':[50,250,1000],
+                                 'geometry_confirmed':True}
+        with self.assertRaises(ValueError):
+            model.screen_background_profile(p,engine=lambda _:self.fail('engine called'))
+
     def test_background_run_never_uses_unconfirmed_axes(self):
         p=project();p['profile_options']['axes_confirmed']=False
         with self.assertRaisesRegex(ValueError,'Подтвердите'):
