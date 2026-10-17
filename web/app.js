@@ -38,6 +38,10 @@ function renderForms(){
  $('qFields').hidden=kind!=='wall'||t.mode!=='screen';
  for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).value=t[key];
  $('qConstructive').checked=!!t.constructive_confirmed;
+ const choices=project.q_allowed_steps_mm||[100,150,200,300];
+ $('qPitchOptions').value=choices.join('; ');
+ $('qPitchChoices').innerHTML=choices.map(n=>'<option value="'+esc(n)+'"></option>').join('');
+ $('exportSchedule').hidden=kind!=='wall';
  const po=project.profile_options||(project.profile_options={orientation:'same',axes_confirmed:false});
  $('profileOrientation').value=po.orientation;
  $('profileAxesConfirmed').checked=po.axes_confirmed===true;
@@ -202,7 +206,7 @@ function renderQZones(){
  host.innerHTML=zones.length?zones.map((z,i)=>`<div class="q-zone">
   <label>Верх, м<input aria-label="Q верх ${i+1}" data-q-zone="${i}" data-q-key="top" type="number" step="0.1" value="${esc(z.top)}"></label>
   <label>Низ, м<input aria-label="Q низ ${i+1}" data-q-zone="${i}" data-q-key="bottom" type="number" step="0.1" value="${esc(z.bottom)}"></label>
-  <label>Шаг, мм<input aria-label="Q шаг ${i+1}" data-q-zone="${i}" data-q-key="spacing_mm" type="number" min="1" step="5" value="${esc(z.spacing_mm)}"></label>
+  <label>Шаг, мм<input aria-label="Q шаг ${i+1}" data-q-zone="${i}" data-q-key="spacing_mm" type="number" min="1" step="5" list="qPitchChoices" value="${esc(z.spacing_mm)}"></label>
   <button type="button" data-q-remove="${i}" title="Удалить участок Q">×</button>
  </div>`).join(''):'<p class="hint">Участков нет — основной шаг по всей длине.</p>';
  host.querySelectorAll('[data-q-zone]').forEach(el=>el.onchange=()=>{
@@ -251,7 +255,7 @@ async function calculateProfile(){
  }catch(e){message(e.message);}
  finally{busy=false;document.body.classList.remove('busy');$('progress').textContent='Локальный расчёт · данные остаются на компьютере';}
 }
-function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse','transverse_zones','transverse_layout','profile_options'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse','transverse_zones','transverse_layout','profile_options','q_allowed_steps_mm'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 $('screenQ').onchange=e=>{project.transverse.mode=e.target.checked?'screen':'off';dirty();renderForms();};
 for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).onchange=e=>{
  project.transverse[key]=Number(e.target.value);
@@ -291,6 +295,29 @@ $('tiePositions').onchange=e=>{
 };
 $('tieGeometryConfirmed').onchange=e=>{
  project.transverse_layout.geometry_confirmed=e.target.checked;dirty();
+};
+$('qPitchOptions').onchange=e=>{
+ const text=e.target.value.trim();
+ const raw=text.split(/[;\\s]+/).filter(Boolean);
+ const values=raw.map(s=>Number(s.replace(',','.')));
+ if(!values.length||values.length>15||values.some(v=>!Number.isFinite(v)||v<=0||v>2000)
+     ||new Set(values).size!==values.length){
+   message('Введите от 1 до 15 различных положительных шагов, мм, разделив их точкой с запятой.');
+   e.target.value=(project.q_allowed_steps_mm||[100,150,200,300]).join('; ');return;
+ }
+ project.q_allowed_steps_mm=values.sort((a,b)=>a-b);dirty();renderForms();message();
+};
+$('exportSchedule').onclick=async()=>{
+ try{
+  if(project.kind!=='wall')throw Error('Ведомость участков доступна для стены в грунте');
+  const {draft,csv}=await api('reinforcement-schedule',project);
+  if(draft.status!=='DRAFT_NOT_VERIFIED')throw Error('Некорректный статус ведомости');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(project.title||'Стена').replace(/[<>:"/\\|?*]/g,'_')+'_участки_черновик.csv';
+  a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  message('Сохранён черновик ведомости участков. Для выпуска КЖ расчёты и деталировка требуют проверки.');
+ }catch(e){message(e.message);}
 };
 $('profileCheck').onclick=calculateProfile;
 $('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];project.transverse_layout=p.transverse_layout||{mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
