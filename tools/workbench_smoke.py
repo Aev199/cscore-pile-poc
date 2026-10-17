@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from workbench import model
+from tools.sp63_q_handcheck import handcheck
 
 
 def main():
@@ -60,6 +61,23 @@ def main():
                        for v in resolved), resolved
             assert all(v.get('support_model')=='constant_profile_no_support'
                        for v in all_q if v['status']!='indeterminate')
+            # Independently hand-check the three reference formulas against the
+            # actual pinned CScore result and geometric/material quantities.
+            # These cases have N<0, so phi_n applies to the strip as well.
+            for v in resolved:
+                assert v['critical_c_m'] is not None, v
+                hand=handcheck(b=v['b_m'],h0=v['h0_m'],rb=v['rb_kpa'],
+                    rbt=v['rbt_kpa'],phi_n=v['phi_n'],
+                    qsw=v['active_qsw_kn_per_m'],sw=.2,
+                    c=v['critical_c_m'],q=v['q_kn'],
+                    phi_applies_to_strip=True)
+                for key, expected in (('qb_kn',hand['qb_kn']),
+                                      ('qsw_kn',hand['qsw_kn'])):
+                    assert math.isclose(v[key],expected,rel_tol=1e-6,abs_tol=1e-6), (key,v,hand)
+                expected_eta=max(hand['eta_inclined'],hand['eta_strip'])
+                assert math.isclose(v['utilization'],expected_eta,rel_tol=1e-6,
+                                    abs_tol=1e-6),(v,hand)
+            print('wall: CScore 8.55-8.59 Q independently hand-checked in kN/m/kPa')
             print('wall: real CScore Q screened; every verdict explicitly research-only')
             # Independent full-phase SampledProfile check for CONSTANT BACKGROUND.
             # Use a deliberately equilibrium-compatible M'=Q profile, not the
