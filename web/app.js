@@ -126,6 +126,12 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
         if(groups.length>12)html+='<p class="hint">Показаны первые 12 участков из '+groups.length+'. Полные данные сохраняются в ответе расчёта.</p>';
         html+='<p class="hint">Учитываются редкие хомуты соседних зон в пределах 3h₀. Раскладка, опоры и анкеровка не подтверждены.</p>';
       }
+      if(Array.isArray(r.warnings)&&r.warnings.length){
+        html+='<p class="hint">Замечания CScore:</p>';
+        for(const w of r.warnings.slice(0,5))html+='<p class="hint">· '+esc(w)+'</p>';
+        if(r.warnings.length>5||r.warnings_truncated)
+          html+='<p class="hint">Показаны не все замечания CScore.</p>';
+      }
       if(r.error)html+='<p class="hint">'+esc(r.error)+'</p>';
     }
   }
