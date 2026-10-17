@@ -72,3 +72,64 @@ def proposal_summary(pitch_bands):
         'note': 'Proposed locations only; offsets, first/last clearances, cages, '
                 'link shape and anchorage must be confirmed on drawings.',
     }
+
+
+def specified_positions(pitch_bands, positions_mm):
+    """Validate user-entered absolute tie positions from wall top (mm).
+
+    This is a geometric spacing check, NOT approval of tie shape, effective
+    legs, anchorage, cover, first/last detailing or normative shear strength.
+    A physical tie on a band boundary may serve both adjacent regions.
+    """
+    if (not isinstance(positions_mm, list) or not positions_mm
+            or len(positions_mm) > MAX_PROPOSED_LINKS):
+        raise ValueError('Введите список реальных отметок хомутов от верха стены')
+    from bisect import bisect_left, bisect_right
+    if not pitch_bands:
+        raise ValueError('Отсутствуют участки поперечной арматуры')
+    full_length = pitch_bands[-1]['end_s_m']
+    values = []
+    previous = -1.0
+    for i, value in enumerate(positions_mm):
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError(f'Хомут {i + 1}: некорректная отметка')
+        s = value / 1000.0
+        if s < 0 or s > full_length + 1e-9 or s - previous <= 1e-9:
+            raise ValueError(f'Хомут {i + 1}: отметки должны возрастать и лежать в пределах стены')
+        values.append(round(s, 9))
+        previous = s
+    for idx, band in enumerate(pitch_bands):
+        a, b = band['start_s_m'], band['end_s_m']
+        step = band['spacing_mm'] / 1000.0
+        if not all(math.isfinite(v) for v in (a, b, step)) or not (0 < step <= 2):
+            raise ValueError('Неверная физическая разбивка хомутов')
+        # Count a boundary tie in both bands, but never duplicate it.
+        low = bisect_left(values, a - 1e-9)
+        high = bisect_right(values, b + 1e-9)
+        local = values[low:high]
+        if not local:
+            raise ValueError(f'Участок Q {idx + 1}: фактически не задан ни один хомут')
+        gaps = [local[0] - a, b - local[-1]]
+        gaps.extend(v - u for u, v in zip(local, local[1:]))
+        if any(gap > step + 1e-8 for gap in gaps):
+            raise ValueError(f'Участок Q {idx + 1}: фактическое расстояние превышает заданный шаг')
+    return values
+
+
+def specified_summary(positions, geometry_confirmed):
+    """Explicit layout can be geometrically confirmed, never design-approved."""
+    if type(geometry_confirmed) is not bool:
+        raise ValueError('Подтверждение фактической раскладки должно быть логическим')
+    gaps = [b - a for a, b in zip(positions, positions[1:])]
+    return {
+        'status': 'SPECIFIED_GEOMETRY_ONLY' if geometry_confirmed else 'SPECIFIED_NOT_CONFIRMED',
+        'assumption': 'user_supplied_absolute_tie_coordinates',
+        'verified_for_design': False,
+        'actual_layout_confirmed': geometry_confirmed,
+        'link_count_per_cage': len(positions),
+        'first_s_m': positions[0],
+        'last_s_m': positions[-1],
+        'maximum_center_to_center_gap_mm': round(max(gaps, default=0.0)*1000, 5),
+        'note': 'Geometric layout only; link branches, reinforcement shape, '
+                'anchorage, support conditions and inclined moment not verified.',
+    }
