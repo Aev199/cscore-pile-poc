@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id),token=document.querySelector('meta[name=session]').content;
-let project,result=null,stale=false,revision=0,selectedZ=0,phase='all',busy=false,catalog=null,profileAudit=null;
+let project,result=null,stale=false,revision=0,selectedZ=0,phase='all',busy=false,catalog=null,profileAudit=null,profileResult=null;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(v,n=2)=>Number.isFinite(v)?v.toLocaleString('ru-RU',{maximumFractionDigits:n}):'—';
 function message(s=''){ $('message').hidden=!s;$('message').textContent=s;document.querySelectorAll('.dialogerror').forEach(x=>x.remove());const d=document.querySelector('dialog[open]');if(s&&d){const p=document.createElement('p');p.className='dialogerror notice';p.textContent=s;d.prepend(p);} }
@@ -15,7 +15,7 @@ function refreshProfileAudit(){
    if(rev===revision){profileAudit={error:error.message};renderInspection();}
  });
 }
-function dirty(){revision++;profileAudit=null;refreshProfileAudit();stale=true;$('resultState').textContent=result?'Данные изменены · пересчитайте':'Расчёт не выполнен';renderCharts();renderInspection();}
+function dirty(){revision++;profileResult=null;profileAudit=null;refreshProfileAudit();stale=true;$('resultState').textContent=result?'Данные изменены · пересчитайте':'Расчёт не выполнен';renderCharts();renderInspection();}
 const fieldsWall=[['panel_width_mm','Ширина захватки, мм'],['thickness_mm','Толщина стены, мм'],['cage_count','Число каркасов'],['cage_width_mm','Ширина каркаса, мм'],['end_cover_mm','Торцевой защитный слой, мм'],['cover_mm','Защитный слой до хомута, мм'],['ties_diameter_mm','Диаметр хомута, мм'],['min_clear_spacing_mm','Минимальный просвет, мм'],['min_cage_gap_mm','Промежуток каркасов, мм']];
 const fieldsPile=[['diameter_mm','Диаметр сваи, мм'],['cover_mm','Защитный слой до хомута, мм'],['ties_diameter_mm','Диаметр хомута, мм'],['min_clear_spacing_mm','Минимальный просвет, мм']];
 function inputField(label,value,attrs){return `<label>${esc(label)}<input type="number" value="${esc(value)}" ${attrs}></label>`;}
@@ -38,6 +38,11 @@ function renderForms(){
  $('qFields').hidden=kind!=='wall'||t.mode!=='screen';
  for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).value=t[key];
  $('qConstructive').checked=!!t.constructive_confirmed;
+ const po=project.profile_options||(project.profile_options={orientation:'same',axes_confirmed:false});
+ $('profileOrientation').value=po.orientation;
+ $('profileAxesConfirmed').checked=po.axes_confirmed===true;
+ $('profileFields').hidden=kind!=='wall';
+ $('profileCheck').disabled=t.mode!=='screen';
  $('sourceLabel').textContent=project.source?.type==='plaxis_output'?'PLAXIS Output':project.source?.note?'Пример · ручной ввод':'Ручной ввод';
  $('table').textContent=`Таблица усилий · ${project.rows.length}`;
  const phases=[...new Set(project.rows.map(r=>r.basis+' · '+r.case))];
@@ -85,6 +90,18 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
  html+='<h3>Совместные усилия</h3>';for(const r of rows().filter(r=>r.z===selectedZ&&(phase==='all'||r.basis+' · '+r.case===phase)))html+=`<p class="small">${esc(r.case)} · ${esc(r.basis)}</p>`+metric('N / M',fmt(r.n)+' / '+fmt(r.m));
  if(project.kind==='wall'){
   html+='<h3>Поперечная сила Q</h3>';
+  if(profileResult?.profile_results){
+    html+='<h3>Эпюры Q · фоновое армирование</h3>';
+    html+='<p class="hint">Исследовательский расчёт CScore по профилю без опор и усилений. Не нормативный допуск.</p>';
+    for(const r of profileResult.profile_results){
+      const meaning=({'research_profile_below_one':'расчётный η ≤ 1','research_profile_exceeds_one':'расчётный η > 1','indeterminate':'не определено'})[r.status]||'не определено';
+      html+='<p class="small">'+esc(r.id)+' · '+esc(meaning)+'</p>';
+      html+=metric('η по эпюре',fmt(r.utilization,3));
+      if(r.governing_formula)html+=metric('Условие',r.governing_formula);
+      if(r.governing_s_m!=null)html+=metric('Стоянка от верха',fmt(r.governing_s_m)+' м');
+      if(r.error)html+='<p class="hint">'+esc(r.error)+'</p>';
+    }
+  }
   if(profileAudit?.error){
     html+='<p class="hint">Диагностика M/Q недоступна: '+esc(profileAudit.error)+'</p>';
   }else if(profileAudit?.profiles){
@@ -128,13 +145,45 @@ function render(){renderForms();renderCharts();renderZones();renderInspection();
 async function calculate(recheck){if(busy)return;message();const rev=revision;busy=true;document.body.classList.add('busy');
  try{const start=await api('calculate',{project,recheck});while(true){await new Promise(r=>setTimeout(r,600));const job=await api('job?id='+encodeURIComponent(start.job));$('progress').textContent=job.message;if(job.status==='error')throw Error(job.message);if(job.status==='done'){if(revision!==rev){message('Во время расчёта данные изменились. Результат не применён; запустите расчёт заново.');break;}result=job.result;project.zones=result.zones;stale=false;$('resultState').textContent=result.all_checked?'N/M предварительно пройдены · Q не является допуском':'Есть непрошедшие нормальные сечения';renderZones();renderCharts();renderInspection();break;}}}
  catch(e){message(e.message);}finally{busy=false;document.body.classList.remove('busy');$('progress').textContent='Локальный расчёт · данные остаются на компьютере';}}
-function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+async function calculateProfile(){
+ if(busy)return;
+ message();
+ const rev=revision;
+ busy=true;document.body.classList.add('busy');
+ try{
+  if(project.kind!=='wall'||project.transverse?.mode!=='screen')
+   throw Error('Сначала включите оценку Q для стены в грунте');
+  if(project.profile_options?.axes_confirmed!==true)
+   throw Error('Сначала подтвердите направление осей и знак M/Q');
+  const start=await api('profile-calculate',{project});
+  while(true){
+   await new Promise(r=>setTimeout(r,600));
+   const job=await api('job?id='+encodeURIComponent(start.job));
+   $('progress').textContent=job.message;
+   if(job.status==='error')throw Error(job.message);
+   if(job.status==='done'){
+    if(revision!==rev){message('Исходные данные изменились во время расчёта. Повторите проверку эпюр.');break;}
+    profileResult=job.result;
+    renderInspection();
+    break;
+   }
+  }
+ }catch(e){message(e.message);}
+ finally{busy=false;document.body.classList.remove('busy');$('progress').textContent='Локальный расчёт · данные остаются на компьютере';}
+}
+function save(){const allowed=['version','title','kind','force_scale','spacing_m','moment_sign','materials_confirmed','eccentricity_confirmed','background','pile_background','diameters','pile_diameter','max_tier','wall','pile','materials','sls_settings','rows','zones','source','transverse','profile_options'];const clean=Object.fromEntries(allowed.map(k=>[k,project[k]]));const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(project.title||'Расчёт').replace(/[<>:"/\\|?*]/g,'_')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 $('screenQ').onchange=e=>{project.transverse.mode=e.target.checked?'screen':'off';dirty();renderForms();};
 for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).onchange=e=>{
  project.transverse[key]=Number(e.target.value);
  project.transverse.constructive_confirmed=false;dirty();renderForms();
 };
 $('qConstructive').onchange=e=>{project.transverse.constructive_confirmed=e.target.checked;dirty();};
+$('profileOrientation').onchange=e=>{project.profile_options.orientation=e.target.value;
+ project.profile_options.axes_confirmed=false;
+ $('profileAxesConfirmed').checked=false;revision++;profileResult=null;renderInspection();};
+$('profileAxesConfirmed').onchange=e=>{project.profile_options.axes_confirmed=e.target.checked;
+ revision++;profileResult=null;renderInspection();};
+$('profileCheck').onclick=calculateProfile;
 $('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
 $('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];result=null;dirty();render();};
 for(const id of ['force_scale','spacing_m','moment_sign','max_tier','materials_confirmed','eccentricity_confirmed'])$(id).onchange=e=>{project[id]=e.target.type==='checkbox'?e.target.checked:['spacing_m','moment_sign','max_tier'].includes(id)?Number(e.target.value):e.target.value;dirty();renderForms();};
