@@ -28,7 +28,7 @@ const path=require('path');
   await page.locator('#qPitchOptions').dispatchEvent('change');
   assert.equal(await page.locator('#qPitchChoices option').count(),5);
   await page.locator('#advancedQ > summary').click();
-  await page.waitForFunction(() => document.querySelector('#inspection').textContent.includes('Согласованность M–Q'));
+  await page.locator('#inspection .metric').filter({hasText:'Согласованность M–Q'}).waitFor({state:'attached'});
   assert(await page.locator('#inspection').textContent().then(s=>s.includes('Диагностика эпюр не подтверждает')));
   assert(await page.locator('#profileCheck').isDisabled());
   await page.locator('#screenQ').check();
