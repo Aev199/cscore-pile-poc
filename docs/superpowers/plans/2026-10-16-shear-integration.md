@@ -70,6 +70,9 @@ Branch: `feat/section-workbench`. Based on pinned OpenCS commit
 - [x] Fail closed on incomplete results; retain research-only statuses and no final acceptance.
 - [x] Workbench Q controls, visible diagram and inspector; browser/contract/real-engine CI tests added.
 - [ ] Confirm the new Windows CI run passes; do not claim numerical verification before that.
+- [x] Windows CI #39010091725 passed (111 Python tests, real CScore Q, browser QA).
+- [x] Phase-wise M/Q consistency audit: two diagnostic sign hypotheses, no force mutation, warnings for missing/duplicate/inconsistent data, UI and API; new tests.
+- [ ] Windows CI verification of the new profile-audit commit.
 - [ ] Replace constant profile by trustworthy phase-specific longitudinal profile and support model.
 - [ ] Prove cage-link mechanical model, detailing and anchorage; enable zoning / pitch selection.
 - [ ] Independent wall benchmarks; circular BNS separately.
