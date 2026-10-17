@@ -987,7 +987,21 @@ internal static class Program
                         || !double.IsFinite(s.NKn) || !double.IsFinite(s.MKnm)
                         || !double.IsFinite(s.QKn))
                     || p.Samples.Zip(p.Samples.Skip(1))
-                        .Any(v => v.Second.SM - v.First.SM <= 1e-9)))
+                        .Any(v => v.Second.SM - v.First.SM <= 1e-9))
+                || profiles.PitchBands is null or { Count: 0 or > 201 }
+                || profiles.PitchBands.Any(b => !double.IsFinite(b.StartSM)
+                    || !double.IsFinite(b.EndSM) || !double.IsFinite(b.SpacingMm)
+                    || b.EndSM - b.StartSM <= 1e-9
+                    || b.SpacingMm <= 0.0 || b.SpacingMm > 2000.0)
+                || Math.Abs(profiles.PitchBands[0].StartSM
+                    - profiles.Profiles[0].Samples[0].SM)>1e-8
+                || Math.Abs(profiles.PitchBands[^1].EndSM
+                    - profiles.Profiles[0].Samples[^1].SM)>1e-8
+                || profiles.PitchBands.Zip(profiles.PitchBands.Skip(1))
+                    .Any(v => Math.Abs(v.First.EndSM-v.Second.StartSM)>1e-8)
+                || profiles.Profiles.Any(p =>
+                    Math.Abs(p.Samples[0].SM-profiles.PitchBands[0].StartSM)>1e-8
+                    || Math.Abs(p.Samples[^1].SM-profiles.PitchBands[^1].EndSM)>1e-8))
                 throw new ArgumentException("Invalid or unconfirmed shear phase profile");
         }
         if (input.SlsExecutionPolicy is not ("uls_pass_only" or "research_all"))
@@ -1079,6 +1093,13 @@ internal sealed class ShearProfileBatch
     [JsonPropertyName("axis_confirmed")] public bool AxisConfirmed { get; init; }
     [JsonPropertyName("support_model")] public string SupportModel { get; init; } = "";
     [JsonPropertyName("profiles")] public List<ShearPhase> Profiles { get; init; } = [];
+    [JsonPropertyName("pitch_bands")] public List<ShearPitchBand>? PitchBands { get; init; }
+}
+internal sealed class ShearPitchBand
+{
+    [JsonRequired, JsonPropertyName("start_s_m")] public double StartSM { get; init; }
+    [JsonRequired, JsonPropertyName("end_s_m")] public double EndSM { get; init; }
+    [JsonRequired, JsonPropertyName("spacing_mm")] public double SpacingMm { get; init; }
 }
 internal sealed class ShearPhase
 {
