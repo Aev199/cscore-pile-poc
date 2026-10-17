@@ -223,9 +223,33 @@ internal static class Program
         }).ToArray();
     }
 
-    // Exploratory whole-phase response for a SINGLE CONSTANT reinforcement layout.
-    // This is NOT a full check of a wall with zones, real supports or anchorage.
-    // Input Q follows an explicitly confirmed M'=Q convention, never guessed.
+    // Limit only the CHECKER'S STATION ITERATION to the assigned band; the
+    // actual force profile and projected maximum Q remain FULL-PHASE.
+    // Boundaries are also sampled explicitly so station grids cannot skip them.
+    private sealed class StationBandProfile(
+        IForceProfile original, double from, double to) : IForceProfile
+    {
+        public double Q(double s) => original.Q(s);
+        public double M(double s) => original.M(s);
+        public double N(double s) => original.N(s);
+        public double T(double s) => original.T(s);
+        public double Length => Math.Max(0.0, to - from);
+        public (double Min, double Max) StationRange => (from, to);
+        public double SupportDistanceAt(double s, int direction) =>
+            original.SupportDistanceAt(s, direction);
+        public bool HasSupport(int direction) => original.HasSupport(direction);
+        public double MaxAbsQ(double from, double to) =>
+            original.MaxAbsQ(from, to);
+        public double MaxAbsT(double from, double to) =>
+            original.MaxAbsT(from, to);
+    }
+
+    // The pinned upstream SP63 checker assumes a CONSTANT Qsw within a run.
+    // For every physical pitch band, determine the LOWEST transverse-steel
+    // density in its whole potential inclined-crack neighborhood, +/-3*h0,
+    // including adjacent zones. Then check all stations belonging to that
+    // band, using full N/M/Q samples for force projection. This is a
+    // projection-neighborhood research SCREEN, not true variable-qsw integration.
     private static object[] RunShearProfiles(BatchInput input, Candidate candidate)
     {
         var batch = input.ShearProfile!;
@@ -238,40 +262,79 @@ internal static class Program
                     throw new InvalidOperationException("not_rectangular");
                 var section = MakeSection(input, candidate);
                 var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
-                double areaM2 = transverse.ConstructiveConfirmed
-                    ? transverse.EffectiveLegsPerCage * transverse.CageCount
-                        * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0
-                    : 0.0;
-                double qsw = transverse.RswKpa * areaM2 / (transverse.SpacingMm / 1000.0);
                 var samples = phase.Samples.Select(v =>
                     new ForceSample(v.SM, v.QKn, v.MKnm, v.NKn)).ToArray();
                 var profile = new SampledProfile(
                     samples, supportDistanceFromStart: 0.0,
                     supportDistanceFromEnd: 0.0,
                     supportAtStart: false, supportAtEnd: false);
-                // Upstream silently switches to LINEAR M on segments that fail its
-                // stricter 1% derivative consistency check. Do not silently accept.
                 if (profile.Warnings.Count != 0)
                     throw new InvalidOperationException("upstream_profile_M_Q_mismatch");
                 var reference = geometry.For(samples[0].M);
-                var shearInput = new ShearInclinedInput(
-                    B: reference.B, H0: reference.H0,
-                    Rb: reference.Rb, Rbt: reference.Rbt, Qsw: qsw,
-                    Sw: transverse.SpacingMm / 1000.0, Ns: reference.Ns,
-                    Kind: ElementKind.Other, AnchorageFactor: 1.0,
-                    StationStep: 0.0, ProjectionStep: 0.0,
-                    MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
-                    CheckMoment: false, PhiNOverride: null);
-                var outcome = ShearInclinedChecker.Check(
-                    shearInput, profile, geometry, direction: 0);
-                var details = outcome.Details
-                    .Where(x => x.Formula is "8.55" or "8.56").ToList();
-                if (details.Count != 2 ||
-                    details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
-                    throw new InvalidOperationException("incomplete_phase_shear_check");
-                double eta = details.Max(x => x.Ratio);
-                var worst = details.OrderByDescending(x => x.Ratio).First();
-                var worstStation = worst.Variables.TryGetValue("s", out var s)
+                double h0Max = Math.Max(geometry.TensionPositive.H0, geometry.TensionNegative.H0);
+                if (!double.IsFinite(h0Max) || h0Max <= 0.0)
+                    throw new InvalidOperationException("invalid_zone_influence_height");
+                // Every upstream shear projection is within 0.6..3*h0.
+                // Expanding both sides by 3*MAX(h0) includes EVERY stirrup
+                // zone potentially intersected from any station in this band.
+                double influence = 3.0 * h0Max;
+                double activeArea = transverse.ConstructiveConfirmed
+                    ? transverse.EffectiveLegsPerCage * transverse.CageCount
+                        * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0
+                    : 0.0;
+
+                var runs = new List<(ShearInclinedResult Outcome, ShearPitchBand Band, double Pitch, double Qsw)>();
+                var zoneSummaries = new List<object>();
+                foreach (var band in batch.PitchBands!)
+                {
+                    double pitch = batch.PitchBands
+                        .Where(other => other.EndSM >= band.StartSM - influence - 1e-9
+                            && other.StartSM <= band.EndSM + influence + 1e-9)
+                        .Max(other => other.SpacingMm);
+                    double qsw = transverse.RswKpa * activeArea / (pitch / 1000.0);
+                    var shearInput = new ShearInclinedInput(
+                        B: reference.B, H0: reference.H0,
+                        Rb: reference.Rb, Rbt: reference.Rbt, Qsw: qsw,
+                        Sw: pitch / 1000.0, Ns: reference.Ns,
+                        Kind: ElementKind.Other, AnchorageFactor: 1.0,
+                        StationStep: 0.0, ProjectionStep: 0.0,
+                        MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
+                        CheckMoment: false, PhiNOverride: null);
+                    // The final station may be skipped by the native grid
+                    // when (end-start) is not a multiple of the sampling step.
+                    // Perform an explicit boundary check in addition.
+                    foreach (var scope in new[]
+                    {
+                        (Start: band.StartSM, End: band.EndSM),
+                        (Start: band.EndSM, End: band.EndSM)
+                    })
+                    {
+                        var sampled = new StationBandProfile(profile, scope.Start, scope.End);
+                        var outcome = ShearInclinedChecker.Check(
+                            shearInput, sampled, geometry, direction: 0);
+                        var details = outcome.Details
+                            .Where(x => x.Formula is "8.55" or "8.56").ToList();
+                        if (details.Count != 2 ||
+                            details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
+                            throw new InvalidOperationException("incomplete_band_shear_check");
+                        runs.Add((outcome, band, pitch, qsw));
+                    }
+                    zoneSummaries.Add(new
+                    {
+                        start_s_m = band.StartSM, end_s_m = band.EndSM,
+                        adopted_pitch_mm = band.SpacingMm,
+                        governing_neighbor_pitch_mm = pitch,
+                        influence_each_side_m = influence,
+                        method = "adjacent_max_pitch_in_3h0_projection_neighborhood",
+                        boundary_verified = false
+                    });
+                }
+                var worst = runs.SelectMany(run => run.Outcome.Details
+                        .Where(x => x.Formula is "8.55" or "8.56")
+                        .Select(detail => (Detail: detail, Run: run)))
+                    .OrderByDescending(item => item.Detail.Ratio).First();
+                double eta = worst.Detail.Ratio;
+                var station = worst.Detail.Variables.TryGetValue("s", out var s)
                     && double.IsFinite(s) ? (double?)s : null;
                 return (object)new
                 {
@@ -279,15 +342,19 @@ internal static class Program
                     status = eta <= 1.0 ? "research_profile_below_one"
                         : "research_profile_exceeds_one",
                     utilization = (double?)eta,
-                    governing_formula = worst.Formula,
-                    governing_s_m = worstStation,
-                    sampled_stations = outcome.Stations.Count,
+                    governing_formula = worst.Detail.Formula,
+                    governing_s_m = station,
+                    sampled_stations = runs.Sum(r => r.Outcome.Stations.Count),
                     max_abs_q_kn = profile.MaxAbsQ(
                         profile.StationRange.Min, profile.StationRange.Max),
-                    qsw_kn_per_m = qsw,
+                    qsw_kn_per_m = worst.Run.Qsw,
+                    governing_neighbor_pitch_mm = worst.Run.Pitch,
+                    pitch_windows = zoneSummaries,
                     support_model = "none",
-                    reinforcement_model = "constant_background_only",
-                    note = "No verified supports, zone changes, bar cutoffs, anchorage or inclined moment",
+                    reinforcement_model = "constant_background_longitudinal_projection_neighborhood_pitch",
+                    note = "Research-only neighborhood lower-link-density screen. "
+                        + "No actual stirrup placement, transverse transitions, support model, "
+                        + "bar cutoffs, anchorage or inclined moment verification.",
                     verified_for_design = false
                 };
             }
