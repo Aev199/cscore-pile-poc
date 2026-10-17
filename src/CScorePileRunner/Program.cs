@@ -314,8 +314,8 @@ internal static class Program
                         // The entire potential inclined section, not only its
                         // starting station, must see the weakest nearby pitch.
                         double pitch = physical.Where(other =>
-                            other.EndSM >= startS - influence - 1e-9
-                            && other.StartSM <= endS + influence + 1e-9)
+                            other.EndSM > startS - influence + 1e-9
+                            && other.StartSM < endS + influence - 1e-9)
                             .Max(other => other.SpacingMm);
                         double qsw = transverse.RswKpa * activeArea / (pitch / 1000.0);
                         var shearInput = new ShearInclinedInput(
