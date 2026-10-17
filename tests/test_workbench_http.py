@@ -56,6 +56,23 @@ class HttpTests(unittest.TestCase):
                   headers={'X-Session':self.app.token})
         with self.assertRaises(HTTPError):urlopen(r)
 
+    def test_reinforcement_schedule_export_requires_valid_project_and_is_never_approved(self):
+        from workbench.model import default_project
+        p=default_project()
+        p['transverse_zones']=[{'top':-2,'bottom':-6,'spacing_mm':150}]
+        request=lambda data: Request(
+            self.url+'/api/reinforcement-schedule',
+            data=json.dumps(data).encode(),
+            headers={'X-Session':self.app.token})
+        result=json.load(urlopen(request(p)))
+        self.assertEqual(result['draft']['status'],'DRAFT_NOT_VERIFIED')
+        self.assertFalse(result['draft']['verified_for_design'])
+        self.assertIn('ЧЕРНОВИК, НЕ ПРОВЕРЕНО',result['csv'])
+        self.assertEqual(result['draft']['rows'][1]['links_pitch_mm'],150)
+        p['q_allowed_steps_mm']=[0]
+        with self.assertRaises(HTTPError) as ctx:urlopen(request(p))
+        self.assertEqual(ctx.exception.code,400)
+
     def test_path_not_exposed(self):
         with self.assertRaises(HTTPError):urlopen(self.url+'/workbench/model.py')
 
