@@ -385,6 +385,10 @@ internal static class Program
                     qsw_kn_per_m = worst.Run.Qsw,
                     governing_neighbor_pitch_mm = worst.Run.Pitch,
                     pitch_windows = zoneSummaries,
+                    warnings = runs.SelectMany(r => r.Outcome.Warnings)
+                        .Distinct().Take(40).ToArray(),
+                    warnings_truncated = runs.SelectMany(r => r.Outcome.Warnings)
+                        .Distinct().Skip(40).Any(),
                     support_model = "none",
                     reinforcement_model = "constant_background_longitudinal_projection_neighborhood_pitch",
                     note = "Research-only neighborhood lower-link-density screen. "
