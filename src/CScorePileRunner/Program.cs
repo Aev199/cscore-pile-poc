@@ -22,6 +22,7 @@ internal static class Program
             var input = JsonSerializer.Deserialize<BatchInput>(Console.In.ReadToEnd(), ReadOptions)
                 ?? throw new ArgumentException("Пустой JSON");
             Validate(input);
+            input.ConnectionContext?.Validate();
             var records = new List<object>();
             foreach (var candidate in input.Candidates)
             {
@@ -129,7 +130,9 @@ internal static class Program
                     ? RunShearProfiles(input, candidate) : null;
                 records.Add(new { id = candidate.Id, loads = values,
                     sls_gate = slsGate, sls_probe = slsValues, shear_screening = shearValues,
-                    shear_profiles = fullProfileValues });
+                    shear_profiles = fullProfileValues,
+                    connection_report = input.ConnectionContext is null ? null
+                        : ConnectionReport.Build(input,candidate,values,slsValues,slsGate) });
             }
             Console.Out.Write(JsonSerializer.Serialize(new
             {
@@ -350,13 +353,13 @@ internal static class Program
     // Research probe: explicit service properties and separate total / sustained bending
     // moments. CScore.CrackWidthSolver accepts only ONE axial N, so the probe uses
     // the same axial action for sustained and total loads. No ULS verdict is affected.
-    private static object[] RunCrackProbe(BatchInput input, Candidate candidate)
+    internal static object[] RunCrackProbe(BatchInput input, Candidate candidate, IReadOnlyList<SlsLoad>? loadsOverride = null)
     {
         var probe = input.SlsProbe!;
         try
         {
             var section = MakeSection(input, candidate);
-            return probe.Loads.Select(load =>
+            return (loadsOverride ?? probe.Loads).Select(load =>
             {
                 try
                 {
@@ -475,7 +478,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            return probe.Loads.Select(load => (object)new {
+            return (loadsOverride ?? probe.Loads).Select(load => (object)new {
                 id = load.Id,
                 status = "indeterminate",
                 error = "crack_section_error:" + ex.GetType().Name + ":" + ex.Message,
@@ -488,7 +491,7 @@ internal static class Program
     private static readonly CalcType[] MaterialModes =
         [CalcType.C, CalcType.CL, CalcType.N, CalcType.NL];
 
-    private static CrossSection MakeSection(BatchInput input, Candidate candidate)
+    internal static CrossSection MakeSection(BatchInput input, Candidate candidate)
     {
         // Explicit rectangular section is a research-only route. The ordinary
         // Python pile selector still sends only circular pile geometries.
@@ -719,6 +722,7 @@ internal static class Program
 
 internal sealed class BatchInput
 {
+    [JsonPropertyName("connection_context")] public ConnectionContext? ConnectionContext { get; init; }
     [JsonPropertyName("schema_version")] public int SchemaVersion { get; init; }
     [JsonPropertyName("pile")] public Pile Pile { get; init; } = new();
     [JsonPropertyName("materials")] public Materials Materials { get; init; } = new();

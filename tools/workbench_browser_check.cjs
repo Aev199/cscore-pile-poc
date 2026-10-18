@@ -5,7 +5,7 @@ const assert=require('assert');
 const path=require('path');
 (async()=>{
  const root=path.resolve(__dirname,'..');
- const server=spawn(process.env.PYTHON||'python',['-u','workbench_app.py','--no-browser'],{cwd:root,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
+ const server=spawn(process.env.PYTHON||'python',['-u','workbench_app.py','--no-browser',...(process.env.CSCORE_RUNNER?['--runner',process.env.CSCORE_RUNNER]:[])],{cwd:root,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
  // Preserve the actual Python traceback if startup fails on the CI runner.
  let serverErrors='';server.stderr.setEncoding('utf8');server.stderr.on('data',d=>{serverErrors+=d;process.stderr.write(d);});
  let browser;
@@ -18,6 +18,21 @@ const path=require('path');
   assert(!(await page.locator('#spacingLabel').isVisible()));
   // No hidden background audit until the engineer explicitly opens diagnostics.
   assert(!(await page.locator('#advancedQ').getAttribute('open')));
+
+  // Native-check context: lengths are explicit; each support direction belongs
+  // only to the selected depth, and invalid input stays in the dialog.
+  await page.locator('#connectionSettings').click();
+  const nativeZ=Number(await page.locator('#connectionDialog').getAttribute('data-z'));
+  assert.equal(await page.locator('#secondOrderMode').inputValue(),'unspecified');
+  await page.locator('#secondOrderMode').selectOption('cscore_member');
+  await page.locator('#applyConnectionSettings').click();
+  await page.waitForSelector('#connectionDialog .dialogerror');
+  await page.locator('#nativeL0x').fill('6');await page.locator('#nativeL0y').fill('6');
+  await page.locator('#nativePsi').fill('0.5');await page.locator('#nativeMoment').check();
+  await page.locator('#nativeAnchorageFactor').fill('1');await page.locator('#nativeAnchorageConfirmed').check();
+  await page.locator('#nativeSupportDown').fill('2');await page.locator('#nativeSupportUp').fill('3');
+  await page.locator('#applyConnectionSettings').click();
+  await page.locator('#connectionDialog').waitFor({state:'hidden'});
 
   // Ordinary reinforcement zones and typical pitches are visible; Q solver
   // experiments stay behind one explicitly opened section.
@@ -68,6 +83,8 @@ const path=require('path');
   assert.equal(qData.transverse_layout.positions_mm.length,60);
   assert.equal(qData.transverse_layout.geometry_confirmed,true);
   assert.deepEqual(qData.q_allowed_steps_mm,[100,125,150,200,300]);
+  assert.equal(qData.calculation_context.second_order_mode,'cscore_member');
+  assert.deepEqual(qData.calculation_context.sections,[{z:nativeZ,support_distance_positive_m:2,support_distance_negative_m:3}]);
   // Export draft working zones without issuing engineering approval.
   const scheduleReady=page.waitForEvent('download');
   await page.locator('#exportSchedule').click();
@@ -117,9 +134,33 @@ const path=require('path');
   await page.locator('#kind').selectOption('pile');assert.equal(await page.locator('#charts svg').count(),3);
   const saved=page.waitForEvent('download');await page.locator('#save').click();const download=await saved;
   const stream=await download.createReadStream();let chunks=[];for await(const chunk of stream)chunks.push(chunk);
-  const json=Buffer.concat(chunks).toString();assert(!json.includes('not-to-be-saved'));assert.equal(JSON.parse(json).kind,'pile');
+  const json=Buffer.concat(chunks).toString();assert(!json.includes('not-to-be-saved'));assert.equal(JSON.parse(json).kind,'pile');assert.equal(JSON.parse(json).calculation_context.sections.length,0);assert.equal(JSON.parse(json).calculation_context.second_order_mode,'unspecified');
+  await page.reload();await page.waitForSelector('#charts svg');
+  if(process.env.CSCORE_RUNNER){
+    // Real browser -> HTTP worker -> native engine -> visible negative result.
+    const p=await page.evaluate(async()=>{const token=document.querySelector('meta[name=session]').content;return (await fetch('/api/default',{headers:{'X-Session':token}})).json();});
+    p.materials_confirmed=true;p.eccentricity_confirmed=true;
+    p.rows=[0,-2].flatMap(z=>[
+      {z,case:'U',basis:'ULS',n:-100,m:40,q:50000,m_long:null},
+      {z,case:'S',basis:'SLS',n:-80,m:30,q:15,m_long:30}]);
+    p.transverse.mode='screen';p.transverse.constructive_confirmed=true;
+    p.calculation_context={second_order_mode:'already_in_loads'};
+    await page.locator('#file').setInputFiles({name:'native-check.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(p))});
+    await page.locator('#elevation').filter({hasText:/^0/}).waitFor();
+    await page.locator('#connectionCheck').click();
+    await page.locator('#inspection h3').filter({hasText:'Проверки CScore'}).waitFor({timeout:60000});
+    assert((await page.locator('#inspection').textContent()).includes('Не пройдено'));
+    assert((await page.locator('#inspection').textContent()).includes('Продолжительное раскрытие'));
+    await page.screenshot({path:process.env.NATIVE_SCREENSHOT||'/tmp/workbench-native-checks.png',fullPage:true});
+    // If rerunning fails, the old positive/negative check list must disappear.
+    await page.route('**/api/connection-calculate',route=>route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({error:'test_native_runner_error'})}));
+    await page.locator('#connectionCheck').click();
+    await page.locator('#message').filter({hasText:'test_native_runner_error'}).waitFor();
+    assert.equal(await page.locator('#inspection h3').filter({hasText:'Проверки CScore'}).count(),0);
+    await page.unroute('**/api/connection-calculate');
+  }
   await page.reload();await page.waitForSelector('#charts svg');
   await page.screenshot({path:process.env.SCREENSHOT||'/tmp/workbench-initial.png',fullPage:true});
-  assert.deepEqual(errors,[]);console.log('Browser QA passed: simplified Q editor, hidden advanced diagnostics, draft CSV/DXF exports, Q controls, diagrams and secure project persistence.');
+  assert.deepEqual(errors,[]);console.log('Browser QA passed: native CScore context/report/error invalidation, Q editor, draft exports and project persistence.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

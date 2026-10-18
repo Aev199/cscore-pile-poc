@@ -105,6 +105,8 @@ def counts(p,tiers):
 def validate_project(p):
     if not isinstance(p,dict) or p.get('version')!=1:raise ValueError('Неподдерживаемый формат проекта')
     rows=normalized_rows(p)
+    from .connection import validate_context
+    validate_context(p.get('calculation_context',{}))
     wall.integer(p.get('max_tier'),1,3,'Ступеней усиления')
     allowed_pitches(p.get('q_allowed_steps_mm'))
     if p['kind']=='wall':
@@ -359,3 +361,47 @@ def screen_background_profile(p, engine=None, runner=None):
             'audit':audit_profiles(rows),
             'design_status':'NOT_VERIFIED',
             'verified_for_design':False}
+
+
+def check_adopted(p,engine=None,runner=None,progress=lambda _:None):
+    """Assess adopted sections through CScore, independently of selection/ranking."""
+    from .connection import request_context, validate_report
+    rows=validate_project(p)
+    if p.get('materials_confirmed') is not True:
+        raise ValueError('Подтвердите материалы перед проверкой CScore')
+    engine=engine or (lambda req:wall.invoke_engine(runner,req))
+    zs=sorted({r['z'] for r in rows},reverse=True);stations=[]
+    for i,z in enumerate(zs):
+        progress(f'CScore: принятое сечение {z:g} м ({i+1}/{len(zs)})')
+        inp=section_input(p,[r for r in rows if r['z']==z],tiers=tiers_at(z,p.get('zones',[])))
+        if p['kind']=='wall':
+            wall.validate_input(inp);candidates,_=wall.make_candidates(inp)
+            if not candidates:raise ValueError(f'{z:g}: принятое армирование геометрически недопустимо')
+            req=wall.build_engine_request(inp,candidates[0])
+        else:
+            pile.validate_input(inp);candidates,_=pile.make_candidates(inp)
+            if not candidates:raise ValueError(f'{z:g}: принятое армирование геометрически недопустимо')
+            req=pile.build_engine_request(inp,candidates)
+        if p['kind']=='pile':
+            for load,row in zip(req['loads'],[r for r in rows if r['z']==z and r['basis']=='ULS']):
+                load['q_kn']=row['q']
+        req['connection_context']=request_context(p,z)
+        if p['kind']=='wall' and 'shear_screening' in req:
+            active=[q['spacing_mm'] for q in p.get('transverse_zones',[]) if q['bottom']<=z<=q['top']]
+            if active:
+                # At a touching boundary no single local pitch is defined;
+                # never replace native nonlinear behavior by a max-pitch envelope.
+                if len(set(active))>1:
+                    raise ValueError(f'{z:g}: на границе разных шагов CScore не имеет модели перехода; проверка этого сечения не выполнена')
+                req['shear_screening']['spacing_mm']=active[0]
+
+        raw=engine(req)
+        cases=raw.get('cases') if isinstance(raw,dict) else None
+        if (not isinstance(raw,dict) or raw.get('schema_version')!=1 or not isinstance(cases,list) or len(cases)!=1
+                or cases[0].get('id')!=req['candidates'][0]['id']):
+            raise ValueError('CScore: неизвестное принятое сечение')
+        report=validate_report(req,cases[0].get('connection_report'))
+        stations.append({'z':z,'candidate':cases[0]['id'],'report':report})
+    return {'stations':stations,'status':'failed' if any(s['report']['has_failures'] for s in stations)
+            else 'incomplete' if any(s['report']['has_gaps'] for s in stations) else 'calculated_not_verified',
+            'scope':'native_checks_adopted_discrete_sections','verified_for_design':False}

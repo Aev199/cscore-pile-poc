@@ -1,0 +1,295 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using CScore;
+using CScore.Sp63;
+using CScore.Sp63Shear;
+
+// Integration/reporting only. All capacities, crack widths and eta come from CScore.
+internal static class ConnectionReport
+{
+    private static JsonElement Json(object value) => JsonSerializer.SerializeToElement(value);
+    private static double? Finite(double value) => double.IsFinite(value) ? value : null;
+    private static string Text(JsonElement e, string key) => e.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString()! : "";
+    private static bool True(JsonElement e, string key) => e.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.True;
+    private static double? Number(JsonElement e, string key) => e.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetDouble(out double d) && double.IsFinite(d) ? d : null;
+
+    internal static object Build(BatchInput input, Candidate candidate, List<object> normal,
+        object[]? sls, string slsGate)
+    {
+        var context = input.ConnectionContext!;
+        var rows = new List<object>();
+        void Add(string id, string caseId, string status, string method,
+            double? ratio = null, string reason = "", object? details = null,
+            string basis = "native_section") => rows.Add(new {
+                check_id = id, case_id = caseId, status, utilization = ratio,
+                engine_method = "CScore." + method, reason, details, basis,
+                verified_for_design = false });
+        void Ratio(string id, string caseId, double? ratio, string method,
+            object? details = null, string basis = "native_section")
+        {
+            if (ratio is not double r || !double.IsFinite(r) || r < 0)
+                Add(id, caseId, "indeterminate", method, reason: "native_result_not_finite", details: details, basis: basis);
+            else Add(id, caseId, r <= 1 ? "passed" : "failed", method, r, details: details, basis: basis);
+        }
+        var nativeNormal = normal.Select(Json).ToDictionary(e => Text(e, "id"));
+        var memberUsable = context.SecondOrderMode != "cscore_member";
+        bool memberFailure = false;
+        CrossSection? section = null;
+        try { section = Program.MakeSection(input, candidate); }
+        catch { /* Individual checks below remain explicitly indeterminate. */ }
+
+        foreach (var load in input.Loads)
+        {
+            var n = nativeNormal[load.Id];
+            Ratio("normal_strength", load.Id,
+                True(n, "converged") && Text(n, "error") == "" ? Number(n, "utilization") : null,
+                "LimitForceSolver.AllFactor");
+            var mode = context.SecondOrderMode;
+            if (mode == "already_in_loads" && context.EccentricityInLoads)
+            {
+                Add("member_stability", load.Id, "accounted_in_loads", "Sp63.RodEtaWiring",
+                    reason: "second_order_confirmed_in_source_not_independently_checked", basis: "user_declared");
+                Ratio("normal_member_strength", load.Id,
+                    True(n, "converged") && Text(n,"error")=="" ? Number(n,"utilization") : null,
+                    "LimitForceSolver.AllFactor", basis: "second_order_in_source_user_declared");
+            }
+            else if (mode != "cscore_member" || !context.EccentricityInLoads)
+            {
+                string reason = mode is "cscore_member" or "already_in_loads" ? "confirm_eccentricity_in_source"
+                    : mode == "section_only" ? "explicit_section_only_scope" : "second_order_context_missing";
+                Add("member_stability", load.Id, "not_evaluated", "Sp63.RodEtaWiring", reason: reason);
+                Add("normal_member_strength", load.Id, "not_evaluated", "LimitForceSolver.AllFactor", reason: reason);
+                if (mode == "cscore_member") memberUsable = false;
+            }
+            else
+            {
+                try
+                {
+                    if (section is null) throw new InvalidOperationException("section_unavailable");
+                    var adjusted = Adjust(section, context, load.NKn, load.MxKnm, load.MyKnm);
+                    bool stable = adjusted.X.Stable && adjusted.Y.Stable;
+                    LimitForceResult? memberStrength = stable
+                        ? LimitForceSolver.ForCrossSection(section, CalcType.C, ten: false)
+                            .AllFactor(load.NKn, adjusted.MxEff, adjusted.MyEff) : null;
+                    Add("member_stability", load.Id, stable ? "stable" : "unstable", "Sp63.RodEtaWiring.Apply",
+                        details: EtaDetails(adjusted), basis: "native_member");
+                    memberUsable = stable && !memberFailure;
+                    if (!stable)
+                    {
+                        memberFailure = true;
+                        Add("normal_member_strength", load.Id, "not_evaluated", "LimitForceSolver.AllFactor",
+                            reason: "native_member_unstable", basis: "native_member");
+                    }
+                    else
+                    {
+                        var r = memberStrength!;
+                        Ratio("normal_member_strength", load.Id, Valid(r) ? r.Utilization : null,
+                            "LimitForceSolver.AllFactor", details: new {
+                                n_kn = load.NKn, mx_knm = adjusted.MxEff, my_knm = adjusted.MyEff }, basis: "native_member");
+                        memberFailure |= !Valid(r) || r.Utilization > 1;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    memberUsable = false; memberFailure = true;
+                    Add("member_stability", load.Id, "indeterminate", "Sp63.RodEtaWiring.Apply", reason: ex.Message);
+                    Add("normal_member_strength", load.Id, "indeterminate", "LimitForceSolver.AllFactor", reason: ex.Message);
+                }
+            }
+            Shear(input, candidate, load, section, context, Add, Ratio);
+        }
+        if (input.SlsProbe is null)
+        {
+            Add("sls_member_stability","","not_evaluated","Sp63.RodEtaWiring",reason:"SLS_loads_missing");
+            foreach (string id in new[] { "crack_formation", "crack_width_long", "crack_width_short" })
+                Add(id, "", "not_evaluated", "CrackWidthSolver.Compute", reason: "SLS_loads_missing");
+        }
+        else
+        {
+            var serviceRows = sls?.Select(Json).ToDictionary(e => Text(e,"id"));
+            foreach (var load in input.SlsProbe.Loads)
+            {
+                JsonElement? result = serviceRows?.GetValueOrDefault(load.Id);
+                string reason = slsGate;
+                string stabilityStatus = context.SecondOrderMode=="already_in_loads" ? "accounted_in_loads" : "not_evaluated";
+                string stabilityReason = context.SecondOrderMode=="already_in_loads"
+                    ? "second_order_confirmed_in_source_not_independently_checked" : "second_order_context_missing";
+                object? stabilityDetails = null;
+                string basis = context.SecondOrderMode == "already_in_loads"
+                    ? "second_order_in_source_user_declared" : "native_section";
+                if (context.SecondOrderMode == "cscore_member" && sls is not null)
+                {
+                    result = null; reason = "member_strength_not_confirmed";
+                    stabilityReason = sls is null ? slsGate : reason;
+                    if (memberUsable && !memberFailure && section is not null)
+                    {
+                        try
+                        {
+                            var a = Adjust(section, context, load.NKn, load.MxTotalKnm, load.MyTotalKnm);
+                            stabilityDetails = EtaDetails(a);
+                            stabilityStatus = a.X.Stable && a.Y.Stable ? "stable" : "unstable";
+                            stabilityReason = stabilityStatus=="unstable" ? "native_SLS_member_unstable" : "";
+                            if (stabilityStatus=="unstable") reason = stabilityReason;
+                            else
+                            {
+                                var moments = CrackWidthEta.ScaleLongTotal(
+                                    load.MxLongKnm, load.MxTotalKnm, load.MyLongKnm, load.MyTotalKnm,
+                                    a.MxEff, a.MyEff);
+                                var adjusted = new SlsLoad { Id = load.Id, NKn = load.NKn,
+                                    MxLongKnm = moments.MxLongEff, MxTotalKnm = moments.MxTotalEff,
+                                    MyLongKnm = moments.MyLongEff, MyTotalKnm = moments.MyTotalEff };
+                                result = Json(Program.RunCrackProbe(input,candidate,new[] { adjusted })[0]);
+                                basis = "native_member_CrackWidthEta.ScaleLongTotal";
+                            }
+                        }
+                        catch (Exception ex) { reason = "native_SLS_member_error:" + ex.Message;
+                            stabilityStatus="indeterminate";stabilityReason=reason; }
+                    }
+                }
+                Add("sls_member_stability",load.Id,stabilityStatus,
+                    stabilityStatus is "stable" or "unstable" or "indeterminate" ? "Sp63.RodEtaWiring.Apply" : "Sp63.RodEtaWiring",
+                    reason:stabilityReason,details:stabilityDetails,basis:basis);
+                if (result is not JsonElement r)
+                {
+                    foreach (string id in new[] { "crack_formation", "crack_width_long", "crack_width_short" })
+                        Add(id,load.Id,"not_evaluated","CrackWidthSolver.Compute",reason:reason,basis:basis);
+                }
+                else if (Text(r,"status") != "research_calculated" || !True(r,"crc_converged"))
+                {
+                    foreach (string id in new[] { "crack_formation", "crack_width_long", "crack_width_short" })
+                        Add(id,load.Id,"indeterminate","CrackWidthSolver.Compute",
+                            reason:Text(r,"error") is { Length: > 0 } error ? error : "native_SLS_indeterminate",basis:basis);
+                }
+                else
+                {
+                    Add("crack_formation",load.Id,"calculated","CrackWidthSolver.Compute",
+                        details:new { cracked = True(r,"cracked"), mcrc_knm = Number(r,"mcrc_knm") },basis:basis);
+                    Ratio("crack_width_long",load.Id,Number(r,"utilization_long"),"CrackWidthSolver.Compute",
+                        new { width_mm = Number(r,"width_long_mm") },basis);
+                    Ratio("crack_width_short",load.Id,Number(r,"utilization_short"),"CrackWidthSolver.Compute",
+                        new { width_mm = Number(r,"width_short_mm") },basis);
+                }
+            }
+        }
+        Add("anchorage","","not_evaluated","Sp63Shear.ShearInclinedChecker",
+            reason:"anchorage_factor_is_input_not_an_anchorage_length_check");
+        Add("detailing","","not_evaluated","Sp63Shear.ShearInclinedChecker",
+            reason:"reinforcement_detailing_stage_deferred");
+        return new { version = 1, verified_for_design = false, checks = rows };
+    }
+
+    private static bool Valid(LimitForceResult r) => r.Converged && double.IsFinite(r.Factor)
+        && r.Factor > 0 && double.IsFinite(r.Utilization) && r.Utilization >= 0
+        && Math.Abs(r.Factor*r.Utilization-1) <= .01;
+
+    private static RodEtaWiring.Result Adjust(CrossSection section, ConnectionContext c, double n,double mx,double my)
+        => RodEtaWiring.Apply(section,n,mx,my,c.L0XM!.Value,c.L0YM!.Value,c.Psi,c.Psi,
+            iterative:false,jointSolve:(_,_)=>throw new InvalidOperationException("unexpected_iterative_eta_request"));
+
+    private static object EtaDetails(RodEtaWiring.Result r) => new {
+        mx_eff_knm = Finite(r.MxEff), my_eff_knm = Finite(r.MyEff),
+        eta_x = Finite(r.X.Eta), eta_y = Finite(r.Y.Eta),
+        ncr_x_kn = Finite(r.X.Ncr), ncr_y_kn = Finite(r.Y.Ncr),
+        l0_x_m = r.X.L0, l0_y_m = r.Y.L0,
+        radius_fallback_x = r.X.RadiusFromBoundingBox, radius_fallback_y = r.Y.RadiusFromBoundingBox };
+
+    private static void Shear(BatchInput input,Candidate candidate,LoadCase load,CrossSection? section,
+        ConnectionContext c,
+        Action<string,string,string,string,double?,string,object?,string> add,
+        Action<string,string,double?,string,object?,string> ratio)
+    {
+        const string method = "Sp63Shear.ShearInclinedChecker.Check";
+        void Missing(string status,string reason,string source = method)
+        {
+            foreach (string id in new[] { "shear_strip","shear_inclined","inclined_moment" })
+                add(id,load.Id,status,source,null,reason,null,"native_section");
+        }
+        var applicability = Sp63ShearApplicability.Evaluate(new Sp63ShearApplicabilityInput(
+            Sp63ShearApplicabilityMode.StandardAuto,input.ResearchRectangle is not null,
+            null,false,0,0,false));
+        if (!applicability.HasNormativeVerdict)
+        {
+            Missing("not_applicable",string.Join("; ",applicability.Reasons),"Sp63Shear.Sp63ShearApplicability.Evaluate"); return;
+        }
+        if (input.ShearScreening is not { Enabled:true } t || load.QKn is not double q)
+        {
+            Missing("not_evaluated","transverse_geometry_or_Q_missing"); return;
+        }
+        try
+        {
+            if (section is null) throw new InvalidOperationException("section_unavailable");
+            if (c.SecondOrderMode == "cscore_member")
+            {
+                // Applying member eta to isolated M/Q would change equilibrium.
+                // Do not silently combine differently prepared actions.
+                Missing("not_evaluated","member_eta_requires_consistent_N_M_Q_profile"); return;
+            }
+            var pair = InclinedSectionGeometryPair.Resolve(section,ShearPlane.Vy,CalcType.C);
+            var side = pair.For(load.MxKnm);
+            if (!(side.B>0 && side.H0>0)) throw new InvalidOperationException("invalid_native_shear_geometry");
+            double area = t.ConstructiveConfirmed ? t.EffectiveLegsPerCage*t.CageCount
+                *Math.PI*Math.Pow(t.DiameterMm/1000,2)/4 : 0;
+            bool moment = c.InclinedMomentRequested && c.AnchorageConfirmed
+                && c.AnchorageFactor.HasValue && c.SupportPositiveM is > 0 && c.SupportNegativeM is > 0;
+            var p = new ShearInclinedInput(side.B,side.H0,side.Rb,side.Rbt,
+                t.RswKpa*area/(t.SpacingMm/1000),t.SpacingMm/1000,side.Ns,
+                ElementKind.Other,c.AnchorageFactor??1,0,0,0,Array.Empty<double>(),moment,null);
+            var results = new[] {-1,1}.Select(d => ShearInclinedChecker.Check(p,
+                new ConstantProfile(q,load.MxKnm,load.NKn,
+                    (d==1 ? c.SupportPositiveM : c.SupportNegativeM)??0),pair,d)).ToArray();
+            foreach (var item in new[] { ("shear_strip","8.55"),("shear_inclined","8.56"),("inclined_moment","8.63") })
+            {
+                if (item.Item1=="inclined_moment" && !moment)
+                {
+                    add(item.Item1,load.Id,"not_evaluated",method,null,
+                        c.InclinedMomentRequested ? "confirm_anchorage_and_section_support_distance" : "inclined_moment_not_requested",
+                        null,"research_constant_profile"); continue;
+                }
+                var checks=results.SelectMany(r=>r.Details).Where(d=>d.Formula==item.Item2).ToArray();
+                var valid=checks.Where(d=>double.IsFinite(d.Ratio)&&d.Ratio>=0).ToArray();
+                var worst=valid.OrderByDescending(d=>d.Ratio).FirstOrDefault();
+                bool complete=checks.Length==2 && valid.Length==2;
+                // A known failed native direction remains a failure even when
+                // the opposite direction has no projection. Incomplete can never pass.
+                double? use = complete || valid.Any(d=>d.Ratio>1) ? worst!.Ratio : null;
+                ratio(item.Item1,load.Id,use,method,worst is null ? null : new {
+                    formula = worst.Formula, directions_complete = complete,
+                    missing_directions = results.Select((r,i)=>(Result:r,Direction:i==0 ? -1 : 1))
+                        .Where(r=>!r.Result.Details.Any(d=>d.Formula==item.Item2&&double.IsFinite(d.Ratio)&&d.Ratio>=0))
+                        .Select(r=>r.Direction).ToArray(),
+                    variables = worst.Variables.Where(v=>double.IsFinite(v.Value)).ToDictionary(v=>v.Key,v=>v.Value),
+                    warnings = results.SelectMany(r=>r.Warnings).Distinct().ToArray()
+                },"research_constant_profile");
+            }
+        }
+        catch (Exception ex) { Missing("indeterminate","native_shear_error:"+ex.Message); }
+    }
+}
+
+internal sealed class ConnectionContext
+{
+    [JsonPropertyName("second_order_mode")] public string SecondOrderMode { get; init; } = "unspecified";
+    [JsonPropertyName("l0_x_m")] public double? L0XM { get; init; }
+    [JsonPropertyName("l0_y_m")] public double? L0YM { get; init; }
+    [JsonPropertyName("psi")] public double Psi { get; init; } = 1;
+    [JsonPropertyName("inclined_moment_requested")] public bool InclinedMomentRequested { get; init; }
+    [JsonPropertyName("anchorage_confirmed")] public bool AnchorageConfirmed { get; init; }
+    [JsonPropertyName("anchorage_factor")] public double? AnchorageFactor { get; init; }
+    [JsonPropertyName("support_distance_positive_m")] public double? SupportPositiveM { get; init; }
+    [JsonPropertyName("support_distance_negative_m")] public double? SupportNegativeM { get; init; }
+    [JsonPropertyName("eccentricity_in_loads")] public bool EccentricityInLoads { get; init; }
+
+    internal void Validate()
+    {
+        if (SecondOrderMode is not ("unspecified" or "already_in_loads" or "cscore_member" or "section_only")
+            || !double.IsFinite(Psi) || Psi<0 || Psi>1
+            || L0XM is double x && (!double.IsFinite(x)||x<=0)
+            || L0YM is double y && (!double.IsFinite(y)||y<=0)
+            || SecondOrderMode=="cscore_member" && (!L0XM.HasValue||!L0YM.HasValue)
+            || AnchorageFactor is double k && (!double.IsFinite(k)||k<=0||k>1)
+            || AnchorageConfirmed && !AnchorageFactor.HasValue
+            || SupportPositiveM is double s && (!double.IsFinite(s)||s<0)
+            || SupportNegativeM is double sn && (!double.IsFinite(sn)||sn<0))
+            throw new ArgumentException("Invalid CScore connection context");
+    }
+}

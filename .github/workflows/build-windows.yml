@@ -207,6 +207,13 @@ jobs:
         run: |
           python tools/workbench_smoke.py --runner publish/CScorePileRunner.exe
           if ($LASTEXITCODE -ne 0) { throw 'Workbench selection or edited reinforcement failed' }
+      - name: Native CScore connection cycle on adopted sections
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tools/connection_smoke.py --runner publish/CScorePileRunner.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native CScore connection cycle failed' }
       - name: Workbench browser interaction checks
         shell: pwsh
         run: |
@@ -216,6 +223,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Browser test runtime failed' }
           $env:NODE_PATH = Join-Path (Get-Location) '.ui-qa/node_modules'
           $env:SCREENSHOT = Join-Path (Get-Location) 'results/workbench-preview.png'
+          $env:NATIVE_SCREENSHOT = Join-Path (Get-Location) 'results/workbench-native-checks.png'
+          $env:CSCORE_RUNNER = Join-Path (Get-Location) 'publish/CScorePileRunner.exe'
           node tools/workbench_browser_check.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Workbench browser interaction failed' }
       - name: Pack deliverables
@@ -231,8 +240,11 @@ jobs:
           Copy-Item workbench/*.py release/workbench/
           Copy-Item web release/ -Recurse
           Copy-Item docs/workbench-guide.md release/
+          Copy-Item docs/cscore-connection-cycle.md release/
           Copy-Item results/workbench release/workbench_results -Recurse
+          Copy-Item results/connection release/connection_results -Recurse
           Copy-Item results/workbench-preview.png release/
+          Copy-Item results/workbench-native-checks.png release/
           Copy-Item examples/wall_cages.json release/
           Copy-Item docs/wall-cage-selection.md release/
           Copy-Item results/wall_smoke release/ -Recurse
@@ -278,6 +290,7 @@ jobs:
         with:
           name: cscore-diagnostic-results
           path: |
+            results/connection/*
             results/workbench/*
             results/wall_results.*
             results/wall_smoke/*
