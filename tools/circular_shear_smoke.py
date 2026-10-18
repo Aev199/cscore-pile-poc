@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Real native checks; coefficients below are declared test inputs, not design defaults."""
+import argparse,copy,json,sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from workbench import model
+from workbench.connection import default_context
+import wall_rebar
+
+
+def main():
+    ap=argparse.ArgumentParser();ap.add_argument('--runner',type=Path,required=True)
+    ap.add_argument('--output-dir',type=Path,default=Path('results/circular-shear'))
+    args=ap.parse_args();args.output_dir.mkdir(parents=True,exist_ok=True)
+    p=model.default_project();p.update(kind='pile',force_scale='per_member',
+        materials_confirmed=True,eccentricity_confirmed=True,max_tier=1)
+    p['rows']=[dict(z=z,case='U',basis='ULS',n=0,m=40,q=300,m_long=None) for z in (0,-2)]
+    p['transverse'].update(mode='screen',constructive_confirmed=True)
+    p['calculation_context']={**default_context(),'circular_shear':{
+        'method':'vniigs_1984_user_spiral','a_mm':80,'winding_diameter_mm':670,
+        'circular_efficiency':.8,'efficiency_basis':'Test input: prescribed effective area',
+        'confirmed':True}}
+    wires=[]
+    def engine(req):
+        wires.append(copy.deepcopy(req))
+        return wall_rebar.invoke_engine(args.runner,req)
+    def run(name,project):
+        r=model.check_adopted(project,engine=engine)
+        (args.output_dir/(name+'.json')).write_text(json.dumps(r,ensure_ascii=False,indent=2),encoding='utf8')
+        return next(c for c in r['stations'][0]['report']['checks'] if c['check_id']=='shear_inclined')
+    full=run('spiral',p)
+    assert full['status']=='passed',full
+    e=full['details']['equivalence']
+    assert abs(e['b_m']-.708)<1e-10 and abs(e['h0_m']-.628)<1e-10,e
+    assert 0<e['helix_projection']<1 and e['effective_asw_mm2']<2*78.54*.8,e
+    assert full['engine_method']=='CScore.Sp63Shear.ShearInclinedChecker.Check'
+    # Direct runner input cannot bypass the physical enclosure of the ring.
+    bad=copy.deepcopy(wires[0]);bad['connection_context']['circular_shear']['winding_diameter_mm']=100
+    raw=wall_rebar.invoke_engine(args.runner,bad)
+    row=next(c for c in raw['cases'][0]['connection_report']['checks'] if c['check_id']=='shear_inclined')
+    assert row['status']=='indeterminate' and row['utilization'] is None,row
+    off=copy.deepcopy(p);off['calculation_context']['circular_shear']['circular_efficiency']=0
+    concrete=run('concrete_only',off)
+    assert concrete['status']=='failed',concrete
+    assert full['utilization']<concrete['utilization'],(full,concrete)
+    for name,update in [('unconfirmed',{'confirmed':False}),('missing_efficiency',{'circular_efficiency':None})]:
+        b=copy.deepcopy(p);b['calculation_context']['circular_shear'].update(update)
+        row=run(name,b)
+        assert row['status']=='not_evaluated' and row['utilization'] is None,row
+    reverse=copy.deepcopy(p)
+    for row in reverse['rows']:row.update(q=-300,m=-40)
+    rev=run('reverse',reverse)
+    assert abs(rev['utilization']-full['utilization'])<1e-8,(rev,full)
+    fail=copy.deepcopy(p)
+    for row in fail['rows']:row['q']=50000
+    assert run('overload',fail)['status']=='failed'
+    metre=copy.deepcopy(p);metre.update(force_scale='per_metre',spacing_m=2)
+    for row in metre['rows']:row.update(m=20,q=150)
+    same=run('per_metre',metre)
+    assert abs(same['utilization']-full['utilization'])<1e-8,(same,full)
+    print('Circular equivalent spiral: native Q, concrete-only failure, reinforcement effect, missing data, signs, overload, and unit conversion passed')
+
+
+if __name__=='__main__':main()

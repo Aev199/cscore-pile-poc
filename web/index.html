@@ -2,11 +2,11 @@
 <header><div class="brand">Сечения<span>БНС · стена в грунте</span></div><input id="title" aria-label="Название расчёта"><div class="header-actions"><button id="open">Открыть</button><button id="save">Сохранить</button><button id="design" class="primary">Подобрать армирование</button></div></header>
 <div id="message" role="status" hidden></div>
 <main><aside class="inputs"><h2>Конструкция</h2><label>Тип<select id="kind"><option value="wall">Стена в грунте</option><option value="pile">Буронабивная свая</option></select></label><div id="geometry"></div><h2>Фон и усиления</h2><div id="reinforcement"></div><p class="hint">Дополнительные стержни того же диаметра. Фон сохраняется по всей длине.</p><label>Ступеней армирования<select id="max_tier"><option value="1">Только фон</option><option value="2">Фон + усиление</option><option value="3">Фон + два уровня усиления</option></select></label><section id="shearSection" class="transverse"><h2>Поперечное армирование</h2>
-<label>Диаметр хомута, мм<input id="qDiameter" type="number" min="1" step="1"></label>
+<label>Диаметр поперечного стержня, мм<input id="qDiameter" type="number" min="1" step="1"></label>
 <label>Основной шаг, мм<input id="qSpacing" type="number" min="1" step="5" list="qPitchChoices"></label>
-<label>Варианты шага для подбора, мм<input id="qPitchOptions" type="text" placeholder="100; 150; 200; 300"></label><datalist id="qPitchChoices"></datalist>
+<div id="wallQLayout"><label>Варианты шага для подбора, мм<input id="qPitchOptions" type="text" placeholder="100; 150; 200; 300"></label><datalist id="qPitchChoices"></datalist>
 <h2>Участки поперечного армирования</h2><p class="hint">Вне участков действует основной шаг. Отметки и шаг можно менять вручную.</p>
-<div id="qZoneTable"></div><button id="addQZone" type="button" class="full">Добавить участок</button>
+<div id="qZoneTable"></div><button id="addQZone" type="button" class="full">Добавить участок</button></div>
 <details id="advancedQ"><summary>Проверка Q · расширенные настройки</summary>
 <label class="check"><input id="screenQ" type="checkbox">Включить исследовательскую проверку Q</label>
 <div id="qFields" hidden><label>Рабочих ветвей на каркас<input id="qLegs" type="number" min="1" max="30" step="1"></label><label>Rsw, кПа<input id="qRsw" type="number" min="1" step="1000"></label><label class="check"><input id="qConstructive" type="checkbox">Требования 10.3 подтверждены; рабочие ветви обоснованы</label></div>
@@ -30,6 +30,15 @@
 <div class="row"><label>Коэффициент включения продольной арматуры k<input id="nativeAnchorageFactor" type="number" min="0.001" max="1" step="0.05"></label><label class="check"><input id="nativeAnchorageConfirmed" type="checkbox">Анкеровка и коэффициент подтверждены инженером</label></div>
 <label>Данные опор для выбранного сечения <b id="nativeSectionZ"></b>, м</label><div class="row"><label>До опоры вниз (+s), м<input id="nativeSupportDown" type="number" min="0" step="0.1"></label><label>До опоры вверх (−s), м<input id="nativeSupportUp" type="number" min="0" step="0.1"></label></div>
 <p class="hint">Расстояния относятся только к выбранной отметке. Для проверки наклонного момента нужны положительные расстояния в обе стороны. Пусто — данных нет; 0 — опора в локальной модели не задана. Проверка использует постоянные усилия одного сечения, без обрывов стержней и переходов шага; она остаётся предварительной. Коэффициент k не заменяет расчёт длины анкеровки.</p>
-<p class="hint">Для круглой БНС автоматическая проверка Q в закреплённом CScore недоступна. Эквивалентное сечение программа не придумывает.</p>
+<section id="circularShearFields" hidden><h3>БНС · Q со спиральной навивкой</h3>
+<label class="check"><input id="spiralEnable" type="checkbox">Применить приведённое сечение для проверки Q</label>
+<p class="hint">Геометрия по ВНИИГС, 1984, примечанию к п. 3.3: b = 0,885D; h₀ = b − a. Совместное применение с СП 63 и эффективность спирали требуют обоснования инженера. Проверка локальная, с постоянным шагом; подбор навивки не выполняется.</p>
+<label>a — от сжатой грани приведённого сечения до центра растянутой продольной арматуры, мм<input id="spiralA" type="number" min="0" step="1"></label>
+<label>Диаметр навивки по оси стержня, мм<input id="spiralWinding" type="number" min="1" step="1"></label>
+<label>Эффективность по окружности χ, от 0 до 1<input id="spiralEfficiency" type="number" min="0" max="1" step="0.01"></label>
+<p class="hint">χ задаётся по принятой расчётной модели, без коэффициента подъёма витка: его программа учитывает отдельно. Значение по умолчанию не назначено. χ = 0 — без вклада навивки в Q.</p>
+<label>Обоснование χ и применения приведённой модели<input id="spiralBasis" type="text" maxlength="1000"></label>
+<label class="check"><input id="spiralConfirmed" type="checkbox">Геометрия и приведённая модель спирали подтверждены инженером</label>
+</section>
 <div class="dialogfoot"><button id="applyConnectionSettings" class="primary">Применить данные</button></div></dialog>
 <script src="/app.js"></script></body></html>

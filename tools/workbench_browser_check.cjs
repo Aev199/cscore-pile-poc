@@ -158,6 +158,27 @@ const path=require('path');
     await page.locator('#message').filter({hasText:'test_native_runner_error'}).waitFor();
     assert.equal(await page.locator('#inspection h3').filter({hasText:'Проверки CScore'}).count(),0);
     await page.unroute('**/api/connection-calculate');
+    // Circular pile: the equivalent spiral is explicit, persisted and visible.
+    p.kind='pile';p.force_scale='per_member';p.transverse.mode='screen';
+    p.rows=p.rows.filter(r=>r.basis==='ULS').map(r=>({...r,n:0,m:40,q:400}));
+    p.calculation_context={second_order_mode:'section_only',circular_shear:{
+      method:'vniigs_1984_user_spiral',a_mm:80,winding_diameter_mm:670,
+      circular_efficiency:.8,efficiency_basis:'Browser test input',confirmed:true}};
+    await page.locator('#file').setInputFiles({name:'spiral.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(p))});
+    await page.locator('#kind').filter({has:page.locator('option:checked[value="pile"]')}).waitFor();
+    await page.locator('#connectionSettings').click();
+    assert(await page.locator('#circularShearFields').isVisible());
+    assert.equal(await page.locator('#spiralEfficiency').inputValue(),'0.8');
+    assert(await page.locator('#spiralConfirmed').isChecked());
+    await page.locator('#spiralEfficiency').fill('0.75');
+    assert(!(await page.locator('#spiralConfirmed').isChecked()));
+    await page.locator('#spiralConfirmed').check();
+    await page.locator('#applyConnectionSettings').click();
+    await page.locator('#connectionDialog').waitFor({state:'hidden'});
+    await page.locator('#connectionCheck').click();
+    await page.locator('#inspection').filter({hasText:'По принятой приведённой модели спирали'}).waitFor({timeout:60000});
+    assert((await page.locator('#inspection').textContent()).includes('Browser test input'));
+    await page.screenshot({path:process.env.SPIRAL_SCREENSHOT||'/tmp/workbench-spiral-checks.png',fullPage:true});
   }
   await page.reload();await page.waitForSelector('#charts svg');
   await page.screenshot({path:process.env.SCREENSHOT||'/tmp/workbench-initial.png',fullPage:true});

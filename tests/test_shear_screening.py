@@ -61,13 +61,13 @@ class ShearScreeningContract(unittest.TestCase):
         self.assertIn('q_kn', wire['loads'][0])  # data trace preserved, not calculated
         self.assertEqual(p['transverse']['mode'], 'off')
 
-    def test_no_shear_for_round_pile_or_unsupported_config(self):
+    def test_round_pile_selection_stays_separate_from_equivalent_Q_checks(self):
         p = model.default_project()
         p['kind'] = 'pile'
         p['force_scale'] = 'per_member'
         p['transverse'] = screening()
-        with self.assertRaisesRegex(ValueError, 'БНС'):
-            model.validate_project(p)
+        model.validate_project(p)
+        self.assertNotIn('shear_screening',model.section_input(p,model.normalized_rows(p)))
         p['kind'] = 'wall'
         p['transverse']['effective_legs_per_cage'] = 0
         with self.assertRaises(ValueError):

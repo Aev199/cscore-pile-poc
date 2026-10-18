@@ -214,6 +214,8 @@ jobs:
         run: |
           python tools/connection_smoke.py --runner publish/CScorePileRunner.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native CScore connection cycle failed' }
+          python tools/circular_shear_smoke.py --runner publish/CScorePileRunner.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Circular equivalent spiral checks failed' }
       - name: Workbench browser interaction checks
         shell: pwsh
         run: |
@@ -224,6 +226,7 @@ jobs:
           $env:NODE_PATH = Join-Path (Get-Location) '.ui-qa/node_modules'
           $env:SCREENSHOT = Join-Path (Get-Location) 'results/workbench-preview.png'
           $env:NATIVE_SCREENSHOT = Join-Path (Get-Location) 'results/workbench-native-checks.png'
+          $env:SPIRAL_SCREENSHOT = Join-Path (Get-Location) 'results/workbench-spiral-checks.png'
           $env:CSCORE_RUNNER = Join-Path (Get-Location) 'publish/CScorePileRunner.exe'
           node tools/workbench_browser_check.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Workbench browser interaction failed' }
@@ -241,10 +244,14 @@ jobs:
           Copy-Item web release/ -Recurse
           Copy-Item docs/workbench-guide.md release/
           Copy-Item docs/cscore-connection-cycle.md release/
+          New-Item -ItemType Directory release/research -Force | Out-Null
+          Copy-Item docs/research/circular-shear-equivalent-section-2026-10-18.md release/research/
           Copy-Item results/workbench release/workbench_results -Recurse
           Copy-Item results/connection release/connection_results -Recurse
+          Copy-Item results/circular-shear release/circular_shear_results -Recurse
           Copy-Item results/workbench-preview.png release/
           Copy-Item results/workbench-native-checks.png release/
+          Copy-Item results/workbench-spiral-checks.png release/
           Copy-Item examples/wall_cages.json release/
           Copy-Item docs/wall-cage-selection.md release/
           Copy-Item results/wall_smoke release/ -Recurse

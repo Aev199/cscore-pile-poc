@@ -11,7 +11,7 @@ STATUSES={'passed','failed','calculated','not_evaluated','not_applicable','indet
 def default_context():
     return {'second_order_mode':'unspecified','l0_x_m':None,'l0_y_m':None,'psi':1.0,
             'inclined_moment_requested':False,'anchorage_confirmed':False,
-            'anchorage_factor':None,'sections':[]}
+            'anchorage_factor':None,'sections':[],'circular_shear':None}
 
 
 def validate_context(value):
@@ -34,6 +34,21 @@ def validate_context(value):
         raise ValueError('Коэффициент анкеровки должен быть от 0 до 1')
     if c['anchorage_confirmed'] and c['anchorage_factor'] is None:
         raise ValueError('Подтвердите коэффициент анкеровки')
+    e=c['circular_shear']
+    if e is not None:
+        keys={'method','a_mm','winding_diameter_mm','circular_efficiency','efficiency_basis','confirmed'}
+        if (not isinstance(e,dict) or set(e)!=keys
+                or e['method']!='vniigs_1984_user_spiral' or type(e['confirmed']) is not bool
+                or not isinstance(e['efficiency_basis'],str) or len(e['efficiency_basis'])>1000):
+            raise ValueError('Некорректная модель приведённого сечения БНС')
+        for k in ('a_mm','winding_diameter_mm','circular_efficiency'):
+            v=e[k]
+            if v is not None and (type(v) not in (int,float) or not math.isfinite(v) or v<0
+                    or k=='winding_diameter_mm' and v==0
+                    or k=='circular_efficiency' and v>1):
+                raise ValueError('Недопустимые параметры приведения спирали')
+        if e['confirmed'] and not e['efficiency_basis'].strip():
+            raise ValueError('Укажите обоснование коэффициента эффективности спирали')
     if not isinstance(c['sections'],list) or len(c['sections'])>200:
         raise ValueError('Не более 200 сечений с данными об опирании')
     seen=set()

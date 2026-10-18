@@ -204,9 +204,20 @@ internal static class ConnectionReport
             foreach (string id in new[] { "shear_strip","shear_inclined","inclined_moment" })
                 add(id,load.Id,status,source,null,reason,null,"native_section");
         }
+        bool circular = input.ResearchRectangle is null;
+        if (circular && Math.Abs(load.MyKnm)>Sp63ShearApplicability.ForceZeroTolerance)
+        {
+            Missing("not_applicable","circular_biaxial_moment_not_supported"); return;
+        }
+        var equivalent = circular ? c.CircularShear : null;
+        double? equivalentB = equivalent is null ? null : .885*input.Pile.DiameterMm/1000;
+        if (equivalent is not null && (!equivalent.Ready || input.ShearScreening?.ConstructiveConfirmed!=true))
+        {
+            Missing("not_evaluated","spiral_equivalence_not_confirmed_or_incomplete"); return;
+        }
         var applicability = Sp63ShearApplicability.Evaluate(new Sp63ShearApplicabilityInput(
-            Sp63ShearApplicabilityMode.StandardAuto,input.ResearchRectangle is not null,
-            null,false,0,0,false));
+            equivalent is null ? Sp63ShearApplicabilityMode.StandardAuto : Sp63ShearApplicabilityMode.StandardEquivalent,
+            !circular,equivalentB,equivalent?.Ready??false,0,0,false));
         if (!applicability.HasNormativeVerdict)
         {
             Missing("not_applicable",string.Join("; ",applicability.Reasons),"Sp63Shear.Sp63ShearApplicability.Evaluate"); return;
@@ -226,14 +237,44 @@ internal static class ConnectionReport
             }
             var pair = InclinedSectionGeometryPair.Resolve(section,ShearPlane.Vy,CalcType.C);
             var side = pair.For(load.MxKnm);
-            if (!(side.B>0 && side.H0>0)) throw new InvalidOperationException("invalid_native_shear_geometry");
+            object? equivalenceDetails = null;
+            string shearBasis = "research_constant_profile";
+            double? fixedB=null,fixedH0=null;
+            double helixProjection=1, efficiency=1;
+            if (equivalent is not null)
+            {
+                fixedB=equivalentB;
+                fixedH0=equivalentB-equivalent.AMm!.Value/1000;
+                double winding=equivalent.WindingDiameterMm!.Value;
+                if (!(fixedH0>0) || winding+ t.DiameterMm>=input.Pile.DiameterMm
+                    || winding<=t.DiameterMm
+                    || winding/2-t.DiameterMm/2+1e-6
+                        <candidate.BarAxisRadiusMm+candidate.BarDiameterMm/2)
+                    throw new InvalidOperationException("invalid_equivalent_spiral_geometry");
+                // Geometric projection of the helix tangent, Orr et al. (2010), eq. 9.
+                // The circular efficiency is an attributed ENGINEER INPUT, never a
+                // built-in SP63 coefficient or an automatic two-straight-leg assumption.
+                helixProjection=1/Math.Sqrt(1+Math.Pow(t.SpacingMm/(Math.PI*winding),2));
+                efficiency=equivalent.CircularEfficiency!.Value;
+                shearBasis="user_equivalent_spiral_constant_profile";
+            }
+            double b=fixedB??side.B,h0=fixedH0??side.H0;
+            if (!(b>0 && h0>0)) throw new InvalidOperationException("invalid_native_shear_geometry");
             double area = t.ConstructiveConfirmed ? t.EffectiveLegsPerCage*t.CageCount
-                *Math.PI*Math.Pow(t.DiameterMm/1000,2)/4 : 0;
+                *Math.PI*Math.Pow(t.DiameterMm/1000,2)/4*efficiency*helixProjection : 0;
+            if (equivalent is not null)
+                equivalenceDetails=new { method=equivalent.Method, b_m=b,h0_m=h0,
+                    a_mm=equivalent.AMm,winding_diameter_mm=equivalent.WindingDiameterMm,
+                    circular_efficiency=efficiency,helix_projection=helixProjection,
+                    effective_asw_mm2=area*1e6,efficiency_basis=equivalent.EfficiencyBasis,
+                    confirmed=equivalent.Confirmed,
+                    limitation="historical_geometry_and_user_spiral_equivalence_not_independently_verified_SP63_or_ARBAT" };
             bool moment = c.InclinedMomentRequested && c.AnchorageConfirmed
                 && c.AnchorageFactor.HasValue && c.SupportPositiveM is > 0 && c.SupportNegativeM is > 0;
-            var p = new ShearInclinedInput(side.B,side.H0,side.Rb,side.Rbt,
+            var p = new ShearInclinedInput(b,h0,side.Rb,side.Rbt,
                 t.RswKpa*area/(t.SpacingMm/1000),t.SpacingMm/1000,side.Ns,
-                ElementKind.Other,c.AnchorageFactor??1,0,0,0,Array.Empty<double>(),moment,null);
+                ElementKind.Other,c.AnchorageFactor??1,0,0,0,Array.Empty<double>(),moment,null,
+                FixedB:fixedB,FixedH0:fixedH0);
             var results = new[] {-1,1}.Select(d => ShearInclinedChecker.Check(p,
                 new ConstantProfile(q,load.MxKnm,load.NKn,
                     (d==1 ? c.SupportPositiveM : c.SupportNegativeM)??0),pair,d)).ToArray();
@@ -243,7 +284,7 @@ internal static class ConnectionReport
                 {
                     add(item.Item1,load.Id,"not_evaluated",method,null,
                         c.InclinedMomentRequested ? "confirm_anchorage_and_section_support_distance" : "inclined_moment_not_requested",
-                        null,"research_constant_profile"); continue;
+                        null,shearBasis); continue;
                 }
                 var checks=results.SelectMany(r=>r.Details).Where(d=>d.Formula==item.Item2).ToArray();
                 var valid=checks.Where(d=>double.IsFinite(d.Ratio)&&d.Ratio>=0).ToArray();
@@ -254,12 +295,13 @@ internal static class ConnectionReport
                 double? use = complete || valid.Any(d=>d.Ratio>1) ? worst!.Ratio : null;
                 ratio(item.Item1,load.Id,use,method,worst is null ? null : new {
                     formula = worst.Formula, directions_complete = complete,
+                    equivalence = equivalenceDetails,
                     missing_directions = results.Select((r,i)=>(Result:r,Direction:i==0 ? -1 : 1))
                         .Where(r=>!r.Result.Details.Any(d=>d.Formula==item.Item2&&double.IsFinite(d.Ratio)&&d.Ratio>=0))
                         .Select(r=>r.Direction).ToArray(),
                     variables = worst.Variables.Where(v=>double.IsFinite(v.Value)).ToDictionary(v=>v.Key,v=>v.Value),
                     warnings = results.SelectMany(r=>r.Warnings).Distinct().ToArray()
-                },"research_constant_profile");
+                },shearBasis);
             }
         }
         catch (Exception ex) { Missing("indeterminate","native_shear_error:"+ex.Message); }
@@ -268,6 +310,7 @@ internal static class ConnectionReport
 
 internal sealed class ConnectionContext
 {
+    [JsonPropertyName("circular_shear")] public CircularShearEquivalence? CircularShear { get; init; }
     [JsonPropertyName("second_order_mode")] public string SecondOrderMode { get; init; } = "unspecified";
     [JsonPropertyName("l0_x_m")] public double? L0XM { get; init; }
     [JsonPropertyName("l0_y_m")] public double? L0YM { get; init; }
@@ -281,6 +324,7 @@ internal sealed class ConnectionContext
 
     internal void Validate()
     {
+        CircularShear?.Validate();
         if (SecondOrderMode is not ("unspecified" or "already_in_loads" or "cscore_member" or "section_only")
             || !double.IsFinite(Psi) || Psi<0 || Psi>1
             || L0XM is double x && (!double.IsFinite(x)||x<=0)
@@ -291,5 +335,26 @@ internal sealed class ConnectionContext
             || SupportPositiveM is double s && (!double.IsFinite(s)||s<0)
             || SupportNegativeM is double sn && (!double.IsFinite(sn)||sn<0))
             throw new ArgumentException("Invalid CScore connection context");
+    }
+}
+
+internal sealed class CircularShearEquivalence
+{
+    [JsonPropertyName("method")] public string Method { get; init; } = "";
+    [JsonPropertyName("a_mm")] public double? AMm { get; init; }
+    [JsonPropertyName("winding_diameter_mm")] public double? WindingDiameterMm { get; init; }
+    [JsonPropertyName("circular_efficiency")] public double? CircularEfficiency { get; init; }
+    [JsonPropertyName("efficiency_basis")] public string EfficiencyBasis { get; init; } = "";
+    [JsonPropertyName("confirmed")] public bool Confirmed { get; init; }
+    internal bool Ready => Confirmed && AMm.HasValue && WindingDiameterMm.HasValue
+        && CircularEfficiency.HasValue && !string.IsNullOrWhiteSpace(EfficiencyBasis);
+    internal void Validate()
+    {
+        if (Method!="vniigs_1984_user_spiral" || EfficiencyBasis is null || EfficiencyBasis.Length>1000
+            || AMm is double a && (!double.IsFinite(a)||a<0)
+            || WindingDiameterMm is double d && (!double.IsFinite(d)||d<=0)
+            || CircularEfficiency is double f && (!double.IsFinite(f)||f<0||f>1)
+            || Confirmed && string.IsNullOrWhiteSpace(EfficiencyBasis))
+            throw new ArgumentException("Invalid attributed circular spiral equivalence");
     }
 }

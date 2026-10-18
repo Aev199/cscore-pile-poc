@@ -17,7 +17,8 @@ function refreshProfileAudit(){
 }
 function dirty(){revision++;nativeResult=null;profileResult=null;profileAudit=null;refreshProfileAudit();stale=true;$('resultState').textContent=result?'Данные изменены · пересчитайте':'Расчёт не выполнен';renderCharts();renderInspection();}
 const fieldsWall=[['panel_width_mm','Ширина захватки, мм'],['thickness_mm','Толщина стены, мм'],['cage_count','Число каркасов'],['cage_width_mm','Ширина каркаса, мм'],['end_cover_mm','Торцевой защитный слой, мм'],['cover_mm','Защитный слой до хомута, мм'],['ties_diameter_mm','Диаметр хомута, мм'],['min_clear_spacing_mm','Минимальный просвет, мм'],['min_cage_gap_mm','Промежуток каркасов, мм']];
-const fieldsPile=[['diameter_mm','Диаметр сваи, мм'],['cover_mm','Защитный слой до хомута, мм'],['ties_diameter_mm','Диаметр хомута, мм'],['min_clear_spacing_mm','Минимальный просвет, мм']];
+const fieldsPile=[['diameter_mm','Диаметр сваи, мм'],['cover_mm','Защитный слой до навивки, мм'],['ties_diameter_mm','Диаметр стержня навивки, мм'],['min_clear_spacing_mm','Минимальный просвет, мм']];
+function invalidateCircularEquivalence(){if(project.calculation_context?.circular_shear)project.calculation_context.circular_shear.confirmed=false;}
 function inputField(label,value,attrs){return `<label>${esc(label)}<input type="number" value="${esc(value)}" ${attrs}></label>`;}
 function renderForms(){
  $('title').value=project.title;$('kind').value=project.kind;$('force_scale').value=project.force_scale;$('spacing_m').value=project.spacing_m;
@@ -27,15 +28,18 @@ function renderForms(){
  $('geometry').innerHTML=(kind==='wall'?fieldsWall:fieldsPile).map(([k,l])=>inputField(l,geom[k],`data-geom="${k}" min="0" step="1"`)).join('');
  $('reinforcement').innerHTML=kind==='wall'?['Грань y−','Грань y+'].map((f,i)=>inputField(`${f} · стержней фона на каркас`,project.background[i],`data-bg="${i}" min="2" step="1"`)+inputField(`${f} · диаметр, мм`,project.diameters[i],`data-dia="${i}" min="1"`)).join(''):inputField('Стержней фона в кольце',project.pile_background,'data-pile="pile_background" min="6" step="1"')+inputField('Диаметр стержня, мм',project.pile_diameter,'data-pile="pile_diameter" min="1"');
  $('spacingLabel').hidden=kind!=='pile'||project.force_scale!=='per_metre';
- document.querySelectorAll('[data-geom]').forEach(e=>e.onchange=()=>{project[kind][e.dataset.geom]=Number(e.value);if(kind==='wall')invalidateTieGeometry();dirty();});
+ document.querySelectorAll('[data-geom]').forEach(e=>e.onchange=()=>{project[kind][e.dataset.geom]=Number(e.value);if(kind==='wall')invalidateTieGeometry();else invalidateCircularEquivalence();dirty();});
  document.querySelectorAll('[data-bg]').forEach(e=>e.onchange=()=>{project.background[+e.dataset.bg]=Number(e.value);dirty();renderZones();});
  document.querySelectorAll('[data-dia]').forEach(e=>e.onchange=()=>{project.diameters[+e.dataset.dia]=Number(e.value);dirty();});
- document.querySelectorAll('[data-pile]').forEach(e=>e.onchange=()=>{project[e.dataset.pile]=Number(e.value);dirty();renderZones();});
+ document.querySelectorAll('[data-pile]').forEach(e=>e.onchange=()=>{project[e.dataset.pile]=Number(e.value);invalidateCircularEquivalence();dirty();renderZones();});
  // Old saved projects have no transverse block: safely default to no Q verdict.
  const t=project.transverse||(project.transverse={mode:'off',diameter_mm:10,spacing_mm:200,effective_legs_per_cage:2,rsw_kpa:170000,constructive_confirmed:false});
- $('shearSection').hidden=kind!=='wall';
- $('screenQ').checked=kind==='wall'&&t.mode==='screen';
- $('qFields').hidden=kind!=='wall'||t.mode!=='screen';
+ $('shearSection').hidden=false;
+ $('screenQ').checked=t.mode==='screen';
+ $('qFields').hidden=t.mode!=='screen';
+ $('qLegs').closest('label').hidden=kind==='pile';
+ $('qConstructive').closest('label').lastChild.textContent=kind==='pile'?' Требования к навивке и её анкеровке подтверждены':' Требования 10.3 подтверждены; рабочие ветви обоснованы';
+ $('wallQLayout').hidden=kind!=='wall';$('realTieDetails').hidden=kind!=='wall';
  for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).value=t[key];
  $('qConstructive').checked=!!t.constructive_confirmed;
  const choices=project.q_allowed_steps_mm||[100,150,200,300];
@@ -98,7 +102,7 @@ function renderNativeChecks(){
  if(!station)return '';
  const names={normal_strength:'Прочность N/M',crack_formation:'Образование трещин',crack_width_long:'Продолжительное раскрытие',crack_width_short:'Непродолжительное раскрытие',shear_strip:'Бетонная полоса · Q',shear_inclined:'Наклонное сечение · Q',inclined_moment:'Наклонное сечение · M',member_stability:'Второй порядок · ULS',sls_member_stability:'Второй порядок · SLS',normal_member_strength:'Прочность с учётом второго порядка',anchorage:'Длина анкеровки',detailing:'Конструктивные требования'};
  const statuses={passed:'Пройдено',failed:'Не пройдено',calculated:'Рассчитано',not_evaluated:'Не выполнено',not_applicable:'Неприменимо',indeterminate:'Неопределённо',accounted_in_loads:'Учтено в исходных усилиях',stable:'Проверка η выполнена',unstable:'Потеря устойчивости по CScore'};
- const reasons={SLS_loads_missing:'Не заданы нормативные усилия SLS',second_order_context_missing:'Не задан учёт второго порядка',explicit_section_only_scope:'Выбрана проверка только сечения',confirm_eccentricity_in_source:'Подтвердите эксцентриситет в исходных усилиях',second_order_confirmed_in_source_not_independently_checked:'Учёт в исходных усилиях подтверждён инженером; отдельно не проверялся',transverse_geometry_or_Q_missing:'Не заданы данные поперечной арматуры или Q',inclined_moment_not_requested:'Проверка не запрошена',confirm_anchorage_and_section_support_distance:'Нужны коэффициент анкеровки и положительные расстояния до опор в обе стороны',anchorage_factor_is_input_not_an_anchorage_length_check:'Длина анкеровки будет проверяться на этапе армирования',reinforcement_detailing_stage_deferred:'Этап конструктивного оформления отложен',native_member_unstable:'CScore установил потерю устойчивости',native_SLS_member_unstable:'CScore установил потерю устойчивости при нормативных усилиях SLS',member_strength_not_confirmed:'Прочность с учётом второго порядка не подтверждена',member_eta_requires_consistent_N_M_Q_profile:'После η нужен согласованный профиль N/M/Q; локальное сочетание не подменяется',skipped_uls_fail:'Пропущено: прочность N/M не пройдена',skipped_uls_indeterminate:'Пропущено: прочность N/M не определена',native_result_not_finite:'Ядро не вернуло конечный коэффициент'};
+ const reasons={spiral_equivalence_not_confirmed_or_incomplete:'Заполните и подтвердите приведённую модель спирали и конструктивные требования',circular_biaxial_moment_not_supported:'Для этой приведённой модели косой изгиб не поддерживается',SLS_loads_missing:'Не заданы нормативные усилия SLS',second_order_context_missing:'Не задан учёт второго порядка',explicit_section_only_scope:'Выбрана проверка только сечения',confirm_eccentricity_in_source:'Подтвердите эксцентриситет в исходных усилиях',second_order_confirmed_in_source_not_independently_checked:'Учёт в исходных усилиях подтверждён инженером; отдельно не проверялся',transverse_geometry_or_Q_missing:'Не заданы данные поперечной арматуры или Q',inclined_moment_not_requested:'Проверка не запрошена',confirm_anchorage_and_section_support_distance:'Нужны коэффициент анкеровки и положительные расстояния до опор в обе стороны',anchorage_factor_is_input_not_an_anchorage_length_check:'Длина анкеровки будет проверяться на этапе армирования',reinforcement_detailing_stage_deferred:'Этап конструктивного оформления отложен',native_member_unstable:'CScore установил потерю устойчивости',native_SLS_member_unstable:'CScore установил потерю устойчивости при нормативных усилиях SLS',member_strength_not_confirmed:'Прочность с учётом второго порядка не подтверждена',member_eta_requires_consistent_N_M_Q_profile:'После η нужен согласованный профиль N/M/Q; локальное сочетание не подменяется',skipped_uls_fail:'Пропущено: прочность N/M не пройдена',skipped_uls_indeterminate:'Пропущено: прочность N/M не определена',native_result_not_finite:'Ядро не вернуло конечный коэффициент'};
  let html='<h3>Проверки CScore · принятое сечение</h3>';
  html+='<p class="hint">Проверены заданные сечения. Подбор армирования не изменён. Полный допуск для КЖ не выдан.</p>';
  for(const r of station.report.checks){
@@ -109,6 +113,7 @@ function renderNativeChecks(){
   if(r.details?.directions_complete===false)html+='<p class="hint">Проверены не все направления. Известное превышение сохранено.</p>';
   if(r.reason)html+='<p class="hint">'+esc(reasons[r.reason]||r.reason)+'</p>';
   if(r.basis==='research_constant_profile')html+='<p class="hint">Локальная оценка по постоянным усилиям, не проверка конструкции целиком.</p>';
+  if(r.details?.equivalence){const e=r.details.equivalence;html+='<p class="hint">По принятой приведённой модели спирали: b = '+fmt(e.b_m*1000,1)+' мм; h₀ = '+fmt(e.h0_m*1000,1)+' мм; Aₛw,экв = '+fmt(e.effective_asw_mm2,1)+' мм². χ = '+fmt(e.circular_efficiency,3)+'; проекция витка = '+fmt(e.helix_projection,4)+'. Обоснование: '+esc(e.efficiency_basis)+'. Сверка модели с АРБАТ не выполнена.</p>';}
  }
  return html;
 }
@@ -274,6 +279,7 @@ function save(){const allowed=['version','title','kind','force_scale','spacing_m
 $('screenQ').onchange=e=>{project.transverse.mode=e.target.checked?'screen':'off';dirty();renderForms();};
 for(const [id,key] of [['qDiameter','diameter_mm'],['qSpacing','spacing_mm'],['qLegs','effective_legs_per_cage'],['qRsw','rsw_kpa']])$(id).onchange=e=>{
  project.transverse[key]=Number(e.target.value);
+ if(project.kind==='pile')invalidateCircularEquivalence();
  project.transverse.constructive_confirmed=false;if(key==='spacing_mm')invalidateTieGeometry();dirty();renderForms();
 };
 $('qConstructive').onchange=e=>{project.transverse.constructive_confirmed=e.target.checked;dirty();};
@@ -349,11 +355,11 @@ $('exportSchedule').onclick=async()=>{
 $('advancedQ').ontoggle=()=>{if($('advancedQ').open)refreshProfileAudit();};
 $('profileCheck').onclick=calculateProfile;
 $('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());const migrated=p.sls_settings?.preliminary_method==='arbat_conservative';if(migrated)p.sls_settings.preliminary_method='native_refined';await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];project.transverse_layout=p.transverse_layout||{mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;selectedZ=zs()[0];dirty();render();message(migrated?'Проект открыт. Расчёт трещин переведён на CScore; выполните расчёт заново.':'');}catch(e){message(e.message);}finally{$('file').value='';}};
-$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;project.calculation_context={...nativeContext(),sections:[],second_order_mode:'unspecified',anchorage_confirmed:false};if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];project.transverse_zones=[];project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;dirty();render();};
+$('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;project.calculation_context={...nativeContext(),sections:[],second_order_mode:'unspecified',anchorage_confirmed:false,circular_shear:null};if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];project.transverse_zones=[];project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;dirty();render();};
 for(const id of ['force_scale','spacing_m','moment_sign','max_tier','materials_confirmed','eccentricity_confirmed'])$(id).onchange=e=>{project[id]=e.target.type==='checkbox'?e.target.checked:['spacing_m','moment_sign','max_tier'].includes(id)?Number(e.target.value):e.target.value;dirty();renderForms();};
 $('phase').onchange=e=>{phase=e.target.value;renderCharts();renderInspection();};$('showQ').onchange=renderCharts;
 $('table').onclick=()=>{$('tableText').value='z\tcase\tbasis\tn\tm\tq\tm_long\n'+project.rows.map(r=>['z','case','basis','n','m','q','m_long'].map(k=>r[k]??'').join('\t')).join('\n');$('tableDialog').showModal();};
-$('applyTable').onclick=async()=>{try{const v=await api('table',{text:$('tableText').value});const p={...project,rows:v.rows,zones:[],transverse_zones:[],transverse_layout:{mode:'proposed',positions_mm:[],geometry_confirmed:false}};await api('preview',p);project.rows=v.rows;project.source={type:'manual'};project.calculation_context={...nativeContext(),sections:[],second_order_mode:'unspecified',anchorage_confirmed:false};selectedZ=zs()[0];project.zones=[];project.transverse_zones=[];project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};dirty();render();$('tableDialog').close();message();}catch(e){message(e.message);}};
+$('applyTable').onclick=async()=>{try{const v=await api('table',{text:$('tableText').value});const p={...project,rows:v.rows,zones:[],transverse_zones:[],transverse_layout:{mode:'proposed',positions_mm:[],geometry_confirmed:false}};await api('preview',p);project.rows=v.rows;project.source={type:'manual'};project.calculation_context={...nativeContext(),sections:[],second_order_mode:'unspecified',anchorage_confirmed:false,circular_shear:null};selectedZ=zs()[0];project.zones=[];project.transverse_zones=[];project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};dirty();render();$('tableDialog').close();message();}catch(e){message(e.message);}};
 $('materials').onclick=()=>{$('materialText').value=JSON.stringify({materials:project.materials,sls_settings:project.sls_settings},null,2);$('materialDialog').showModal();};
 $('applyMaterials').onclick=async()=>{try{const v=JSON.parse($('materialText').value),p={...project,materials:v.materials,sls_settings:v.sls_settings};await api('preview',p);project=p;project.materials_confirmed=false;dirty();render();$('materialDialog').close();message();}catch(e){message(e.message);}};
 $('addZone').onclick=()=>{const z=zs();project.zones.push({top:z[0],bottom:z.at(-1),tiers:[2,project.kind==='wall'?2:1]});dirty();renderZones();};
@@ -361,6 +367,11 @@ $('addZone').onclick=()=>{const z=zs();project.zones.push({top:z[0],bottom:z.at(
 $('connectionCheck').onclick=calculateConnection;
 $('connectionSettings').onclick=()=>{
  const c=nativeContext();$('secondOrderMode').value=c.second_order_mode;
+ $('circularShearFields').hidden=project.kind!=='pile';
+ const e=c.circular_shear;$('spiralEnable').checked=!!e;
+ $('spiralA').value=e?.a_mm??'';$('spiralWinding').value=e?.winding_diameter_mm??'';
+ $('spiralEfficiency').value=e?.circular_efficiency??'';$('spiralBasis').value=e?.efficiency_basis??'';
+ $('spiralConfirmed').checked=e?.confirmed===true;
  $('nativeL0x').value=c.l0_x_m??'';$('nativeL0y').value=c.l0_y_m??'';$('nativePsi').value=c.psi;
  $('nativeMoment').checked=c.inclined_moment_requested;$('nativeAnchorageConfirmed').checked=c.anchorage_confirmed;
  $('nativeAnchorageFactor').value=c.anchorage_factor??'';$('nativeSectionZ').textContent=fmt(selectedZ)+' м';
@@ -370,10 +381,15 @@ $('applyConnectionSettings').onclick=async()=>{try{
  const optional=id=>$(id).value.trim()===''?null:Number($(id).value),c=nativeContext(),z=Number($('connectionDialog').dataset.z);
  c.second_order_mode=$('secondOrderMode').value;c.l0_x_m=optional('nativeL0x');c.l0_y_m=optional('nativeL0y');c.psi=Number($('nativePsi').value);
  c.inclined_moment_requested=$('nativeMoment').checked;c.anchorage_confirmed=$('nativeAnchorageConfirmed').checked;c.anchorage_factor=optional('nativeAnchorageFactor');
+ c.circular_shear=project.kind==='pile'&&$('spiralEnable').checked ? {
+  method:'vniigs_1984_user_spiral',a_mm:optional('spiralA'),winding_diameter_mm:optional('spiralWinding'),
+  circular_efficiency:optional('spiralEfficiency'),efficiency_basis:$('spiralBasis').value.trim(),confirmed:$('spiralConfirmed').checked} : null;
  c.sections=c.sections.filter(s=>s.z!==z);const down=optional('nativeSupportDown'),up=optional('nativeSupportUp');if(down!==null||up!==null)c.sections.push({z,support_distance_positive_m:down,support_distance_negative_m:up});
  const p={...project,calculation_context:c};await api('preview',p);project=p;dirty();render();$('connectionDialog').close();message();
  }catch(e){message(e.message);}};
+$('spiralEnable').onchange=()=>{$('spiralConfirmed').checked=false;};
+for(const id of ['spiralA','spiralWinding','spiralEfficiency','spiralBasis'])$(id).oninput=()=>{$('spiralConfirmed').checked=false;};
 $('design').onclick=()=>calculate(false);$('check').onclick=()=>calculate(true);document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('plaxis').onclick=()=>$('plaxisDialog').showModal();$('connect').onclick=async()=>{try{catalog=null;$('objects').innerHTML='';$('phases').innerHTML='';$('extract').disabled=true;$('plaxisInfo').textContent='Подключение…';catalog=await api('plaxis/connect',{port:Number($('plaxisPort').value),password:$('plaxisPassword').value});$('plaxisPassword').value='';$('extract').disabled=false;$('objects').innerHTML=catalog.objects.map(o=>`<option value="${o.id}">${esc(o.name)} · ${esc(o.kind)}</option>`).join('');$('phases').innerHTML=catalog.phases.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('');$('plaxisInfo').textContent=Object.entries(catalog.info).map(([k,v])=>k+': '+v).join(' · ');}catch(e){$('plaxisInfo').textContent=e.message;}};
-$('extract').disabled=true;$('extract').onclick=async()=>{try{if(!catalog)throw Error('Сначала подключитесь к Output');const v=await api('plaxis/extract',{objects:[...$('objects').selectedOptions].map(o=>+o.value),phases:[...$('phases').selectedOptions].map(o=>+o.value),basis:$('importBasis').value,force_unit:$('forceUnit').value,length_unit:$('lengthUnit').value,force_scale:$('importScale').value,confirmed:$('importConfirmed').checked,fully_sustained:$('sustained').checked});if($('appendRows').checked&&v.force_scale!==project.force_scale)throw Error('Масштаб текущей таблицы и импорта различается');const p={...project,rows:$('appendRows').checked?[...project.rows,...v.rows]:v.rows,force_scale:v.force_scale,zones:[],transverse_zones:[],transverse_layout:{mode:'proposed',positions_mm:[],geometry_confirmed:false}};await api('preview',p);project=p;project.source=v.source;project.zones=[];project.calculation_context={...nativeContext(),sections:[],second_order_mode:'unspecified',anchorage_confirmed:false};selectedZ=zs()[0];dirty();render();$('plaxisDialog').close();message();}catch(e){$('plaxisInfo').textContent=e.message;}};
+$('extract').disabled=true;$('extract').onclick=async()=>{try{if(!catalog)throw Error('Сначала подключитесь к Output');const v=await api('plaxis/extract',{objects:[...$('objects').selectedOptions].map(o=>+o.value),phases:[...$('phases').selectedOptions].map(o=>+o.value),basis:$('importBasis').value,force_unit:$('forceUnit').value,length_unit:$('lengthUnit').value,force_scale:$('importScale').value,confirmed:$('importConfirmed').checked,fully_sustained:$('sustained').checked});if($('appendRows').checked&&v.force_scale!==project.force_scale)throw Error('Масштаб текущей таблицы и импорта различается');const p={...project,rows:$('appendRows').checked?[...project.rows,...v.rows]:v.rows,force_scale:v.force_scale,zones:[],transverse_zones:[],transverse_layout:{mode:'proposed',positions_mm:[],geometry_confirmed:false}};await api('preview',p);project=p;project.source=v.source;project.zones=[];project.calculation_context={...nativeContext(),sections:[],second_order_mode:'unspecified',anchorage_confirmed:false,circular_shear:null};selectedZ=zs()[0];dirty();render();$('plaxisDialog').close();message();}catch(e){$('plaxisInfo').textContent=e.message;}};
 api('default').then(p=>{project=p;selectedZ=zs()[2];render();refreshProfileAudit();}).catch(e=>message(e.message));

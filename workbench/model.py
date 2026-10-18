@@ -124,7 +124,21 @@ def validate_project(p):
         if zs!=stations:raise ValueError(f'{key[0]} ({key[1]}): набор отметок отличается. Согласуйте точки; пропуски не интерполируются.')
     if not any(r['basis']=='ULS' for r in rows):raise ValueError('Нужны расчётные усилия ULS')
     if p['kind']=='pile' and p.get('transverse',{}).get('mode')=='screen':
-        raise ValueError('Для круглой БНС расчёт Q ещё не верифицирован и не подключён')
+        t=p['transverse']
+        for k in ('diameter_mm','spacing_mm','rsw_kpa'):pile.positive(t.get(k),k)
+        if t['rsw_kpa']>300000 or type(t.get('constructive_confirmed')) is not bool:
+            raise ValueError('Некорректные параметры спиральной навивки')
+        if t['diameter_mm']!=p['pile']['ties_diameter_mm']:
+            raise ValueError('Диаметр навивки должен совпадать с диаметром в геометрии БНС')
+        e=p.get('calculation_context',{}).get('circular_shear')
+        if e:
+            d=p['pile']['diameter_mm']
+            if e['a_mm'] is not None and e['a_mm']>=.885*d:
+                raise ValueError('Рабочая высота приведённого сечения должна быть положительной')
+            dw=e['winding_diameter_mm']
+            expected=d-2*p['pile']['cover_mm']-t['diameter_mm']
+            if dw is not None and (dw<=t['diameter_mm'] or abs(dw-expected)>1e-6):
+                raise ValueError('Осевой диаметр навивки не соответствует защитному слою и диаметру стержня')
     validate_zones(p.get('zones',[]),max(stations),min(stations))
     if p.get('transverse_zones',[]):
         if p['kind']!='wall':raise ValueError('Участки шага Q доступны только для стены')
@@ -386,6 +400,10 @@ def check_adopted(p,engine=None,runner=None,progress=lambda _:None):
             for load,row in zip(req['loads'],[r for r in rows if r['z']==z and r['basis']=='ULS']):
                 load['q_kn']=row['q']
         req['connection_context']=request_context(p,z)
+        if p['kind']=='pile' and p.get('transverse',{}).get('mode')=='screen':
+            t=p['transverse']
+            req['shear_screening']={**{k:t[k] for k in ('diameter_mm','spacing_mm','rsw_kpa','constructive_confirmed')},
+                'enabled':True,'effective_legs_per_cage':2,'cage_count':1}
         if p['kind']=='wall' and 'shear_screening' in req:
             active=[q['spacing_mm'] for q in p.get('transverse_zones',[]) if q['bottom']<=z<=q['top']]
             if active:

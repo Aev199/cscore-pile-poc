@@ -124,7 +124,7 @@ internal static class Program
                 object[]? slsValues =
                     slsGate is "calculated_research_override" or "calculated_uls_pass"
                         ? RunCrackProbe(input, candidate) : null;
-                object[]? shearValues = input.ShearScreening?.Enabled == true
+                object[]? shearValues = input.ShearScreening?.Enabled == true && input.ResearchRectangle is not null
                     ? RunShearScreening(input, candidate) : null;
                 object[]? fullProfileValues = input.ShearProfile is not null
                     ? RunShearProfiles(input, candidate) : null;
@@ -646,13 +646,15 @@ internal static class Program
         }
         if (input.ShearScreening is { Enabled: true } shear)
         {
-            if (!rectMode || !double.IsFinite(shear.DiameterMm) || shear.DiameterMm <= 0
+            if ((!rectMode && input.ConnectionContext is null) || !double.IsFinite(shear.DiameterMm) || shear.DiameterMm <= 0
                 || !double.IsFinite(shear.SpacingMm) || shear.SpacingMm <= 0
                 || !double.IsFinite(shear.RswKpa) || shear.RswKpa <= 0 || shear.RswKpa > 300_000
                 || shear.EffectiveLegsPerCage < 1 || shear.EffectiveLegsPerCage > 30
                 || shear.CageCount < 1 || shear.CageCount > 3
                 || input.Loads.Any(l => l.QKn is not double q || !double.IsFinite(q)))
                 throw new ArgumentException("Invalid shear screening geometry, steel or Q");
+            if (!rectMode && (shear.CageCount!=1 || shear.EffectiveLegsPerCage!=2))
+                throw new ArgumentException("Circular shear uses one spiral, not rectangular cage branches");
         }
         if (input.ShearProfile is { } profiles)
         {
