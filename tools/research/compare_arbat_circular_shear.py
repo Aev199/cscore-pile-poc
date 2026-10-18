@@ -26,6 +26,8 @@ def main():
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     reference = json.loads((ROOT/'examples/verification/arbat_matched/arbat_reference_20261015.json').read_text())
+    original = json.loads((ROOT/'docs/research/arbat-shear-data/original_report_factors.json').read_text())
+    original_factors = {case['id']: case for group in original['groups'] for case in group['nonzero_q_cases']}
     jobs = []
     for name, group in reference['groups'].items():
         data = json.loads((ROOT/f'examples/verification/arbat_matched/{name}_gamma09_sensitivity.json').read_text())
@@ -58,13 +60,18 @@ def main():
     flat = []
     for row in rows:
         native, ref = row['native_ratio'], row['arbat']
+        factors = original_factors.get(row['id'])
+        if factors is not None and factors['shear_inclined_utilization'] != ref:
+            raise ValueError('Original RTF and previous reference disagree')
+        strip_ref = factors['shear_strip_utilization'] if factors else None
         status = 'missing_reference' if ref is None else 'native_invalid' if native is None else 'numeric_comparison_only'
         rel = (native/ref-1)*100 if ref is not None and ref > 0 and native is not None else None
         flat.append({k: row[k] for k in ('group','id','variant','b_m','h0_m','legs','n_kn','m_knm','q_kn','arbat','native_ratio')} |
-                    dict(status=status, relative_difference_percent=rel) | (row.get('variables') or {}))
+                    dict(status=status, relative_difference_percent=rel,
+                         arbat_strip=strip_ref, native_strip_ratio=row['native_strip_ratio']) | (row.get('variables') or {}))
     fields = list(dict.fromkeys(k for row in flat for k in row))
     with (args.out/'arbat_shear_hypotheses.csv').open('w', encoding='utf8', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
+        writer = csv.DictWriter(f, fieldnames=fields, lineterminator='\n')
         writer.writeheader()
         writer.writerows(flat)
     print(f'{len(rows)} native diagnostic evaluations; no design approval or spiral validation')

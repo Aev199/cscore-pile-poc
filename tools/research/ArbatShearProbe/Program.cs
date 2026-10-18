@@ -23,8 +23,10 @@ foreach(var job in root.EnumerateArray()) {
    var p=new ShearInclinedInput(b,h,side.Rb,side.Rbt,170000*area/.2,.2,side.Ns,ElementKind.Other,1,0,0,0,Array.Empty<double>(),false,null,FixedB:b,FixedH0:h);
    var result=ShearInclinedChecker.Check(p,new ConstantProfile(q,m,n,0),pair,0);
    var d=result.Details.SingleOrDefault(x=>x.Formula=="8.56");
+   var strip=result.Details.SingleOrDefault(x=>x.Formula=="8.55");
+   double? stripRatio=strip is not null&&double.IsFinite(strip.Ratio)&&strip.Ratio>=0?strip.Ratio:null;
    double? ratio=d is not null&&double.IsFinite(d.Ratio)&&d.Ratio>=0?d.Ratio:null;
-   rows.Add(new {group=job.GetProperty("group").GetString(),id=load.GetProperty("id").GetString(),variant=variant.GetProperty("name").GetString(),b_m=b,h0_m=h,legs=variant.GetProperty("legs").GetInt32(),n_kn=n,m_knm=m,q_kn=q,arbat=load.GetProperty("shear_inclined_utilization"),native_ratio=ratio,variables=d?.Variables.Where(x=>double.IsFinite(x.Value)).ToDictionary(x=>x.Key,x=>x.Value),warnings=result.Warnings,scope="research_geometry_hypothesis_only_not_spiral_validation"});
+   rows.Add(new {group=job.GetProperty("group").GetString(),id=load.GetProperty("id").GetString(),variant=variant.GetProperty("name").GetString(),b_m=b,h0_m=h,legs=variant.GetProperty("legs").GetInt32(),n_kn=n,m_knm=m,q_kn=q,arbat=load.GetProperty("shear_inclined_utilization"),native_ratio=ratio,native_strip_ratio=stripRatio,variables=d?.Variables.Where(x=>double.IsFinite(x.Value)).ToDictionary(x=>x.Key,x=>x.Value),warnings=result.Warnings,scope="research_geometry_hypothesis_only_not_spiral_validation"});
   }
  }
 }
