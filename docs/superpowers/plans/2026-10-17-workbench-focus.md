@@ -10,7 +10,10 @@
 - [x] Add Python/API and browser tests.
 - [x] Windows CI #39047191930 (SHA 434b109): 152 Python tests, real CScore wall/pile smoke, browser QA and Windows archive all succeeded.
 - [x] Begin independent numeric shear audit: separate SP63 (8.55)-(8.59) reference formulas, fixed-value cases, and cross-check of CScore Qb/Qsw/eta in Windows smoke.
-- [ ] Verify the independent shear benchmark addition in a NEW Windows CI run (not yet checked).
+- [x] Windows CI #39110944191 (SHA a02f256): 157 Python tests and CScore 8.55-8.59 numerical cross-check passed, browser QA and archive passed.
+- [x] First KZh output beyond CSV: 1:1 DXF R2000 **draft wall elevation** with actual cage bounding geometry, wall-depth reinforcement zone boundaries, layers and a per-zone text schedule; marks unapproved scope.
+- [x] Add validation tests for DXF entity geometry, wall dimensions, one/three cages, height coordinates and HTTP/browser export contract.
+- [ ] New DXF export additions are not yet Windows CI verified.
 
 ## Next gates in strict order
 
