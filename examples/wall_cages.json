@@ -91,7 +91,7 @@
     "phi2": 0.5,
     "acrc_ult_long_mm": 0.3,
     "acrc_ult_short_mm": 0.4,
-    "preliminary_method": "arbat_conservative",
+    "preliminary_method": "native_refined",
     "review_band": 0.03,
     "loads": [
       {

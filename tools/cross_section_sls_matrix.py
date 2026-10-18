@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "examples/verification/diagnostic_forces/P800_NM8.json"
 SERVICE_MODEL_ID = "B30_A500_ILLUSTRATIVE_SLS_PARAMETERS_NOT_NORMATIVELY_ALIGNED"
-METHODS = ("arbat_conservative", "native_refined")
+METHODS = ("native_refined",)
 
 
 def bars_rectangle(width: float, height: float, diameter: float, cover: float,
@@ -124,7 +124,7 @@ def loads() -> list[dict]:
     ]
 
 
-def make_request(section: dict, mode: str = "arbat_conservative") -> dict:
+def make_request(section: dict, mode: str = "native_refined") -> dict:
     if mode not in METHODS:
         raise ValueError("Unrecognized preliminary method")
     base = json.loads(BASE.read_text(encoding="utf-8"))
@@ -221,7 +221,7 @@ def validate_answer(section: dict, req: dict, answer: dict) -> list[dict]:
                 raise ValueError("CScore marked a case as computed but gave no finite result")
             if not math.isclose(governing, max(primary,primary_short),rel_tol=1e-8,abs_tol=1e-8):
                 raise ValueError("Incorrect governing long/short SLS coefficient")
-            if req["sls_probe"]["preliminary_method"] == "arbat_conservative" and (
+            if req["sls_probe"]["preliminary_method"] == "native_refined" and (
                 primary + 1e-9 < native or primary_short + 1e-9 < native_short
             ):
                 raise ValueError("Default preliminary screening is less conservative than native")
@@ -289,7 +289,7 @@ def check_fully_sustained_width_identity(rows: list[dict]) -> int:
     count = 0
     for row in rows:
         if (row["cscore_status"] != "research_calculated"
-            or row["method"] != "arbat_conservative"
+            or row["method"] != "native_refined"
             or row["Mx_total_kNm"] != row["Mx_long_kNm"]
             or row["My_total_kNm"] != row["My_long_kNm"]):
             continue
@@ -314,7 +314,7 @@ def write_table(path: Path, rows: list[dict]) -> None:
         w.writerows(rows)
 
 
-def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_conservative", layout: str = "original") -> list[dict]:
+def generate_cases(output_dir: Path, sections: list[dict], method: str = "native_refined", layout: str = "original") -> list[dict]:
     output_dir.mkdir(parents=True, exist_ok=True)
     summary = []
     for section in sections:
@@ -356,7 +356,7 @@ def generate_cases(output_dir: Path, sections: list[dict], method: str = "arbat_
     return summary
 
 
-def run(runner: Path, output_dir: Path, method: str = "arbat_conservative", layout: str = "original") -> list[dict]:
+def run(runner: Path, output_dir: Path, method: str = "native_refined", layout: str = "original") -> list[dict]:
     definitions = section_definitions(layout)
     generate_cases(output_dir, definitions, method=method, layout=layout)
     all_rows = []
@@ -414,7 +414,7 @@ def run(runner: Path, output_dir: Path, method: str = "arbat_conservative", layo
 if __name__ == "__main__":
     cli = argparse.ArgumentParser()
     cli.add_argument("--runner", type=Path)
-    cli.add_argument("--method", choices=METHODS, default="arbat_conservative")
+    cli.add_argument("--method", choices=METHODS, default="native_refined")
     cli.add_argument("--layout", choices=("original","arbat_stated"), default="original")
     cli.add_argument("--out", type=Path, default=ROOT/"results/sls_matrix")
     a = cli.parse_args()

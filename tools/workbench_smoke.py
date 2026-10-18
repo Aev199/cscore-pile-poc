@@ -15,6 +15,21 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--runner',required=True,type=Path)
     parser.add_argument('--output-dir',type=Path,default=Path('results/workbench'))
     args=parser.parse_args();args.output_dir.mkdir(parents=True,exist_ok=True)
+    # Native eccentricity preparation must preserve load provenance and signs.
+    from pile_rebar import prepare_design_loads
+    original={'pile':{'diameter_mm':800},
+              'eccentricity':{'mode':'sp63_stat_determinate','static_scheme':'statically_determinate',
+                              'effective_length_mm':3000,'zero_moment_axis':'my_negative'},
+              'loads':[{'id':'compression','n_kn':-1000,'mx_knm':100,'my_knm':0},
+                       {'id':'tension','n_kn':100,'mx_knm':20,'my_knm':0},
+                       {'id':'centric','n_kn':-1000,'mx_knm':0,'my_knm':0}]}
+    prepared,audit,settings=prepare_design_loads(original,args.runner)
+    assert math.isclose(settings['ea_mm'],26.666666666666668,abs_tol=1e-8)
+    assert math.isclose(prepared[0]['mx_knm'],126.66666666666667,abs_tol=1e-8)
+    assert prepared[1]==original['loads'][1]
+    assert math.isclose(prepared[2]['my_knm'],-26.666666666666668,abs_tol=1e-8)
+    assert audit[0]['original']==original['loads'][0]
+    print('eccentricity: native CScore preparation verified; compression, tension, explicit zero-moment axis')
     for kind in ('wall','pile'):
         p=model.default_project();p.update(kind=kind,materials_confirmed=True,eccentricity_confirmed=True,max_tier=2)
         p['force_scale']='per_metre' if kind=='wall' else 'per_member'
@@ -29,6 +44,14 @@ def main():
         assert len(result['stations'])==2
         assert result['all_checked'],f'{kind}: preliminary checks not passed; inspect artifact'
         assert all(s['required_areas'] and s['adopted']['accepted'] for s in result['stations'])
+        for station in result['stations']:
+            for sls in station['adopted'].get('sls_probe') or []:
+                if sls['status']=='research_calculated':
+                    assert sls['preliminary_method']=='native_refined'
+                    assert sls['preliminary_width_long_mm']==sls['width_long_mm']
+                    assert sls['preliminary_width_short_mm']==sls['width_short_mm']
+                    assert sls['preliminary_utilization_long']==sls['utilization_long']
+                    assert sls['preliminary_utilization_short']==sls['utilization_short']
         assert result['has_sls'] and result['design_status']=='NOT_VERIFIED'
         p['zones']=[{'top':0,'bottom':-2,'tiers':[2,2] if kind=='wall' else [2,1]}]
         recheck=model.design(p,runner=args.runner,recheck=True,progress=print)
@@ -90,9 +113,7 @@ def main():
                  'm':50.+20.*i,'q':20.,'m_long':None}
                 for i in range(13)]
             profile_project['transverse_zones']=[
-                {'top':0.,'bottom':-4.,'spacing_mm':150.},
-                {'top':-4.,'bottom':-8.,'spacing_mm':125.},
-                {'top':-8.,'bottom':-12.,'spacing_mm':300.}]
+                {'top':0.,'bottom':-12.,'spacing_mm':200.}]
             profile_result=model.screen_background_profile(
                 profile_project,runner=args.runner)
             (args.output_dir/'wall_q_phase_profile.json').write_text(
@@ -123,36 +144,21 @@ def main():
             if projection['status']=='proposed_layout_count_only':
                 assert isinstance(projection['ties_crossing_per_cage'],int)
                 assert projection['ties_crossing_per_cage'] >= 0
-            # Three zones cover the whole wall: unused background pitch = 200 mm
-            # must NOT be included; reference uniform envelope pitch is 300 mm.
-            assert profile_result['transverse_envelope']['uniform_pitch_mm']==300
-            assert profile_result['transverse_envelope']['background_used'] is False
-            assert profile_result['transverse_envelope']['boundary_verified'] is False
-            bands=phase['pitch_windows']
-            assert len(bands)>3,phase
-            assert bands[0]['start_s_m']==0 and bands[-1]['end_s_m']==12
-            assert all(math.isclose(a['end_s_m'],b['start_s_m'],abs_tol=1e-7)
-                       for a,b in zip(bands,bands[1:]))
-            assert {x['adopted_pitch_mm'] for x in bands}=={150.,125.,300.}
-            # The first zone has a truly remote interior that must NOT
-            # inherit the sparse 300-mm links located 8+ meters away.
-            assert any(x['adopted_pitch_mm']==150
-                       and x['governing_neighbor_pitch_mm']==150 for x in bands),bands
-            # A zone near the 125→300 transition MUST see the sparse neighbor.
-            assert any(x['adopted_pitch_mm']==125
-                       and x['governing_neighbor_pitch_mm']==300 for x in bands),bands
-            assert all(x['verified_for_design'] is False
-                       and x['boundary_verified'] is False for x in bands)
-            assert all(math.isfinite(x['utilization']) for x in bands)
-            assert math.isclose(phase['utilization'],
-                                max(x['utilization'] for x in bands),
-                                rel_tol=1e-8)
+            assert phase['reinforcement_model']=='cscore_native_uniform_pitch'
+            assert phase['uniform_pitch_mm']==200
+            assert not phase.get('pitch_windows')
+            variable=copy.deepcopy(profile_project)
+            variable['transverse_zones']=[{'top':0.,'bottom':-4.,'spacing_mm':150.}]
+            try:
+                model.screen_background_profile(variable,runner=args.runner)
+            except ValueError as exc:
+                assert 'CScore' in str(exc) and 'постоянный' in str(exc)
+            else:
+                raise AssertionError('Variable pitch must not use an adapter strength model')
             # Check engineer-specified coordinates on exactly the same CScore
             # phase: real tie geometry must NOT silently modify its Q strength.
             confirmed_profile=copy.deepcopy(profile_project)
-            actual_mm=([50+150*i for i in range(27)]
-                       +[4050+125*i for i in range(32)]
-                       +[8050+300*i for i in range(14)])
+            actual_mm=list(range(50,12000,200))
             confirmed_profile['transverse_layout']={
                 'mode':'specified','positions_mm':actual_mm,
                 'geometry_confirmed':True}
@@ -167,7 +173,7 @@ def main():
             assert math.isclose(measured['profile_results'][0]['utilization'],
                                 phase['utilization'],rel_tol=1e-9)
             print('wall: explicit stirrup coordinate geometry checked; no hidden change to CScore Q strength')
-            print('wall: zone-aware phase Q checked with neighbor-aware pitch windows')
+            print('wall: native uniform-pitch CScore profile; variable-pitch calculation rejected')
             print('wall: full-phase SampledProfile CScore Q research diagnostic succeeded')
 
 

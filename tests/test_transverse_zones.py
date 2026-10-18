@@ -3,33 +3,10 @@ import copy
 import unittest
 
 from workbench import model
-from workbench.transverse_zones import validate, envelope, pitch_bands
+from workbench.transverse_zones import validate, pitch_bands
 
 
 class TransverseZonesTests(unittest.TestCase):
-    def test_touching_zones_cover_whole_wall_without_base_pitch(self):
-        zones=[{'top':0,'bottom':-6,'spacing_mm':300},
-               {'top':-6,'bottom':-12,'spacing_mm':125}]
-        data=envelope(zones,0,-12,400)
-        self.assertEqual(data['uniform_pitch_mm'],300)
-        self.assertFalse(data['background_used'])
-        self.assertFalse(data['verified_for_design'])
-        self.assertFalse(data['boundary_verified'])
-
-    def test_gaps_use_background_pitch(self):
-        data=envelope([{'top':-3,'bottom':-6,'spacing_mm':150}],0,-12,250)
-        self.assertEqual(data['uniform_pitch_mm'],250)
-        self.assertTrue(data['background_used'])
-        self.assertEqual(data['method'],'whole_profile_uniform_maximum_spacing')
-
-    def test_unordered_stations_do_not_change_sizing(self):
-        a={'top':-6,'bottom':-12,'spacing_mm':170}
-        b={'top':0,'bottom':-6,'spacing_mm':210}
-        self.assertEqual(envelope([a,b],0,-12,200)['uniform_pitch_mm'],210)
-
-    def test_no_zones_retains_single_default_pitch(self):
-        self.assertEqual(envelope([],0,-12,180)['uniform_pitch_mm'],180)
-
     def test_rejects_overlap_outside_wall_bad_spacing_or_shape(self):
         cases=[
             [{'top':0,'bottom':-7,'spacing_mm':150},

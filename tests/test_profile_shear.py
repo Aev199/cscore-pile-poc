@@ -21,18 +21,12 @@ def project():
 
 
 def mocked_profile(req, case, util=.6):
-    return dict(id=case,status='research_profile_below_one',
+    return dict(id=case,status='research_profile_below_one' if util<=1 else 'research_profile_exceeds_one',
         utilization=util,verified_for_design=False,support_model='none',
         critical_shear_s_m=0.5,critical_shear_c_m=1.0,
         critical_shear_direction=1,critical_shear_eta=util,
-        reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
-        pitch_windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
-            adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=max(
-                z['spacing_mm'] for z in req['pitch_bands']),
-            influence_each_side_m=1.5,method='split_at_pitch_boundaries_and_3h0_influence',boundary_verified=False,
-            verified_for_design=False,utilization=util,
-            status='research_zone_below_one' if util<=1 else 'research_zone_exceeds_one')
-            for b in req['pitch_bands']])
+        reinforcement_model='cscore_native_uniform_pitch',
+        uniform_pitch_mm=req['pitch_bands'][0]['spacing_mm'])
 
 
 class PhaseProfileContracts(unittest.TestCase):
@@ -115,105 +109,19 @@ class PhaseProfileContracts(unittest.TestCase):
         self.assertEqual(seen[0]['shear_profile']['profiles'][0]['samples'][1]['q_kn'],60)
         self.assertEqual(seen[0]['shear_screening']['cage_count'],3)
 
-    def test_false_or_missing_zone_transition_metadata_fails_closed(self):
-        p=project()
-        inp=build_profiles(model.normalized_rows(p),3,'same',True)
-        inp['pitch_bands']=[{'start_s_m':0,'end_s_m':4,'spacing_mm':200}]
-        cases=[mocked_profile(inp,case) for case in ('A','B')]
-        self.assertEqual(len(validate_profile_results(inp,cases)),2)
-        cases[0]['pitch_windows']=[]
-        with self.assertRaisesRegex(ValueError,'разбиение'):
-            validate_profile_results(inp,cases)
-        cases[0]=mocked_profile(inp,'A')
-        cases[0]['pitch_windows'][0]['boundary_verified']=True
-        with self.assertRaisesRegex(ValueError,'перехода'):
-            validate_profile_results(inp,cases)
-        cases[0]=mocked_profile(inp,'A')
-        cases[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=100
-        with self.assertRaisesRegex(ValueError,'соседних'):
-            validate_profile_results(inp,cases)
-        cases[0]=mocked_profile(inp,'A')
-        cases[0]['pitch_windows'][0]['utilization']=1.2
-        with self.assertRaisesRegex(ValueError,'статус участка'):
-            validate_profile_results(inp,cases)
-        cases[0]=mocked_profile(inp,'A')
-        cases[0]['pitch_windows'][0]['utilization']=0.4
-        with self.assertRaisesRegex(ValueError,'худшему участку'):
-            validate_profile_results(inp,cases)
-
-    def test_subwindows_cover_full_span_without_crossing_pitch_transition(self):
-        p=project()
-        req=build_profiles(model.normalized_rows(p),3,'same',True)
-        req['pitch_bands']=[
-            {'start_s_m':0,'end_s_m':2,'spacing_mm':150},
-            {'start_s_m':2,'end_s_m':4,'spacing_mm':300}]
-        windows=[
-            {'start_s_m':0,'end_s_m':0.3,'adopted_pitch_mm':150,
-             'governing_neighbor_pitch_mm':150},
-            {'start_s_m':0.3,'end_s_m':2,'adopted_pitch_mm':150,
-             'governing_neighbor_pitch_mm':300},
-            {'start_s_m':2,'end_s_m':4,'adopted_pitch_mm':300,
-             'governing_neighbor_pitch_mm':300}]
-        def makewin(w):
-            return {**w,'influence_each_side_m':1.5,
-                    'method':'split_at_pitch_boundaries_and_3h0_influence',
-                    'boundary_verified':False,'verified_for_design':False,
-                    'utilization':0.6,'status':'research_zone_below_one'}
-        def makecase(case):
-            return dict(id=case,status='research_profile_below_one',
-                        utilization=0.6,verified_for_design=False,
-                        support_model='none',
-                        reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
-                        critical_shear_s_m=1.0,critical_shear_c_m=1.0,
-                        critical_shear_direction=-1,critical_shear_eta=0.6,
-                        pitch_windows=[makewin(x) for x in windows])
-        cases=[makecase('A'),makecase('B')]
-        # The boundary at s=2 must be represented and every mm covered.
+    def test_old_custom_transition_result_is_rejected(self):
+        req=build_profiles(model.normalized_rows(project()),3,'same',True)
+        req['pitch_bands']=[dict(start_s_m=0,end_s_m=4,spacing_mm=200)]
+        cases=[mocked_profile(req,c) for c in ('A','B')]
         validate_profile_results(req,cases)
-        cases[0]['pitch_windows'][1]['start_s_m']=0.4
-        with self.assertRaisesRegex(ValueError,'разрыв'):
-            validate_profile_results(req,cases)
-        cases[0]=makecase('A')
-        cases[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=300
-        with self.assertRaisesRegex(ValueError,'соседних'):
-            validate_profile_results(req,cases)
-        cases[0]=makecase('A')
-        cases[0]['critical_shear_direction']=0
+        for field,value in (('reinforcement_model','constant_background_longitudinal_projection_neighborhood_pitch'),
+                            ('uniform_pitch_mm',300),('pitch_windows',[{}])):
+            bad=copy.deepcopy(cases);bad[0][field]=value
+            with self.assertRaisesRegex(ValueError,'постоянного шага'):
+                validate_profile_results(req,bad)
+        bad=copy.deepcopy(cases);bad[0]['critical_shear_direction']=0
         with self.assertRaisesRegex(ValueError,'геометрии критического'):
-            validate_profile_results(req,cases)
-        cases[0]=makecase('A')
-        cases[0]['pitch_windows'][1]['end_s_m']=2.5
-        cases[0]['pitch_windows'][2]['start_s_m']=2.5
-        with self.assertRaisesRegex(ValueError,'границу'):
-            validate_profile_results(req,cases)
-
-    def test_neighbor_pitch_respects_projection_reach_and_distant_zones(self):
-        p=project()
-        # Reference profile results are constructed with 3 bands far enough
-        # apart that the worst 300 mm pitch does not affect the first band.
-        req=build_profiles(model.normalized_rows(p),3,'same',True)
-        req['pitch_bands']=[
-            {'start_s_m':0,'end_s_m':4,'spacing_mm':150},
-            {'start_s_m':4,'end_s_m':8,'spacing_mm':125},
-            {'start_s_m':8,'end_s_m':12,'spacing_mm':300}]
-        windows=[dict(start_s_m=b['start_s_m'],end_s_m=b['end_s_m'],
-                      adopted_pitch_mm=b['spacing_mm'],governing_neighbor_pitch_mm=pitch,
-                      influence_each_side_m=1.5,boundary_verified=False,
-                      method='split_at_pitch_boundaries_and_3h0_influence',
-                      verified_for_design=False,utilization=.5,
-                      status='research_zone_below_one')
-                 for b,pitch in zip(req['pitch_bands'],(150,300,300))]
-        good=[dict(id=case,status='research_profile_below_one',
-                   utilization=.5,support_model='none',verified_for_design=False,
-                   critical_shear_s_m=1.0,critical_shear_c_m=1.0,
-                   critical_shear_direction=1,critical_shear_eta=.5,
-                   reinforcement_model='constant_background_longitudinal_projection_neighborhood_pitch',
-                   pitch_windows=[dict(w) for w in windows])
-              for case in ('A','B')]
-        self.assertEqual(len(validate_profile_results(req,good)),2)
-        good[0]['pitch_windows'][0]['governing_neighbor_pitch_mm']=300
-        with self.assertRaisesRegex(ValueError,'шаг соседних'):
-            validate_profile_results(req,good)
+            validate_profile_results(req,bad)
 
     def test_json_contract_uses_declared_csharp_fields(self):
         from pathlib import Path
@@ -235,33 +143,10 @@ class PhaseProfileContracts(unittest.TestCase):
         self.assertIn('new SampledProfile(',cs)
         self.assertIn('supportAtStart: false, supportAtEnd: false',cs)
 
-    def test_background_profile_uses_worst_actual_zone_spacing(self):
-        p=project()
-        p['transverse_zones']=[
-            {'top':0,'bottom':-2,'spacing_mm':300},
-            {'top':-2,'bottom':-4,'spacing_mm':125}]
-        seen=[]
-        def engine(req):
-            seen.append(req)
-            return {'schema_version':1,'cases':[{
-                'id':req['candidates'][0]['id'],
-                'loads':[dict(id=l['id'],converged=True,factor=2,
-                              utilization=.5,error=None) for l in req['loads']],
-                'shear_screening':[dict(id=l['id'],status='indeterminate',
-                    utilization=None,verified_for_design=False) for l in req['loads']],
-                'shear_profiles':[mocked_profile(req['shear_profile'],x['id'])
-                    for x in req['shear_profile']['profiles']]
-            }]}
-        result=model.screen_background_profile(p,engine=engine)
-        self.assertEqual(seen[0]['shear_screening']['spacing_mm'],300)
-        self.assertEqual(seen[0]['shear_profile']['pitch_bands'],[
-            dict(start_s_m=0,end_s_m=2,spacing_mm=300),
-            dict(start_s_m=2,end_s_m=4,spacing_mm=125)])
-        self.assertEqual(p['transverse']['spacing_mm'],200)
-        self.assertFalse(result['transverse_envelope']['background_used'])
-        self.assertEqual(result['transverse_envelope']['uniform_pitch_mm'],300)
-        self.assertFalse(result['transverse_envelope']['boundary_verified'])
-        self.assertFalse(result['verified_for_design'])
+    def test_variable_pitch_is_rejected_before_engine(self):
+        p=project();p['transverse_zones']=[dict(top=0,bottom=-2,spacing_mm=300)]
+        with self.assertRaisesRegex(ValueError,'CScore.*постоянный'):
+            model.screen_background_profile(p,engine=lambda _:self.fail('engine called'))
 
     def test_explicit_ties_change_only_layout_diagnostics_not_Q_strength(self):
         p=project()

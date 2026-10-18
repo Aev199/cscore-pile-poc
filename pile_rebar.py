@@ -62,52 +62,38 @@ def eccentricity_settings(data: dict) -> dict:
     return {'mode': mode}
 
 
-def prepare_design_loads(data: dict) -> tuple[list[dict], list[dict], dict]:
-    """Preserve original joint loads; add e_a to the vector of bending moments on compression.
-
-    e_a=max(l0/600,D/30,10mm), only for explicit statically determinate mode.
-    Biaxial direction is an engineering hypothesis requiring separate validation.
-    Pure concentric compression requires the user to specify a direction.
-    """
+def prepare_design_loads(data: dict, runner: Path | None = None) -> tuple[list[dict], list[dict], dict]:
+    """Pass joint loads unchanged; never compute engineering corrections in Python."""
     settings = eccentricity_settings(data)
-    mode = settings['mode']
-    ea_mm = (max(settings['effective_length_mm'] / 600,
-                 data['pile']['diameter_mm'] / 30, 10.0)
-             if mode == 'sp63_stat_determinate' else None)
-    result, audit = [], []
-    for load in data['loads']:
-        original = {k: load[k] for k in ('id', 'n_kn', 'mx_knm', 'my_knm')}
-        effective = original.copy()
-        added_x = added_y = 0.0
-        if mode == 'sp63_stat_determinate' and original['n_kn'] < 0:
-            mx, my = original['mx_knm'], original['my_knm']
-            magnitude = math.hypot(mx, my)
-            if magnitude > 1e-12:
-                ux, uy = mx / magnitude, my / magnitude
-            else:
-                axis = settings.get('zero_moment_axis')
-                if axis is None:
-                    raise InputError(
-                        f"{original['id']}: при центральном сжатии нужно задать eccentricity.zero_moment_axis"
-                    )
-                ux, uy = ZERO_MOMENT_AXES[axis]
-            delta = abs(original['n_kn']) * ea_mm / 1000.0
-            added_x, added_y = delta * ux, delta * uy
-            effective['mx_knm'] += added_x
-            effective['my_knm'] += added_y
-        if not all(math.isfinite(effective[k]) for k in ('n_kn', 'mx_knm', 'my_knm')):
-            raise InputError(f"{original['id']}: переполнение при добавлении эксцентриситета")
-        result.append(effective)
-        audit.append({'id': original['id'], 'original': original,
-                      'effective': effective.copy(),
-                      'delta_mx_knm': added_x, 'delta_my_knm': added_y,
-                      'ea_mm': ea_mm if original['n_kn'] < 0 and mode == 'sp63_stat_determinate' else 0.0})
-    config = {**settings, 'ea_mm': ea_mm,
-              'eccentricity_accounted_for': mode in ('sp63_stat_determinate', 'already_in_loads'),
-              'note': ('Experimental uniaxial calibration to ARBAT; biaxial and zero-moment handling not independently validated'
-                       if mode == 'sp63_stat_determinate' else
-                       'No accidental eccentricity applied in this stage')}
-    return result, audit, config
+    if settings['mode'] == 'sp63_stat_determinate':
+        if runner is None:
+            raise InputError('Для эксцентриситета требуется CScore runner; Python расчёт отключён')
+        args = (['dotnet',str(runner.resolve())] if runner.suffix.lower()=='.dll'
+                else [str(runner.resolve())]) + ['--prepare-loads']
+        payload={'loads':data['loads'],'diameter_mm':data['pile']['diameter_mm'],
+                 'length_mm':settings['effective_length_mm'],
+                 'zero_moment_axis':settings.get('zero_moment_axis')}
+        proc=subprocess.run(args,input=json.dumps(payload,allow_nan=False),capture_output=True,
+                            text=True,encoding='utf-8',timeout=60)
+        if proc.returncode:
+            raise InputError('CScore eccentricity: '+proc.stderr[:1000])
+        result=json.loads(proc.stdout)
+        loads=result.get('loads');audit=result.get('audit');ea=result.get('ea_mm')
+        if (not isinstance(loads,list) or not isinstance(audit,list)
+                or len(loads)!=len(data['loads']) or len(audit)!=len(loads)
+                or type(ea) not in (int,float) or not math.isfinite(ea) or ea<=0
+                or [x.get('id') for x in loads]!=[x['id'] for x in data['loads']]
+                or any(type(l.get(k)) not in (int,float) or not math.isfinite(l[k])
+                       for l in loads for k in ('n_kn','mx_knm','my_knm'))):
+            raise InputError('CScore: неверный результат подготовки эксцентриситета')
+        return loads,audit,{**settings,'ea_mm':ea,'eccentricity_accounted_for':True,
+                           'note':'CScore Sp63MemberContext; proportional bending direction'}
+    loads = [{k: load[k] for k in ('id', 'n_kn', 'mx_knm', 'my_knm')} for load in data['loads']]
+    audit = [dict(id=l['id'], original=l.copy(), effective=l.copy(),
+                  delta_mx_knm=0.0, delta_my_knm=0.0, ea_mm=0.0) for l in loads]
+    return loads, audit, {**settings, 'ea_mm': None,
+        'eccentricity_accounted_for': settings['mode'] == 'already_in_loads',
+        'note': 'Loads passed unchanged to CScore; no application eccentricity correction'}
 
 
 def validate_sls_probe(probe: dict) -> None:
@@ -119,9 +105,9 @@ def validate_sls_probe(probe: dict) -> None:
                'preliminary_method', 'review_band', 'loads'}
     if set(probe) - allowed:
         raise InputError("Неизвестные параметры sls_probe")
-    mode = probe.get('preliminary_method', 'arbat_conservative')
-    if mode not in {'arbat_conservative', 'native_refined'}:
-        raise InputError("sls_probe.preliminary_method: arbat_conservative или native_refined")
+    mode = probe.get('preliminary_method', 'native_refined')
+    if mode != 'native_refined':
+        raise InputError("sls_probe.preliminary_method: только native_refined (CScore)")
     band = positive(probe.get('review_band', 0.03), 'sls_probe.review_band')
     if band >= .25:
         raise InputError("sls_probe.review_band должен быть меньше 0.25")
@@ -180,20 +166,15 @@ def check_sls_results(result_rows: list, expected: dict, mode: str, band: float)
                 raise InputError('SLS: отсутствуют конечные коэффициенты длительной/кратковременной проверки')
             if not math.isclose(governing, max(a, a_short), rel_tol=1e-8, abs_tol=1e-8):
                 raise InputError('SLS: неверный управляющий коэффициент')
-            if mode == 'arbat_conservative' and (a + 1e-9 < n or a_short + 1e-9 < native_short):
-                raise InputError('SLS: основной результат менее консервативен, чем CScore')
-            short_only = row.get('preliminary_basis') == 'short_only_supplemental_full_load_solver'
-            if short_only:
-                if (row.get('preliminary_review_reason') !=
-                    'cracked_only_under_total_load_unvalidated_mcrc_threshold'
-                    or a != 0 or n != 0 or a_short <= 0 or native_short <= 0):
-                    raise InputError('SLS: некорректный исследовательский расчёт только кратковременных трещин')
-                expected_decision = ('preliminary_exceeds_limit'
-                                     if governing > 1.0 + band else 'engineering_review')
-            else:
-                expected_decision = ('engineering_review' if abs(governing - 1) <= band else
-                                     'preliminary_exceeds_limit' if governing > 1 else
-                                     'preliminary_below_limit')
+            if (mode != 'native_refined'
+                    or row.get('preliminary_basis') not in (
+                        'native_refined_postcrack', 'uncracked_checked_both_long_and_total_thresholds')
+                    or not math.isclose(a,n,rel_tol=1e-9,abs_tol=1e-9)
+                    or not math.isclose(a_short,native_short,rel_tol=1e-9,abs_tol=1e-9)):
+                raise InputError('SLS: результат должен совпадать с исходным CScore native_refined')
+            expected_decision = ('engineering_review' if abs(governing - 1) <= band else
+                                 'preliminary_exceeds_limit' if governing > 1 else
+                                 'preliminary_below_limit')
             if row.get('preliminary_decision') != expected_decision or (
                 row.get('preliminary_is_final_approval') is not False
             ):
@@ -380,7 +361,7 @@ def parse_runner_results(request: dict, raw: Any) -> list[dict]:
                 opts = request['sls_probe']
                 sls_rows = check_sls_results(
                     item.get('sls_probe'), opts,
-                    opts.get('preliminary_method', 'arbat_conservative'),
+                    opts.get('preliminary_method', 'native_refined'),
                     opts.get('review_band', 0.03)
                 )
                 validated['sls_probe'] = sls_rows
@@ -435,7 +416,7 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
     permitted, rejected = make_candidates(data)
     if not permitted:
         raise InputError('Нет геометрически допустимых кандидатов для расчёта')
-    effective_loads, forces_audit, eccentricity = prepare_design_loads(data)
+    effective_loads, forces_audit, eccentricity = prepare_design_loads(data, runner)
     engine_data = {**data, 'loads': effective_loads}
     request = build_engine_request(engine_data, permitted)
     if runner.suffix.lower() == '.dll':

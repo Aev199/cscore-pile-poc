@@ -12,7 +12,7 @@ import wall_rebar as wall
 
 from .profile_audit import audit as audit_profiles
 from .profile_shear import build_profiles, validate_profile_results
-from .transverse_zones import validate as validate_transverse_zones, envelope as transverse_envelope, pitch_bands
+from .transverse_zones import validate as validate_transverse_zones, pitch_bands
 from .stirrup_layout import proposed_positions, count_in_projection, proposal_summary, specified_positions, specified_summary
 from .reinforcement_schedule import allowed_pitches, schedule as make_reinforcement_schedule
 
@@ -295,20 +295,15 @@ def screen_background_profile(p, engine=None, runner=None):
     if len(candidates)!=1:
         raise ValueError('Фоновое армирование геометрически недопустимо')
     request=wall.build_engine_request(inp,candidates[0])
-    # The first zone-aware Q screen is deliberately ALL-WALL and uses the
-    # weakest transverse-link density everywhere, not imaginary sharp joints.
-    envelope=transverse_envelope(p.get('transverse_zones',[]),
-                                 max(r['z'] for r in rows),min(r['z'] for r in rows),
-                                 p['transverse']['spacing_mm'])
-    # The old whole-wall maximum-pitch envelope is retained for comparison.
-    # The new CScore research path uses a stronger local guarantee: each
-    # station band's check uses the WORST pitch intersecting the band expanded
-    # by 3*h0 in both directions (including every crossing into adjacent zones).
     bands=pitch_bands(p.get('transverse_zones',[]),
                       max(r['z'] for r in rows),min(r['z'] for r in rows),
                       p['transverse']['spacing_mm'])
+    pitches={b['spacing_mm'] for b in bands}
+    if len(pitches)!=1:
+        raise ValueError('CScore поддерживает только постоянный шаг хомутов по профилю; '
+                         'переменный шаг сохранён для чертежа, расчёт переходов не выполнен')
     profiles['pitch_bands']=bands
-    request['shear_screening']['spacing_mm']=envelope['uniform_pitch_mm']
+    request['shear_screening']['spacing_mm']=next(iter(pitches))
     request['shear_profile']=profiles
     engine=engine or (lambda req:wall.invoke_engine(runner,req))
     raw=engine(request)
@@ -357,7 +352,7 @@ def screen_background_profile(p, engine=None, runner=None):
             'reinforcement':'background_only',
             'support_model':'none',
             'profile_results':evaluated,
-            'transverse_envelope':envelope,
+            'uniform_pitch_mm':next(iter(pitches)),
             'stirrup_layout':layout,
             'proposed_stirrup_layout':layout,  # compatibility with previous saved results
             'critical_projection_links':critical_layout,

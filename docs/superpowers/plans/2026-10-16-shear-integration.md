@@ -1,3 +1,8 @@
+> Superseded on 2026-10-18 by the user's CScore-only requirement.
+> Native uniform-pitch profile calls replace all neighborhood/window/envelope
+> resistance models. Variable pitch is drawing data, not a supported profile
+> calculation. No custom qsw(s) integrator is planned. See workbench-guide.md.
+
 # Integration plan: transverse shear Q for BNS and diaphragm walls
 
 Status: **Stage 1 implemented (local CScore Q screening); full inclined-section verification still open**.

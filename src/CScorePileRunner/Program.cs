@@ -13,10 +13,12 @@ internal static class Program
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
-    static int Main()
+    static int Main(string[] args)
     {
         try
         {
+            if (args.SequenceEqual(new[] { "--prepare-loads" })) return PrepareLoads();
+            if (args.Length != 0) throw new ArgumentException("Unsupported runner command");
             var input = JsonSerializer.Deserialize<BatchInput>(Console.In.ReadToEnd(), ReadOptions)
                 ?? throw new ArgumentException("Пустой JSON");
             Validate(input);
@@ -148,6 +150,50 @@ internal static class Program
         }
     }
 
+    private static int PrepareLoads()
+    {
+        var input = JsonSerializer.Deserialize<LoadPreparationInput>(Console.In.ReadToEnd(), ReadOptions)
+            ?? throw new ArgumentException("Missing load preparation data");
+        if (!double.IsFinite(input.DiameterMm) || input.DiameterMm <= 0
+            || !double.IsFinite(input.LengthMm) || input.LengthMm <= 0
+            || input.Loads.Count == 0 || input.Loads.Count > 1000)
+            throw new ArgumentException("Invalid eccentricity geometry or loads");
+        double ea = CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(
+            input.LengthMm / 1000.0, input.DiameterMm / 1000.0);
+        var loads = new List<object>();
+        var audit = new List<object>();
+        foreach (var l in input.Loads)
+        {
+            if (!double.IsFinite(l.NKn) || !double.IsFinite(l.MxKnm) || !double.IsFinite(l.MyKnm))
+                throw new ArgumentException("Nonfinite load");
+            double mx = l.MxKnm, my = l.MyKnm;
+            if (l.NKn < 0)
+            {
+                double magnitude = Math.Sqrt(mx * mx + my * my);
+                var direction = magnitude > 1e-12 ? (mx / magnitude, my / magnitude)
+                    : input.ZeroMomentAxis switch {
+                        "mx_positive" => (1.0, 0.0), "mx_negative" => (-1.0, 0.0),
+                        "my_positive" => (0.0, 1.0), "my_negative" => (0.0, -1.0),
+                        _ => throw new ArgumentException("zero_moment_axis required") };
+                double e = CScore.Sp63.Normal.Sp63MemberContext.EffectiveEccentricity(
+                    magnitude / Math.Abs(l.NKn), ea,
+                    CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyDeterminate);
+                mx = Math.Abs(l.NKn) * e * direction.Item1;
+                my = Math.Abs(l.NKn) * e * direction.Item2;
+            }
+            if (!double.IsFinite(mx) || !double.IsFinite(my))
+                throw new ArgumentException("Nonfinite prepared moments");
+            var original = new { id = l.Id, n_kn = l.NKn, mx_knm = l.MxKnm, my_knm = l.MyKnm };
+            var effective = new { id = l.Id, n_kn = l.NKn, mx_knm = mx, my_knm = my };
+            loads.Add(effective);
+            audit.Add(new { id = l.Id, original, effective,
+                delta_mx_knm = mx - l.MxKnm, delta_my_knm = my - l.MyKnm,
+                ea_mm = l.NKn < 0 ? ea * 1000.0 : 0.0 });
+        }
+        Console.Out.Write(JsonSerializer.Serialize(new { loads, audit, ea_mm = ea * 1000.0 }));
+        return 0;
+    }
+
     // Local Q diagnostic, NOT a complete inclined-section verification.
     // ConstantProfile is an upstream-supported model for one isolated force tuple,
     // but it does not reconstruct reactions, applied distributed loads or bar cutoffs.
@@ -226,33 +272,8 @@ internal static class Program
         }).ToArray();
     }
 
-    // Limit only the CHECKER'S STATION ITERATION to the assigned band; the
-    // actual force profile and projected maximum Q remain FULL-PHASE.
-    // Boundaries are also sampled explicitly so station grids cannot skip them.
-    private sealed class StationBandProfile(
-        IForceProfile original, double from, double to) : IForceProfile
-    {
-        public double Q(double s) => original.Q(s);
-        public double M(double s) => original.M(s);
-        public double N(double s) => original.N(s);
-        public double T(double s) => original.T(s);
-        public double Length => Math.Max(0.0, to - from);
-        public (double Min, double Max) StationRange => (from, to);
-        public double SupportDistanceAt(double s, int direction) =>
-            original.SupportDistanceAt(s, direction);
-        public bool HasSupport(int direction) => original.HasSupport(direction);
-        public double MaxAbsQ(double from, double to) =>
-            original.MaxAbsQ(from, to);
-        public double MaxAbsT(double from, double to) =>
-            original.MaxAbsT(from, to);
-    }
-
-    // The pinned upstream SP63 checker assumes a CONSTANT Qsw within a run.
-    // For every physical pitch band, determine the LOWEST transverse-steel
-    // density in its whole potential inclined-crack neighborhood, +/-3*h0,
-    // including adjacent zones. Then check all stations belonging to that
-    // band, using full N/M/Q samples for force projection. This is a
-    // projection-neighborhood research SCREEN, not true variable-qsw integration.
+    // Direct upstream profile check. Pinned CScore accepts one constant qsw;
+    // variable physical pitch is unsupported, never approximated by this adapter.
     private static object[] RunShearProfiles(BatchInput input, Candidate candidate)
     {
         var batch = input.ShearProfile!;
@@ -261,177 +282,67 @@ internal static class Program
         {
             try
             {
-                if (input.ResearchRectangle is null)
-                    throw new InvalidOperationException("not_rectangular");
                 var section = MakeSection(input, candidate);
                 var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
-                var samples = phase.Samples.Select(v =>
-                    new ForceSample(v.SM, v.QKn, v.MKnm, v.NKn)).ToArray();
                 var profile = new SampledProfile(
-                    samples, supportDistanceFromStart: 0.0,
-                    supportDistanceFromEnd: 0.0,
+                    phase.Samples.Select(v => new ForceSample(v.SM, v.QKn, v.MKnm, v.NKn)).ToArray(),
+                    supportDistanceFromStart: 0.0, supportDistanceFromEnd: 0.0,
                     supportAtStart: false, supportAtEnd: false);
                 if (profile.Warnings.Count != 0)
                     throw new InvalidOperationException("upstream_profile_M_Q_mismatch");
-                var reference = geometry.For(samples[0].M);
-                double h0Max = Math.Max(geometry.TensionPositive.H0, geometry.TensionNegative.H0);
-                if (!double.IsFinite(h0Max) || h0Max <= 0.0)
-                    throw new InvalidOperationException("invalid_zone_influence_height");
-                // Every upstream shear projection is within 0.6..3*h0.
-                // Expanding both sides by 3*MAX(h0) includes EVERY stirrup
-                // zone potentially intersected from any station in this band.
-                double influence = 3.0 * h0Max;
-                double activeArea = transverse.ConstructiveConfirmed
+                var pitches = batch.PitchBands!.Select(b => b.SpacingMm).Distinct().ToArray();
+                if (pitches.Length != 1 || pitches[0] != transverse.SpacingMm)
+                    throw new InvalidOperationException("CScore_requires_uniform_pitch");
+                double area = transverse.ConstructiveConfirmed
                     ? transverse.EffectiveLegsPerCage * transverse.CageCount
-                        * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0
-                    : 0.0;
-
-                var runs = new List<(ShearInclinedResult Outcome, ShearPitchBand Band, double Pitch, double Qsw, int Direction)>();
-                var zoneSummaries = new List<object>();
-                // A physical band is NOT one uniform influence neighborhood.
-                // Split it wherever the 3*h0 reach of another physical
-                // transition begins/ends, so remote sparse stirrups cannot
-                // spuriously govern an entire long dense zone.
-                var physical = batch.PitchBands!;
-                var transitions = physical.Skip(1).Select(x => x.StartSM).ToArray();
-                foreach (var band in physical)
+                        * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0 : 0.0;
+                double qsw = transverse.RswKpa * area / (transverse.SpacingMm / 1000.0);
+                var reference = geometry.For(phase.Samples[0].MKnm);
+                var parameters = new ShearInclinedInput(
+                    B: reference.B, H0: reference.H0, Rb: reference.Rb, Rbt: reference.Rbt,
+                    Qsw: qsw, Sw: transverse.SpacingMm / 1000.0, Ns: reference.Ns,
+                    Kind: ElementKind.Other, AnchorageFactor: 1.0,
+                    StationStep: 0.0, ProjectionStep: 0.0, MomentZoneLength: 0.0,
+                    BarCutoffs: Array.Empty<double>(), CheckMoment: false, PhiNOverride: null);
+                var runs = new[] { -1, 1 }.Select(direction => (
+                    Direction: direction,
+                    Outcome: ShearInclinedChecker.Check(parameters, profile, geometry, direction))).ToArray();
+                foreach (var run in runs)
                 {
-                    var cuts = new List<double> { band.StartSM, band.EndSM };
-                    foreach (double edge in transitions)
-                        foreach (double candidate in new[]
-                        {
-                            edge - influence, edge, edge + influence
-                        })
-                            if (candidate > band.StartSM + 1e-9
-                                && candidate < band.EndSM - 1e-9)
-                                cuts.Add(candidate);
-                    cuts.Sort();
-                    var unique = new List<double>();
-                    foreach (double cut in cuts)
-                        if (unique.Count == 0 || cut - unique[^1] > 1e-9)
-                            unique.Add(cut);
-                    for (int i = 0; i + 1 < unique.Count; i++)
-                    {
-                        double startS = unique[i], endS = unique[i + 1];
-                        if (endS - startS <= 1e-9) continue;
-                        // The entire potential inclined section, not only its
-                        // starting station, must see the weakest nearby pitch.
-                        double pitch = physical.Where(other =>
-                            other.EndSM > startS - influence + 1e-9
-                            && other.StartSM < endS + influence - 1e-9)
-                            .Max(other => other.SpacingMm);
-                        double qsw = transverse.RswKpa * activeArea / (pitch / 1000.0);
-                        var shearInput = new ShearInclinedInput(
-                            B: reference.B, H0: reference.H0,
-                            Rb: reference.Rb, Rbt: reference.Rbt, Qsw: qsw,
-                            Sw: pitch / 1000.0, Ns: reference.Ns,
-                            Kind: ElementKind.Other, AnchorageFactor: 1.0,
-                            StationStep: 0.0, ProjectionStep: 0.0,
-                            MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
-                            CheckMoment: false, PhiNOverride: null);
-                        var local = new List<ShearInclinedResult>();
-                        foreach (var scope in new[]
-                        {
-                            (Start: startS, End: endS),
-                            (Start: endS, End: endS)
-                        })
-                        {
-                            var sampled = new StationBandProfile(profile, scope.Start, scope.End);
-                            // Keep direction: the true stirrup count of an
-                            // inclined projection depends on whether it looks
-                            // toward increasing or decreasing wall depth.
-                            foreach (int direction in new[] { -1, +1 })
-                            {
-                                var outcome = ShearInclinedChecker.Check(
-                                    shearInput, sampled, geometry, direction);
-                                var details = outcome.Details
-                                    .Where(x => x.Formula is "8.55" or "8.56").ToList();
-                                if (details.Count != 2 ||
-                                    details.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0.0))
-                                    throw new InvalidOperationException("incomplete_zone_shear_check");
-                                runs.Add((outcome, band, pitch, qsw, direction));
-                                local.Add(outcome);
-                            }
-                        }
-                        double windowWorst = local.SelectMany(o => o.Details
-                            .Where(d => d.Formula is "8.55" or "8.56"))
-                            .Max(d => d.Ratio);
-                        zoneSummaries.Add(new
-                        {
-                            start_s_m = startS, end_s_m = endS,
-                            adopted_pitch_mm = band.SpacingMm,
-                            governing_neighbor_pitch_mm = pitch,
-                            influence_each_side_m = influence,
-                            utilization = windowWorst,
-                            status = windowWorst <= 1.0 ? "research_zone_below_one"
-                                : "research_zone_exceeds_one",
-                            method = "split_at_pitch_boundaries_and_3h0_influence",
-                            boundary_verified = false,
-                            verified_for_design = false
-                        });
-                        if (zoneSummaries.Count > 400)
-                            throw new InvalidOperationException("too_many_shear_pitch_windows");
-                    }
+                    var checks = run.Outcome.Details.Where(d => d.Formula is "8.55" or "8.56").ToArray();
+                    if (checks.Length != 2 || checks.Any(d => !double.IsFinite(d.Ratio) || d.Ratio < 0))
+                        throw new InvalidOperationException("incomplete_upstream_shear_result");
                 }
                 var worst = runs.SelectMany(run => run.Outcome.Details
-                        .Where(x => x.Formula is "8.55" or "8.56")
-                        .Select(detail => (Detail: detail, Run: run)))
-                    .OrderByDescending(item => item.Detail.Ratio).First();
+                    .Where(d => d.Formula is "8.55" or "8.56")
+                    .Select(d => (Detail: d, run.Direction))).OrderByDescending(x => x.Detail.Ratio).First();
+                var critical = runs.SelectMany(run => run.Outcome.Details.Where(d => d.Formula == "8.56")
+                    .Select(d => (Detail: d, run.Direction))).OrderByDescending(x => x.Detail.Ratio).First();
                 double eta = worst.Detail.Ratio;
-                var station = worst.Detail.Variables.TryGetValue("s", out var s)
-                    && double.IsFinite(s) ? (double?)s : null;
-                // The 8.55 strip may control without having a projection C.
-                // Always report a separate 8.56 critical section for tie
-                // counting, including the actual selected direction.
-                var shearCritical = runs.Select(run => (
-                        Run: run,
-                        Detail: run.Outcome.Details.First(x => x.Formula == "8.56")))
-                    .OrderByDescending(item => item.Detail.Ratio).First();
-                var critVariables = shearCritical.Detail.Variables;
-                double? critS = critVariables.TryGetValue("s", out var cs)
-                    && double.IsFinite(cs) ? cs : null;
-                double? critC = critVariables.TryGetValue("C", out var cc)
-                    && double.IsFinite(cc) && cc > 0 ? cc : null;
-                return (object)new
-                {
+                return (object)new {
                     id = phase.Id,
-                    status = eta <= 1.0 ? "research_profile_below_one"
-                        : "research_profile_exceeds_one",
-                    utilization = (double?)eta,
-                    governing_formula = worst.Detail.Formula,
-                    governing_s_m = station,
-                    critical_shear_s_m = critS,
-                    critical_shear_c_m = critC,
-                    critical_shear_direction = shearCritical.Run.Direction,
-                    critical_shear_eta = shearCritical.Detail.Ratio,
+                    status = eta <= 1 ? "research_profile_below_one" : "research_profile_exceeds_one",
+                    utilization = (double?)eta, governing_formula = worst.Detail.Formula,
+                    governing_s_m = worst.Detail.Variables["s"],
+                    critical_shear_s_m = critical.Detail.Variables["s"],
+                    critical_shear_c_m = critical.Detail.Variables["C"],
+                    critical_shear_direction = critical.Direction,
+                    critical_shear_eta = critical.Detail.Ratio,
                     sampled_stations = runs.Sum(r => r.Outcome.Stations.Count),
-                    max_abs_q_kn = profile.MaxAbsQ(
-                        profile.StationRange.Min, profile.StationRange.Max),
-                    qsw_kn_per_m = worst.Run.Qsw,
-                    governing_neighbor_pitch_mm = worst.Run.Pitch,
-                    pitch_windows = zoneSummaries,
-                    warnings = runs.SelectMany(r => r.Outcome.Warnings)
-                        .Distinct().Take(40).ToArray(),
-                    warnings_truncated = runs.SelectMany(r => r.Outcome.Warnings)
-                        .Distinct().Skip(40).Any(),
-                    support_model = "none",
-                    reinforcement_model = "constant_background_longitudinal_projection_neighborhood_pitch",
-                    note = "Research-only neighborhood lower-link-density screen. "
-                        + "No actual stirrup placement, transverse transitions, support model, "
-                        + "bar cutoffs, anchorage or inclined moment verification.",
+                    max_abs_q_kn = profile.MaxAbsQ(profile.StationRange.Min, profile.StationRange.Max),
+                    qsw_kn_per_m = qsw, uniform_pitch_mm = transverse.SpacingMm,
+                    warnings = runs.SelectMany(r => r.Outcome.Warnings).Distinct().ToArray(),
+                    support_model = "none", reinforcement_model = "cscore_native_uniform_pitch",
+                    inclined_moment_status = "not_evaluated",
+                    note = "Native CScore constant-pitch profile; supports, anchorage and inclined moment not verified.",
                     verified_for_design = false
                 };
             }
             catch (Exception ex)
             {
-                return (object)new
-                {
-                    id = phase.Id, status = "indeterminate",
-                    utilization = (double?)null,
+                return (object)new { id = phase.Id, status = "indeterminate", utilization = (double?)null,
                     error = "profile_shear_error:" + ex.GetType().Name + ":" + ex.Message,
-                    support_model = "none",
-                    verified_for_design = false
-                };
+                    support_model = "none", verified_for_design = false };
             }
         }).ToArray();
     }
@@ -467,208 +378,6 @@ internal static class Program
                                           + load.MyLongKnm * load.MyLongKnm);
                     var mTotal = Math.Sqrt(load.MxTotalKnm * load.MxTotalKnm
                                            + load.MyTotalKnm * load.MyTotalKnm);
-                    // Supplement ONLY the upstream early-return case where
-                    // the sustained moment is under Mcrc but the total moment
-                    // crosses Mcrc. The upstream Compute() returns zero before
-                    // calculating the total force. Repeat it with FULL action
-                    // as both arguments and take its Acrc2 transient term.
-                    // This is an independent research reconstruction, not a
-                    // rewrite or verification of the author's solver.
-                    if (!r.Cracked && r.CrcConverged
-                        && double.IsFinite(r.Mcrc) && r.Mcrc >= 0
-                        && mLong <= r.Mcrc && mTotal > r.Mcrc + 1e-8)
-                    {
-                        // The cracking-face direction must stay the same.
-                        // A rotating or reversed load would require separate
-                        // cracking threshold computations for every direction.
-                        double cross = load.MxLongKnm * load.MyTotalKnm
-                                     - load.MyLongKnm * load.MxTotalKnm;
-                        double dot = load.MxLongKnm * load.MxTotalKnm
-                                   + load.MyLongKnm * load.MyTotalKnm;
-                        if (mLong > 1e-9
-                            && (dot <= 0 || Math.Abs(cross) > 1e-8 * mLong * mTotal))
-                            throw new InvalidOperationException(
-                                "short_only_requires_proportional_nonreversing_moments");
-
-                        var full = solver.Compute(load.NKn,
-                            load.MxTotalKnm, load.MxTotalKnm,
-                            load.MyTotalKnm, load.MyTotalKnm);
-                        bool validFull = full.Cracked && full.CrcConverged
-                            && full.PlaneLong.HasValue
-                            && double.IsFinite(full.Mcrc) && full.Mcrc >= 0
-                            && Math.Abs(full.Mcrc - r.Mcrc) <= 0.05
-                            && double.IsFinite(full.Acrc2) && full.Acrc2 > 0
-                            && double.IsFinite(full.AcrcLong) && full.AcrcLong > 0
-                            && double.IsFinite(full.AcrcShort) && full.AcrcShort > 0
-                            && double.IsFinite(full.PsiS2) && full.PsiS2 > 0
-                            && double.IsFinite(full.SigmaS) && full.SigmaS >= 0;
-                        // For equal total and sustained forces, Acrc2 is the
-                        // phi1=1.0 transient term, while AcrcLong has phi1=1.4.
-                        bool consistentShortTerm = validFull
-                            && Math.Abs(full.Acrc2 - full.AcrcLong / 1.4)
-                                <= 1e-7 + 1e-6 * full.Acrc2;
-                        if (!consistentShortTerm)
-                            throw new InvalidOperationException(
-                                "short_only_supplement_failed_convergence_or_psi_identity");
-
-                        double nativeShortWidth = full.Acrc2;
-                        double screeningShortWidth = probe.PreliminaryMethod == "native_refined"
-                            ? nativeShortWidth
-                            : Math.Max(nativeShortWidth, nativeShortWidth / full.PsiS2);
-                        if (!double.IsFinite(screeningShortWidth)
-                            || screeningShortWidth < 0)
-                            throw new InvalidOperationException(
-                                "short_only_invalid_conservative_width");
-
-                        // Because ARBAT sometimes predicts long cracks even
-                        // below this preliminary CScore Mcrc, we cannot
-                        // classify this reconstructed case as a prelim PASS.
-                        // Always route it to explicit engineering review.
-                        double shortUse = screeningShortWidth / probe.AcrcUltShortMm;
-                        string shortOnlyDecision = shortUse > 1.0 + probe.ReviewBand
-                            ? "preliminary_exceeds_limit" : "engineering_review";
-                        return (object)new
-                        {
-                            id = load.Id,
-                            status = "research_calculated",
-                            error = (string?)null,
-                            preliminary_method = probe.PreliminaryMethod,
-                            preliminary_basis = "short_only_supplemental_full_load_solver",
-                            preliminary_review_reason = "cracked_only_under_total_load_unvalidated_mcrc_threshold",
-                            preliminary_width_long_mm = (double?)0.0,
-                            preliminary_utilization_long = (double?)0.0,
-                            preliminary_width_short_mm = (double?)screeningShortWidth,
-                            preliminary_utilization_short = (double?)shortUse,
-                            preliminary_governing_utilization = (double?)shortUse,
-                            preliminary_decision = shortOnlyDecision,
-                            preliminary_review_band = probe.ReviewBand,
-                            preliminary_is_final_approval = false,
-                            cracked = (bool?)true,
-                            cracked_long = false,
-                            cracked_total = true,
-                            crack_solver_path = "supplemental_full_load_Acrc2",
-                            raw_long_branch_cracked = false,
-                            crc_converged = full.CrcConverged,
-                            mcrc_knm = (double?)full.Mcrc,
-                            sigma_rebar_kpa = (double?)null,
-                            sigma_rebar_total_kpa = (double?)full.SigmaS,
-                            sigma_rebar_at_crack_kpa = (double?)null,
-                            compatibility_hypothesis = "none_short_only",
-                            compatibility_error = "no_sustained_cracks_to_reconstruct",
-                            sigma_rebar_precrack_kpa = (double?)null,
-                            psi_s_precrack_hypothesis = (double?)null,
-                            width_long_precrack_hypothesis_mm = (double?)null,
-                            utilization_long_precrack_hypothesis = (double?)null,
-                            psi_s = (double?)null,
-                            psi_s2 = (double?)full.PsiS2,
-                            crack_spacing_m = double.IsFinite(full.Ls) ? (double?)full.Ls : null,
-                            tensile_rebar_area_m2 = double.IsFinite(full.AsTens) ? (double?)full.AsTens : null,
-                            equivalent_rebar_diameter_m = double.IsFinite(full.DsEq) ? (double?)full.DsEq : null,
-                            tensile_concrete_area_m2 = double.IsFinite(full.Abt) ? (double?)full.Abt : null,
-                            effective_height_m = double.IsFinite(full.H0) ? (double?)full.H0 : null,
-                            phi1_long_times_phi2 = 1.4 * probe.Phi2,
-                            phi2 = probe.Phi2,
-                            a_crc_1_mm = (double?)0.0,
-                            a_crc_2_mm = (double?)full.Acrc2,
-                            a_crc_3_mm = (double?)0.0,
-                            width_long_mm = (double?)0.0,
-                            screening_psi_one_basis = "SP63_8.2.15_psi_s_one_transient_only",
-                            width_long_psi_one_mm = (double?)0.0,
-                            utilization_long_psi_one = (double?)0.0,
-                            width_short_mm = (double?)nativeShortWidth,
-                            utilization_long = (double?)0.0,
-                            utilization_short = (double?)(nativeShortWidth / probe.AcrcUltShortMm),
-                            verified_for_design = false
-                        };
-                    }
-
-                    // An ARBAT-oriented RESEARCH contrast: pre-cracking rebar
-                    // stress (historical OpenCS technique, superseded upstream).
-                    // We keep upstream's post-crack algorithm entirely unchanged.
-                    // For arbitrary SLS load splits this contrast is not valid:
-                    // our reference dataset uses identical sustained/total forces.
-                    bool sameMoments = Math.Abs(load.MxLongKnm - load.MxTotalKnm) < 1e-9
-                        && Math.Abs(load.MyLongKnm - load.MyTotalKnm) < 1e-9;
-                    double? sigmaPreKpa = null, psiPre = null, widthPreMm = null,
-                        utilizationPre = null;
-                    string? preError = sameMoments ? null : "sustained_total_moments_differ";
-                    if (sameMoments && r.Cracked && r.CrcConverged && r.PlaneLong.HasValue
-                        && double.IsFinite(r.PsiS) && r.PsiS > 1e-12
-                        && double.IsFinite(r.SigmaS) && r.SigmaS > 0
-                        && double.IsFinite(r.AcrcLong) && r.AcrcLong >= 0)
-                    {
-                        try
-                        {
-                            double mxDir = Math.Abs(load.MxLongKnm) > 1e-12
-                                ? load.MxLongKnm : (Math.Abs(load.MxTotalKnm) > 1e-12
-                                    ? load.MxTotalKnm : 1.0);
-                            double myDir = Math.Abs(load.MxLongKnm) > 1e-12
-                                || Math.Abs(load.MyLongKnm) > 1e-12
-                                ? load.MyLongKnm : load.MyTotalKnm;
-                            var cracking = new CrackingSolver(section, CalcType.N,
-                                solverTol: 0.5,
-                                tensionZone: CrackingSolver.LoadedTensionZone(
-                                    section, load.NKn, mxDir, myDir,
-                                    nAtZeroMoment: load.NKn));
-                            var crc = cracking.CrackingMoment(load.NKn, mxDir, myDir);
-                            double mag = Math.Sqrt(crc.Mx * crc.Mx + crc.My * crc.My);
-                            if (!crc.Converged || !crc.StrainPlane.HasValue
-                                || Math.Abs(mag - r.Mcrc) > 0.05)
-                            {
-                                preError = "precrack_threshold_not_reproduced";
-                            }
-                            else
-                            {
-                                double sigma = 0.0;
-                                foreach (var (area, ka) in section.EnumerateAreas(crc.StrainPlane.Value))
-                                {
-                                    if (area.Material?.Type != MatType.ReSteelF)
-                                        continue;
-                                    var diagrams = area.Material.GetDiagramms(
-                                        area.DiagrammType, 0.85, 0.05);
-                                    if (diagrams is null
-                                        || !diagrams.TryGetValue(CalcType.N, out var diag))
-                                        continue;
-                                    foreach (var bar in area.Fibers)
-                                    {
-                                        if (bar.TypeFiber != FiberType.point)
-                                            continue;
-                                        var eps = ka.e0 + ka.ky * bar.Y + ka.kz * bar.X;
-                                        if (eps > 0)
-                                        {
-                                            var stress = diag.Sig(eps, out _);
-                                            if (double.IsFinite(stress) && stress > sigma)
-                                                sigma = stress;
-                                        }
-                                    }
-                                }
-                                double psi = Math.Clamp(1.0 - 0.8 * sigma / r.SigmaS,
-                                    0.2, 1.0);
-                                double trialWidth = r.AcrcLong * psi / r.PsiS;
-                                if (!double.IsFinite(trialWidth) || trialWidth < 0)
-                                    preError = "invalid_compatibility_width";
-                                else
-                                {
-                                    sigmaPreKpa = sigma;
-                                    psiPre = psi;
-                                    widthPreMm = trialWidth;
-                                    utilizationPre = trialWidth / probe.AcrcUltLongMm;
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            preError = "precrack_study_error:" + ex.GetType().Name;
-                        }
-                    }
-                    else if (sameMoments && !r.Cracked)
-                    {
-                        preError = "no_crack_in_upstream_result";
-                    }
-                    else if (sameMoments)
-                    {
-                        preError = "insufficient_upstream_sls_state";
-                    }
                     bool finite = double.IsFinite(r.Mcrc) && r.Mcrc >= 0
                         && double.IsFinite(r.AcrcLong) && r.AcrcLong >= 0
                         && double.IsFinite(r.AcrcShort) && r.AcrcShort >= 0
@@ -686,159 +395,14 @@ internal static class Program
                         && mTotal <= r.Mcrc + 1e-9;
                     bool validated = r.CrcConverged && finite
                         && (r.Cracked ? r.PlaneLong.HasValue : plausibleNoCrack);
-                    // SECONDARY DIAGNOSTIC ONLY. CrackWidthSolver's internal
-                    // SolveDamped is private and may silently return a zero
-                    // result from multiple stages. For a zero return AFTER
-                    // the cracking threshold, independently attempt a
-                    // public StrainSolver equilibrium at the same service
-                    // load and diagram. This must NOT replace or approve
-                    // the upstream crack result, even if it converges.
-                    bool? independentEquilibriumConverged = null;
-                    int? independentEquilibriumIterations = null;
-                    double? independentEquilibriumResidual = null;
-                    string independentEquilibriumStatus = "not_necessary";
-                    if (!r.Cracked && r.CrcConverged
-                        && double.IsFinite(r.Mcrc) && r.Mcrc >= 0
-                        && mLong > r.Mcrc + 1e-8)
-                    {
-                        independentEquilibriumStatus = "attempted";
-                        try
-                        {
-                            var equilibrium = new StrainSolver(
-                                section, CalcType.N, ten: false, ca: true,
-                                tol: 0.5, maxIter: 80, centralJacobian: true);
-                            var independentPlane = equilibrium.Solve(
-                                load.NKn, load.MxLongKnm, load.MyLongKnm);
-                            bool planeFinite = double.IsFinite(independentPlane.e0)
-                                && double.IsFinite(independentPlane.ky)
-                                && double.IsFinite(independentPlane.kz);
-                            bool resultValid = planeFinite
-                                && double.IsFinite(equilibrium.Residual)
-                                && equilibrium.Residual >= 0;
-                            independentEquilibriumConverged =
-                                resultValid && equilibrium.Converged;
-                            independentEquilibriumIterations =
-                                equilibrium.Iterations;
-                            independentEquilibriumResidual = resultValid
-                                ? equilibrium.Residual : null;
-                            independentEquilibriumStatus =
-                                !resultValid ? "invalid_independent_solution"
-                                : equilibrium.Converged
-                                    ? "independent_equilibrium_converged"
-                                    : "independent_equilibrium_not_converged";
-                        }
-                        catch (Exception ex)
-                        {
-                            independentEquilibriumStatus =
-                                "independent_equilibrium_exception:"
-                                + ex.GetType().Name;
-                        }
-                    }
-                    // SP63 8.2.15 permits psi_s=1 for a conservative initial
-                    // screening. It preserves CScore's sigma_s, Es, ls, phi's
-                    // and changes ONLY psi_s, with no ARBAT fitting.
-                    // Cracked cases only: never turn an uncertain upstream
-                    // zero-width fallback into a valid upper bound.
-                    double? widthPsiOne = validated && r.Cracked
-                        && double.IsFinite(r.PsiS) && r.PsiS > 0
-                        ? r.AcrcLong / r.PsiS : null;
-                    if (widthPsiOne.HasValue
-                        && (!double.IsFinite(widthPsiOne.Value) || widthPsiOne.Value < 0))
-                        widthPsiOne = null;
-                    string? error = validated ? null :
-                        (!r.Cracked && r.CrcConverged
-                             && double.IsFinite(r.Mcrc) && mLong > r.Mcrc
-                            ? "upstream_post_threshold_zero_unresolved_stage"
-                            : "indeterminate_crack_solver_or_upstream_silent_fallback");
-                    // Selection here governs ONLY preliminary SLS screening.
-                    // 'arbat_conservative' does NOT imply we reproduced ARBAT:
-                    // the pre-crack stress approximation is not normatively
-                    // established for arbitrary loads or geometries.
-                    // Keep the native refined result as a separate, unchanged option.
-                    double? primaryWidth = null, primaryShortWidth = null;
-                    string primaryBasis = "not_computed";
-                    if (validated)
-                    {
-                        if (!r.Cracked)
-                        {
-                            primaryWidth = 0.0;
-                            primaryShortWidth = 0.0;
-                            primaryBasis = "uncracked_checked_both_long_and_total_thresholds";
-                        }
-                        else if (probe.PreliminaryMethod == "native_refined")
-                        {
-                            primaryWidth = r.AcrcLong;
-                            primaryShortWidth = r.AcrcShort;
-                            primaryBasis = "native_refined_postcrack";
-                        }
-                        else
-                        {
-                            // Long: ARBAT-oriented pre-crack reference stress,
-                            // if applicable, but never below native CScore.
-                            if (widthPreMm.HasValue && preError is null)
-                            {
-                                primaryWidth = Math.Max(widthPreMm.Value, r.AcrcLong);
-                                primaryBasis = "precrack_compatibility_envelope_with_native";
-                            }
-                            else if (widthPsiOne.HasValue)
-                            {
-                                primaryWidth = Math.Max(widthPsiOne.Value, r.AcrcLong);
-                                primaryBasis = "psi_s_one_fallback_compat_not_applicable";
-                            }
-
-                            // Exact same sustained and total N-M tuple:
-                            // SP63 three-component short width = a1+a2-a3
-                            // and with identical load/diagram, a2 == a3.
-                            // The short width MUST equal the long width, also
-                            // for the pre-crack compatibility estimate. This
-                            // holds only if the native solve independently
-                            // confirms equal widths. Otherwise fail closed.
-                            if (sameMoments)
-                            {
-                                double nativeWidthTolerance = Math.Max(1e-9,
-                                    1e-8 * Math.Max(Math.Abs(r.AcrcLong),
-                                                    Math.Abs(r.AcrcShort)));
-                                if (primaryWidth.HasValue
-                                    && Math.Abs(r.AcrcLong - r.AcrcShort)
-                                        <= nativeWidthTolerance)
-                                {
-                                    primaryShortWidth = primaryWidth.Value;
-                                    primaryBasis += "_fully_sustained";
-                                }
-                                else
-                                {
-                                    primaryBasis += "_native_short_long_inconsistent";
-                                }
-                            }
-                            else
-                            {
-                                // Partial sustained action: no independently
-                                // validated pre-crack transformation for the
-                                // second transient term. Use psi_s=1 for all
-                                // three native SP63 components and retain an
-                                // envelope against unmodified native CScore.
-                                double? shortPsiOne = null;
-                                if (double.IsFinite(r.PsiS) && r.PsiS > 0.0
-                                    && double.IsFinite(r.PsiS2) && r.PsiS2 > 0.0
-                                    && double.IsFinite(r.Acrc1) && double.IsFinite(r.Acrc2)
-                                    && double.IsFinite(r.Acrc3))
-                                {
-                                    double estimate = (r.Acrc1 - r.Acrc3) / r.PsiS
-                                                      + r.Acrc2 / r.PsiS2;
-                                    if (double.IsFinite(estimate) && estimate >= 0.0)
-                                        shortPsiOne = estimate;
-                                }
-                                if (shortPsiOne.HasValue)
-                                    primaryShortWidth = Math.Max(shortPsiOne.Value,
-                                                                r.AcrcShort);
-                            }
-                        }
-                    }
-
+                    string? error = validated ? null : "indeterminate_native_CScore_crack_result";
+                    double? primaryWidth = validated ? r.AcrcLong : null;
+                    double? primaryShortWidth = validated ? r.AcrcShort : null;
+                    string primaryBasis = "native_refined_postcrack";
                     double? primaryUtilization = primaryWidth.HasValue
-                        ? primaryWidth.Value / probe.AcrcUltLongMm : null;
+                        ? r.UtilLong : null;
                     double? primaryShortUtilization = primaryShortWidth.HasValue
-                        ? primaryShortWidth.Value / probe.AcrcUltShortMm : null;
+                        ? r.UtilShort : null;
                     double? governingUtilization = primaryUtilization.HasValue
                         && primaryShortUtilization.HasValue
                             ? Math.Max(primaryUtilization.Value, primaryShortUtilization.Value)
@@ -864,10 +428,6 @@ internal static class Program
                             ? "upstream_default_zero_return" : "upstream_default",
                         upstream_post_threshold_zero = !r.Cracked && r.CrcConverged
                             && double.IsFinite(r.Mcrc) && mLong > r.Mcrc,
-                        secondary_equilibrium_status = independentEquilibriumStatus,
-                        secondary_equilibrium_converged = independentEquilibriumConverged,
-                        secondary_equilibrium_iterations = independentEquilibriumIterations,
-                        secondary_equilibrium_residual = independentEquilibriumResidual,
                         preliminary_width_long_mm = primaryWidth,
                         preliminary_utilization_long = primaryUtilization,
                         preliminary_width_short_mm = primaryShortWidth,
@@ -883,14 +443,6 @@ internal static class Program
                         // These do not themselves certify a correct crack result.
                         sigma_rebar_kpa = validated && double.IsFinite(r.SigmaS) ? (double?)r.SigmaS : null,
                         sigma_rebar_at_crack_kpa = validated && double.IsFinite(r.SigmaSCrc) ? (double?)r.SigmaSCrc : null,
-                        // Alternative uses PRE-crack plane only for ψs,
-                        // not for the governing CScore SLS result.
-                        compatibility_hypothesis = "precrack_sigma_s_crc_legacy_opencs_not_verified_arbat",
-                        compatibility_error = preError,
-                        sigma_rebar_precrack_kpa = validated ? sigmaPreKpa : null,
-                        psi_s_precrack_hypothesis = validated ? psiPre : null,
-                        width_long_precrack_hypothesis_mm = validated ? widthPreMm : null,
-                        utilization_long_precrack_hypothesis = validated ? utilizationPre : null,
                         psi_s = validated && double.IsFinite(r.PsiS) ? (double?)r.PsiS : null,
                         psi_s2 = validated && double.IsFinite(r.PsiS2) ? (double?)r.PsiS2 : null,
                         crack_spacing_m = validated && double.IsFinite(r.Ls) ? (double?)r.Ls : null,
@@ -904,10 +456,6 @@ internal static class Program
                         a_crc_2_mm = validated && double.IsFinite(r.Acrc2) ? (double?)r.Acrc2 : null,
                         a_crc_3_mm = validated && double.IsFinite(r.Acrc3) ? (double?)r.Acrc3 : null,
                         width_long_mm = validated ? (double?)r.AcrcLong : null,
-                        screening_psi_one_basis = "SP63_8.2.15_psi_s_equal_one_no_upstream_changes",
-                        width_long_psi_one_mm = widthPsiOne,
-                        utilization_long_psi_one = widthPsiOne.HasValue
-                            ? (double?)(widthPsiOne.Value / probe.AcrcUltLongMm) : null,
                         width_short_mm = validated ? (double?)r.AcrcShort : null,
                         utilization_long = validated ? (double?)r.UtilLong : null,
                         utilization_short = validated ? (double?)r.UtilShort : null,
@@ -1144,8 +692,7 @@ internal static class Program
                 || !double.IsFinite(probe.Phi2) || probe.Phi2 <= 0
                 || !double.IsFinite(probe.AcrcUltLongMm) || probe.AcrcUltLongMm <= 0
                 || !double.IsFinite(probe.AcrcUltShortMm) || probe.AcrcUltShortMm <= 0
-                || (probe.PreliminaryMethod != "arbat_conservative"
-                    && probe.PreliminaryMethod != "native_refined")
+                || probe.PreliminaryMethod != "native_refined"
                 || !double.IsFinite(probe.ReviewBand) || probe.ReviewBand <= 0
                 || probe.ReviewBand >= 0.25)
                 throw new ArgumentException("Explicit service characteristics, loads and limits required");
@@ -1279,7 +826,7 @@ internal sealed class SlsProbe
     [JsonPropertyName("phi2")] public double Phi2 { get; init; } = 0.5;
     [JsonPropertyName("acrc_ult_long_mm")] public double AcrcUltLongMm { get; init; } = 0.3;
     [JsonPropertyName("acrc_ult_short_mm")] public double AcrcUltShortMm { get; init; } = 0.4;
-    [JsonPropertyName("preliminary_method")] public string PreliminaryMethod { get; init; } = "arbat_conservative";
+    [JsonPropertyName("preliminary_method")] public string PreliminaryMethod { get; init; } = "native_refined";
     [JsonPropertyName("review_band")] public double ReviewBand { get; init; } = 0.03;
 }
 internal sealed class SlsLoad
@@ -1301,4 +848,12 @@ internal sealed class Candidate
     [JsonPropertyName("bar_axis_radius_mm")] public double BarAxisRadiusMm { get; init; }
     [JsonPropertyName("steel_area_mm2")] public double SteelAreaMm2 { get; init; }
     [JsonPropertyName("clearance_mm")] public double ClearanceMm { get; init; }
+}
+
+internal sealed class LoadPreparationInput
+{
+    [JsonPropertyName("loads")] public List<LoadCase> Loads { get; init; } = new();
+    [JsonPropertyName("diameter_mm")] public double DiameterMm { get; init; }
+    [JsonPropertyName("length_mm")] public double LengthMm { get; init; }
+    [JsonPropertyName("zero_moment_axis")] public string? ZeroMomentAxis { get; init; }
 }

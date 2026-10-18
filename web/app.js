@@ -117,10 +117,8 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
        ? (l.actual_layout_confirmed?'Координаты подтверждены инженером. ':'Координаты ещё не подтверждены. ')+'Несущая способность по Q, анкеровка и работа ветвей не подтверждены.'
        : 'Первый хомут условно поставлен в начале каждого участка. Фактическое положение и анкеровка не подтверждены.')+'</p>';
     }
-    if(profileResult.transverse_envelope){
-      const env=profileResult.transverse_envelope;
-      html+=metric('Контрольный худший шаг',fmt(env.uniform_pitch_mm)+' мм');
-      html+='<p class="hint">Максимальный шаг по всей стене — справочное сравнение. Расчёт выполняется по участкам с учётом соседних шагов в пределах 3h₀.</p>';
+    if(profileResult.uniform_pitch_mm!=null){
+      html+=metric('Постоянный шаг в CScore',fmt(profileResult.uniform_pitch_mm)+' мм');
     }
     html+='<p class="hint">Исследовательский расчёт CScore по профилю без опор и усилений. Не нормативный допуск.</p>';
     for(const r of profileResult.profile_results){
@@ -137,27 +135,6 @@ function renderInspection(){if(!project)return;$('elevation').textContent=fmt(se
         html+='<p class="hint">Расположение хомутов на критической проекции не определено.</p>';
       }
       if(r.governing_s_m!=null)html+=metric('Стоянка от верха',fmt(r.governing_s_m)+' м');
-      if(r.pitch_windows?.length){
-        const zTop=zs()[0], groups=[];
-        for(const w of r.pitch_windows){
-          const previous=groups.at(-1);
-          if(previous && Math.abs(previous.end-w.start_s_m)<1e-7 &&
-             previous.adopted===w.adopted_pitch_mm){
-            previous.end=w.end_s_m;
-            previous.effective=Math.max(previous.effective,w.governing_neighbor_pitch_mm);
-            previous.eta=Math.max(previous.eta,w.utilization);
-          }else groups.push({start:w.start_s_m,end:w.end_s_m,
-            adopted:w.adopted_pitch_mm,effective:w.governing_neighbor_pitch_mm,eta:w.utilization});
-        }
-        html+='<p class="hint">Коэффициент по каждому участку — максимум его расчётных окон.</p>';
-        for(const g of groups.slice(0,12)){
-          html+='<p class="small">Отм. '+fmt(zTop-g.start)+'…'+fmt(zTop-g.end)+' м</p>';
-          html+=metric('Шаг / учтено',fmt(g.adopted)+' / '+fmt(g.effective)+' мм');
-          html+=metric('η Q',fmt(g.eta,3));
-        }
-        if(groups.length>12)html+='<p class="hint">Показаны первые 12 участков из '+groups.length+'. Полные данные сохраняются в ответе расчёта.</p>';
-        html+='<p class="hint">Учитываются редкие хомуты соседних зон в пределах 3h₀. Раскладка, опоры и анкеровка не подтверждены.</p>';
-      }
       if(Array.isArray(r.warnings)&&r.warnings.length){
         html+='<p class="hint">Замечания CScore:</p>';
         for(const w of r.warnings.slice(0,5))html+='<p class="hint">· '+esc(w)+'</p>';
@@ -339,7 +316,7 @@ $('exportSchedule').onclick=async()=>{
 };
 $('advancedQ').ontoggle=()=>{if($('advancedQ').open)refreshProfileAudit();};
 $('profileCheck').onclick=calculateProfile;
-$('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];project.transverse_layout=p.transverse_layout||{mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;selectedZ=zs()[0];dirty();render();message();}catch(e){message(e.message);}finally{$('file').value='';}};
+$('save').onclick=save;$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p=JSON.parse(await e.target.files[0].text());const migrated=p.sls_settings?.preliminary_method==='arbat_conservative';if(migrated)p.sls_settings.preliminary_method='native_refined';await api('preview',p);project=p;project.zones=Array.isArray(p.zones)?p.zones:[];project.transverse_zones=Array.isArray(p.transverse_zones)?p.transverse_zones:[];project.transverse_layout=p.transverse_layout||{mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;selectedZ=zs()[0];dirty();render();message(migrated?'Проект открыт. Расчёт трещин переведён на CScore; выполните расчёт заново.':'');}catch(e){message(e.message);}finally{$('file').value='';}};
 $('title').onchange=e=>{project.title=e.target.value;};$('kind').onchange=e=>{project.kind=e.target.value;if(project.kind==='wall')project.force_scale='per_metre';else if(project.transverse)project.transverse.mode='off';project.zones=[];project.transverse_zones=[];project.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};result=null;dirty();render();};
 for(const id of ['force_scale','spacing_m','moment_sign','max_tier','materials_confirmed','eccentricity_confirmed'])$(id).onchange=e=>{project[id]=e.target.type==='checkbox'?e.target.checked:['spacing_m','moment_sign','max_tier'].includes(id)?Number(e.target.value):e.target.value;dirty();renderForms();};
 $('phase').onchange=e=>{phase=e.target.value;renderCharts();renderInspection();};$('showQ').onchange=renderCharts;

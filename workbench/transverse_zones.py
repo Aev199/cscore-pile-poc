@@ -1,8 +1,7 @@
 """Transverse-link spacing zones for a vertical diaphragm wall.
 
-For the first exploratory profile check CScore sees the SINGLE largest pitch
-on the entire element. Therefore no local zone transition can be mistakenly
-treated as explicitly analyzed. This is screening, not normative verification.
+Geometry and adopted pitch only. No resistance calculation or pitch-envelope
+model is implemented here; native CScore profile calls require constant pitch.
 """
 from __future__ import annotations
 
@@ -41,38 +40,13 @@ def validate(zones, top, bottom, base_pitch):
     return sorted_zones
 
 
-def envelope(zones, top, bottom, base_pitch):
-    """Weakest uniform link density to pass to ONE complete-phase CScore check.
-
-    If zones leave a gap, the background pitch is included in the envelope.
-    No claim is made about overlaps of inclined cracks and zone boundaries,
-    longitudinal bar cutoffs, supports or anchorage.
-    """
-    zs=validate(zones,top,bottom,base_pitch)
-    cursor=float(top)
-    has_background=not zs
-    for zone in zs:
-        if zone['top']<cursor-1e-9:has_background=True
-        cursor=zone['bottom']
-    if cursor>float(bottom)+1e-9:has_background=True
-    pitches=[z['spacing_mm'] for z in zs]
-    if has_background:pitches.append(float(base_pitch))
-    pitch=max(pitches)
-    return {'uniform_pitch_mm':pitch,'background_used':has_background,
-            'zones':zs,'method':'whole_profile_uniform_maximum_spacing',
-            'boundary_verified':False,
-            'verified_for_design':False,
-            'note':'Whole profile evaluated with largest actual spacing; '
-                   'physical transitions, shear zones and anchorage remain unverified'}
-
-
 def pitch_bands(zones, top, bottom, base_pitch):
     """Partition the entire wall into physical constant-pitch bands.
 
     s = top - z (metres), positive downwards. Continuous adjacent bands cover
     every depth exactly, with the base pitch only in gaps. Intersections at
-    boundaries are not independently verified; the CScore adapter uses the
-    largest pitch over each band expanded by up to 3*h0 on BOTH sides.
+    boundaries remain drawing geometry. The CScore adapter rejects variable
+    pitch rather than constructing a separate resistance model.
     """
     ordered=validate(zones,top,bottom,base_pitch)
     result=[]
