@@ -1,0 +1,119 @@
+[
+  {
+    "kind": "compression",
+    "n_kn": 0,
+    "expected_sp63_amendment2": 1,
+    "native": 1,
+    "agrees": true,
+    "applies_to_strip": false,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -100,
+    "expected_sp63_amendment2": 1.1,
+    "native": 1.1,
+    "agrees": true,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -250,
+    "expected_sp63_amendment2": 1.25,
+    "native": 1.25,
+    "agrees": true,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -500,
+    "expected_sp63_amendment2": 1.25,
+    "native": 1.5,
+    "agrees": false,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -750,
+    "expected_sp63_amendment2": 0.625,
+    "native": 1.75,
+    "agrees": false,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -900,
+    "expected_sp63_amendment2": 0.25,
+    "native": 1.9,
+    "agrees": false,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -1000,
+    "expected_sp63_amendment2": 0,
+    "native": 2,
+    "agrees": false,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -1100,
+    "expected_sp63_amendment2": 0,
+    "native": 2.1,
+    "agrees": false,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "compression",
+    "n_kn": -2000,
+    "expected_sp63_amendment2": 0,
+    "native": 2.25,
+    "agrees": false,
+    "applies_to_strip": true,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "tension",
+    "n_kn": 50,
+    "expected_sp63_amendment2": 0.75,
+    "native": 0.5,
+    "agrees": false,
+    "applies_to_strip": false,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "tension",
+    "n_kn": 100,
+    "expected_sp63_amendment2": 0.5,
+    "native": 0,
+    "agrees": false,
+    "applies_to_strip": false,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "tension",
+    "n_kn": 200,
+    "expected_sp63_amendment2": 0,
+    "native": -1,
+    "agrees": false,
+    "applies_to_strip": false,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  },
+  {
+    "kind": "tension",
+    "n_kn": 300,
+    "expected_sp63_amendment2": 0,
+    "native": -2,
+    "agrees": false,
+    "applies_to_strip": false,
+    "scope": "coefficient_boundary_diagnostic_not_capacity_or_spiral_validation"
+  }
+]

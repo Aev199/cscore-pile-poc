@@ -23,6 +23,7 @@ def main():
     ap.add_argument('--probe', type=Path, required=True)
     ap.add_argument('--runner', type=Path, required=True)
     ap.add_argument('--out', type=Path, required=True)
+    ap.add_argument('--strain-audit', action='store_true', help='Compare existing vs physical SP63 reference strains; native resistance unchanged')
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     reference = json.loads((ROOT/'examples/verification/arbat_matched/arbat_reference_20261015.json').read_text())
@@ -48,13 +49,13 @@ def main():
                                ('vniigs', 1.77*r, 1.77*r-a)]:
                 for legs in (1, 2):
                     variants.append(dict(name=f'{geom}_{tag}_legs{legs}', b_m=b, h0_m=h, legs=legs))
-        jobs.append(dict(group=name, engine=engine, reference=group['cases'], variants=variants))
+        jobs.append(dict(group=name, engine=engine, reference=group['cases'], variants=variants, strain_audit=args.strain_audit))
     request = args.out/'arbat_shear_jobs.json'
     request.write_text(json.dumps(jobs, ensure_ascii=False, indent=2)+'\n')
     proc = subprocess.run([args.dotnet, str(args.probe.resolve()), str(args.runner.resolve()), str(request.resolve())],
                           capture_output=True, text=True, encoding='utf8', check=True)
     rows = json.loads(proc.stdout)
-    if len(rows) != 128:
+    if len(rows) != (256 if args.strain_audit else 128):
         raise ValueError('Incomplete native hypothesis matrix')
     (args.out/'arbat_shear_native.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2)+'\n')
     flat = []
@@ -69,6 +70,9 @@ def main():
         flat.append({k: row[k] for k in ('group','id','variant','b_m','h0_m','legs','n_kn','m_knm','q_kn','arbat','native_ratio')} |
                     dict(status=status, relative_difference_percent=rel,
                          arbat_strip=strip_ref, native_strip_ratio=row['native_strip_ratio']) | (row.get('variables') or {}))
+        if args.strain_audit:
+            flat[-1].update({k:row[k] for k in ('metadata_variant','native_eb0','native_ebt0','native_ab',
+                'native_as','native_es','native_rb','native_rbt','native_phi')})
     fields = list(dict.fromkeys(k for row in flat for k in row))
     with (args.out/'arbat_shear_hypotheses.csv').open('w', encoding='utf8', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fields, lineterminator='\n')
