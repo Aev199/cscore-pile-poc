@@ -1,0 +1,40 @@
+[
+  {
+    "id": "fhwa_2018",
+    "title": "FHWA-NHI-18-024, GEC10, section 12.7.5",
+    "url": "https://www.fhwa.dot.gov/engineering/geotech/nhi18024.pdf",
+    "pdf_pages": [
+      378,
+      379,
+      380,
+      381
+    ],
+    "printed_pages": [
+      "12-16",
+      "12-17",
+      "12-18",
+      "12-19"
+    ],
+    "scope": "AASHTO-based drilled shaft guide, not SP63",
+    "access": "Downloaded full PDF; text extracted and worked example pages visually checked",
+    "checked_on": "2026-10-18",
+    "download_sha256": "353ad0a55f510fa6531fd634ea3bb96250edef5db7f0d6cada766efae7379a79"
+  },
+  {
+    "id": "aci_committee_indexed",
+    "title": "ACI Committee discussion, proposed wording for Code Section 11.5.6.3",
+    "url": "https://www.concrete.org/publications/getarticle.aspx?m=icap&pubid=19333",
+    "scope": "Indexed primary publisher text for historic committee discussion, not verified current ACI 318 edition",
+    "access": "Search index exposes wording; opening full publication redirects to sign-in; no claim of full-text verification",
+    "checked_on": "2026-10-18"
+  },
+  {
+    "id": "orr_2010",
+    "title": "Orr et al., Shear design of circular concrete sections using the Eurocode 2 truss model",
+    "url": "https://purehost.bath.ac.uk/ws/portalfiles/portal/11447602/Circular_Shear_Online.pdf",
+    "scope": "EC2-based circular section analysis; not an SP63 equivalence proof",
+    "access": "Author PDF downloaded and read in earlier analysis",
+    "checked_on": "2026-10-18",
+    "download_sha256": "190d99955e9411506715774982713500f16349230fbc4f107df92f9de0ee6ee4"
+  }
+]
