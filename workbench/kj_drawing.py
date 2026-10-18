@@ -45,11 +45,31 @@ class _Dxf:
                  (1, _dxf_text(value)), (7, 'Standard'))
 
     def finish(self):
-        head=[('0','SECTION'),('2','HEADER'),('9','$ACADVER'),('1','AC1015'),
-              ('9','$INSUNITS'),('70','4'),('0','ENDSEC'),
-              ('0','SECTION'),('2','ENTITIES')]
-        tail=[('0','ENDSEC'),('0','EOF')]
-        return ''.join(k+'\n'+v+'\n' for k,v in head+self.entities+tail)
+        header=[('0','SECTION'),('2','HEADER'),
+                ('9','$ACADVER'),('1','AC1015'),
+                ('9','$INSUNITS'),('70','4'),
+                ('0','ENDSEC')]
+        # Explicit layer, line-type and text-style declarations are more
+        # interoperable than relying on each DWG editor to invent defaults.
+        tables=[('0','SECTION'),('2','TABLES'),
+                ('0','TABLE'),('2','LTYPE'),('70','1'),
+                ('0','LTYPE'),('2','CONTINUOUS'),('70','0'),
+                ('3','Solid line'),('72','65'),('73','0'),('40','0'),
+                ('0','ENDTAB'),
+                ('0','TABLE'),('2','LAYER'),('70','6')]
+        for name,color in (('KJ_WALL',7),('KJ_CAGE',4),('KJ_ZONE',8),
+                           ('KJ_TABLE',8),('KJ_TEXT',7),('KJ_NOTES',1)):
+            tables.extend((('0','LAYER'),('2',name),('70','0'),
+                           ('62',str(color)),('6','CONTINUOUS')))
+        tables.extend((('0','ENDTAB'),('0','TABLE'),('2','STYLE'),('70','1'),
+                       ('0','STYLE'),('2','Standard'),('70','0'),
+                       ('40','0'),('41','1'),('50','0'),('71','0'),
+                       ('42','2.5'),('3','txt'),('4',''),
+                       ('0','ENDTAB'),('0','ENDSEC')))
+        blocks=[('0','SECTION'),('2','BLOCKS'),('0','ENDSEC')]
+        items=header+tables+blocks+[('0','SECTION'),('2','ENTITIES')]
+        items+=self.entities+[('0','ENDSEC'),('0','EOF')]
+        return ''.join(k+'\n'+v+'\n' for k,v in items)
 
 
 def make_wall_dxf(project, schedule):
