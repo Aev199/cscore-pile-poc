@@ -30,6 +30,8 @@ jobs:
           git clone https://github.com/rumata-ap/OpenCS.git vendor/OpenCS
           git -C vendor/OpenCS checkout --detach $pin
           if ((git -C vendor/OpenCS rev-parse HEAD).Trim() -ne $pin) { throw 'Wrong upstream commit' }
+          python tools/apply_opencs_patches.py
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned CScore patch failed' }
       - name: Python contract tests (no calculated numbers)
         run: python -m unittest discover -s tests -v
       - name: CScore upstream tests (ULS + geometry + cracks)
@@ -38,6 +40,12 @@ jobs:
           dotnet test vendor/OpenCS/CScore.Tests/CScore.Tests.csproj -c Release `
             --filter 'FullyQualifiedName~Sp63Normal|FullyQualifiedName~CrackWidthSolver|FullyQualifiedName~Sp63Shear' `
             --logger 'console;verbosity=normal'
+      - name: CScore adapter material integration tests
+        shell: pwsh
+        run: |
+          dotnet test tests/CScorePileRunner.Tests/CScorePileRunner.Tests.csproj -c Release `
+            --logger 'console;verbosity=normal'
+          if ($LASTEXITCODE -ne 0) { throw 'CScore adapter integration tests failed' }
       - name: Publish portable Windows runner
         shell: pwsh
         run: |
@@ -265,6 +273,9 @@ jobs:
           Copy-Item tools/compare_arbat70_crackwidth.py release/
           New-Item -ItemType Directory release/config -Force | Out-Null
           Copy-Item config/opencs.lock.json release/config/
+          Copy-Item patches release/ -Recurse
+          Copy-Item docs/research/phi-n-fix-2026-10-18.md release/research/
+          Copy-Item docs/research/phi-fix-data release/research/ -Recurse
           Copy-Item examples/demo_bns.json release/
           Copy-Item examples/geometry_preview.csv release/
           Copy-Item README.md release/

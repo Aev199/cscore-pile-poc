@@ -388,6 +388,14 @@ def parse_runner_results(request: dict, raw: Any) -> list[dict]:
                     raise InputError(f'{name}: недопустимый статус расчёта Q')
                 if shear.get('verified_for_design') is not False:
                     raise InputError(f'{name}: Q screening не является нормативным допуском')
+                # Preserve a native known failure without serializing an infinite ratio.
+                if (shear.get('status') == 'research_screen_fail' and shear.get('utilization') is None
+                        and shear.get('reason') == 'native_zero_capacity'
+                        and shear.get('governing_formula') in ('8.55', '8.56')
+                        and type(shear.get('allowable')) in (int, float) and shear['allowable'] == 0
+                        and type(shear.get('applied')) in (int, float)
+                        and math.isfinite(shear['applied']) and shear['applied'] > 0):
+                    continue
                 if shear['status'] != 'indeterminate':
                     utilization = shear.get('utilization')
                     if type(utilization) not in (float, int) or not math.isfinite(utilization) or utilization < 0:

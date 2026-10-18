@@ -139,6 +139,7 @@ internal static class Program
                 schema_version = 1,
                 engine = "OpenCS.CScore.LimitForceSolver",
                 engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
+                engine_patches = new[] { "sp63_phi_n_amendment2_v1" },
                 scope = input.ShearScreening?.Enabled == true
                     ? "uls_ndm_and_local_shear_research_screen_not_design_verified"
                     : "uls_ndm_section_only_without_eta_shear_cracks",
@@ -197,6 +198,11 @@ internal static class Program
         return 0;
     }
 
+    // A native infinite ratio is a known failure only when its capacity is exactly zero.
+    private static bool IsZeroCapacityFailure(CScore.CheckDetail d) =>
+        d.Allowable == 0 && double.IsFinite(d.Applied) && d.Applied > 0
+        && double.IsPositiveInfinity(d.Ratio);
+
     // Local Q diagnostic, NOT a complete inclined-section verification.
     // ConstantProfile is an upstream-supported model for one isolated force tuple,
     // but it does not reconstruct reactions, applied distributed loads or bar cutoffs.
@@ -234,6 +240,12 @@ internal static class Program
                     q: q, m: load.MxKnm, n: load.NKn, supportDistance: 0.0);
                 var outcome = ShearInclinedChecker.Check(parameters, profile, geometry, 0);
                 var exact = outcome.Details.Where(x => x.Formula is "8.55" or "8.56").ToList();
+                var zero = exact.FirstOrDefault(IsZeroCapacityFailure);
+                if (zero is not null)
+                    return (object)new { id = load.Id, status = "research_screen_fail",
+                        utilization = (double?)null, reason = "native_zero_capacity",
+                        governing_formula = zero.Formula, applied = zero.Applied, allowable = zero.Allowable,
+                        verified_for_design = false };
                 if (exact.Count != 2 || exact.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0))
                     throw new InvalidOperationException("incomplete_or_nonfinite_shear_checks");
                 double util = exact.Max(x => x.Ratio);
@@ -310,6 +322,14 @@ internal static class Program
                 var runs = new[] { -1, 1 }.Select(direction => (
                     Direction: direction,
                     Outcome: ShearInclinedChecker.Check(parameters, profile, geometry, direction))).ToArray();
+                var zero = runs.SelectMany(r => r.Outcome.Details)
+                    .Where(d => d.Formula is "8.55" or "8.56").FirstOrDefault(IsZeroCapacityFailure);
+                if (zero is not null)
+                    return (object)new { id = phase.Id, status = "research_profile_exceeds_one",
+                        utilization = (double?)null, reason = "native_zero_capacity",
+                        governing_formula = zero.Formula, applied = zero.Applied, allowable = zero.Allowable,
+                        support_model = "none", reinforcement_model = "cscore_native_uniform_pitch",
+                        uniform_pitch_mm = transverse.SpacingMm, verified_for_design = false };
                 foreach (var run in runs)
                 {
                     var checks = run.Outcome.Details.Where(d => d.Formula is "8.55" or "8.56").ToArray();
@@ -516,12 +536,18 @@ internal static class Program
         concrete.MaterialChars = MaterialModes.Select(mode =>
         {
             var m = Choose(mode);
+            if (!double.IsFinite(m.ConcreteEc0) || m.ConcreteEc0>=0
+                || !double.IsFinite(m.ConcreteEt0) || m.ConcreteEt0<=0)
+                throw new ArgumentException("Invalid physical concrete reference strains");
             return new MaterialChars(mode)
             {
                 Type = MatType.Concrete,
                 Fc = -m.ConcreteRbKpa,
                 Ft = m.ConcreteRbtKpa,
                 E = m.ConcreteEKpa,
+                // Physical reference strains for phiN are distinct from L2 diagram points.
+                Ec0 = m.ConcreteEc0,
+                Et0 = m.ConcreteEt0,
                 Ec1Red = m.ConcreteEc1,
                 Ec2 = m.ConcreteEc2,
                 Et1Red = m.ConcreteEt1,
@@ -750,6 +776,9 @@ internal sealed class Materials
     [JsonPropertyName("concrete_rb_kpa")] public double ConcreteRbKpa { get; init; }
     [JsonPropertyName("concrete_rbt_kpa")] public double ConcreteRbtKpa { get; init; }
     [JsonPropertyName("concrete_e_kpa")] public double ConcreteEKpa { get; init; }
+    // SP63 6.1.14, short-term heavy concrete; explicit overrides remain supported.
+    [JsonPropertyName("concrete_ec0")] public double ConcreteEc0 { get; init; } = -.002;
+    [JsonPropertyName("concrete_et0")] public double ConcreteEt0 { get; init; } = .0001;
     [JsonPropertyName("concrete_ec1")] public double ConcreteEc1 { get; init; }
     [JsonPropertyName("concrete_ec2")] public double ConcreteEc2 { get; init; }
     [JsonPropertyName("concrete_et1")] public double ConcreteEt1 { get; init; }

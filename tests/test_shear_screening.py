@@ -97,6 +97,13 @@ class ShearScreeningContract(unittest.TestCase):
         item['shear_screening'][0]['status']='research_screen_fail'
         with self.assertRaisesRegex(ValueError, 'несогласованный'):
             pile.parse_runner_results(request,raw)
+        item['shear_screening'][0] = dict(id='A',status='research_screen_fail',
+            utilization=None,verified_for_design=False,reason='native_zero_capacity',
+            governing_formula='8.55',applied=20,allowable=0)
+        self.assertEqual(pile.parse_runner_results(request,raw)[0]['shear_status'],'research_screen_fail')
+        item['shear_screening'][0]['allowable']=1
+        with self.assertRaisesRegex(ValueError,'недостоверный'):
+            pile.parse_runner_results(request,raw)
         item['shear_screening'][0] = dict(id='A',status='indeterminate',
                                           utilization=None,verified_for_design=False)
         self.assertEqual(pile.parse_runner_results(request,raw)[0]['shear_status'],

@@ -71,6 +71,14 @@ def validate_profile_results(request, response):
         if status not in ('research_profile_below_one', 'research_profile_exceeds_one',
                           'indeterminate'):
             raise ValueError('CScore вернул неизвестный статус эпюры Q')
+        # Preserve a native known failure without serializing an infinite ratio.
+        if (status == 'research_profile_exceeds_one' and r.get('utilization') is None
+                and r.get('reason') == 'native_zero_capacity'
+                and r.get('governing_formula') in ('8.55', '8.56')
+                and type(r.get('allowable')) in (int, float) and r['allowable'] == 0
+                and type(r.get('applied')) in (int, float)
+                and math.isfinite(r['applied']) and r['applied'] > 0):
+            continue
         if request.get('pitch_bands') and status != 'indeterminate':
             physical=request['pitch_bands']
             pitches={b['spacing_mm'] for b in physical}

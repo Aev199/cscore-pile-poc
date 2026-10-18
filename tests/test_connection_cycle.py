@@ -57,6 +57,18 @@ class ConnectionContracts(unittest.TestCase):
         row['status']='failed'
         self.assertEqual(validate_report(req,r)['status'],'failed')
 
+    def test_native_zero_capacity_is_failed_without_json_infinity(self):
+        req=self.request();r=self.report(req)
+        row=next(c for c in r['checks'] if c['check_id']=='shear_strip')
+        row.update(status='failed',utilization=None,reason='native_zero_capacity',
+            engine_method='CScore.Sp63Shear.ShearInclinedChecker.Check',
+            details={'formula':'8.55','applied':20,'allowable':0})
+        self.assertEqual(validate_report(req,r)['status'],'failed')
+        for key,value in [('applied',0),('allowable',1),('formula','8.56')]:
+            bad=copy.deepcopy(r)
+            next(c for c in bad['checks'] if c['check_id']=='shear_strip')['details'][key]=value
+            with self.assertRaises(ValueError):validate_report(req,bad)
+
     def test_sls_instability_is_a_failure_and_qualifier_cannot_claim_strength(self):
         req=self.request();req['sls_probe']={'loads':[{'id':'S'}]}
         r=self.report(req)

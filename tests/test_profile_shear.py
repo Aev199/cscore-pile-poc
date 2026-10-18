@@ -78,6 +78,16 @@ class PhaseProfileContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'не соответствует'):
             validate_profile_results(inp,cases)
 
+    def test_native_zero_capacity_is_failure_without_fabricated_ratio(self):
+        req={'profiles':[{'id':'A'}], 'pitch_bands':[{'spacing_mm':200}]}
+        row=dict(id='A',status='research_profile_exceeds_one',utilization=None,
+                 reason='native_zero_capacity',governing_formula='8.55',applied=20,allowable=0,
+                 support_model='none',verified_for_design=False)
+        self.assertEqual(validate_profile_results(req,[row]),[row])
+        for key,value in [('allowable',1),('applied',0),('status','research_profile_below_one')]:
+            with self.assertRaises(ValueError):
+                validate_profile_results(req,[{**row,key:value}])
+
     def test_background_run_is_independent_of_NM_design_verdict(self):
         p=project()
         seen=[]

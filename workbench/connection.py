@@ -107,7 +107,15 @@ def validate_report(req,report):
         if status in ('passed','failed') and row['engine_method']=='CScore.Sp63Shear.Sp63ShearApplicability.Evaluate':
             raise ValueError('CScore: применимость не является расчётом прочности')
         if status in ('passed','failed'):
-            if (type(ratio) not in (int,float) or not math.isfinite(ratio) or ratio<0
+            detail=row.get('details')
+            zero_capacity=(status=='failed' and ratio is None and row.get('reason')=='native_zero_capacity'
+                and key[0] in ('shear_strip','shear_inclined','inclined_moment')
+                and row['engine_method']=='CScore.Sp63Shear.ShearInclinedChecker.Check'
+                and isinstance(detail,dict)
+                and detail.get('formula')=={'shear_strip':'8.55','shear_inclined':'8.56','inclined_moment':'8.63'}[key[0]]
+                and type(detail.get('allowable')) in (int,float) and detail['allowable']==0
+                and type(detail.get('applied')) in (int,float) and math.isfinite(detail['applied']) and detail['applied']>0)
+            if not zero_capacity and (type(ratio) not in (int,float) or not math.isfinite(ratio) or ratio<0
                     or (ratio<=1)!=(status=='passed')):
                 raise ValueError('CScore: коэффициент не соответствует результату проверки')
         elif ratio is not None:

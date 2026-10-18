@@ -9,4 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="../../vendor/OpenCS/CScore/CScore.csproj" />
   </ItemGroup>
+  <Target Name="ApplyPinnedCScoreCorrections" BeforeTargets="ResolveProjectReferences">
+    <Exec Command="python &quot;$(MSBuildThisFileDirectory)../../tools/apply_opencs_patches.py&quot;" />
+  </Target>
 </Project>

@@ -47,6 +47,14 @@ def main():
     failure=run('wall_Q_fail',q)
     assert check(failure,'shear_strip')['status']=='failed'
     assert failure['status']=='failed' and not failure['verified_for_design']
+    # At high compression phiN reaches zero: a native zero capacity is a known
+    # failure, even though utilization is +Infinity and cannot be JSON-encoded.
+    zero_capacity=copy.deepcopy(p)
+    for row in zero_capacity['rows']:
+        if row['basis']=='ULS': row.update(n=-500000,q=20)
+    zero_result=run('wall_zero_native_strip_capacity',zero_capacity)
+    assert check(zero_result,'shear_strip')['status']=='failed',check(zero_result,'shear_strip')
+    assert check(zero_result,'shear_strip')['reason']=='native_zero_capacity'
     directional=copy.deepcopy(p)
     for row in directional['rows']:
         if row['basis']=='ULS':row['q']=500

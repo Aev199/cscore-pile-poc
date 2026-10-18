@@ -287,6 +287,17 @@ internal static class ConnectionReport
                         null,shearBasis); continue;
                 }
                 var checks=results.SelectMany(r=>r.Details).Where(d=>d.Formula==item.Item2).ToArray();
+                var zeroCapacity=checks.FirstOrDefault(d=>d.Allowable==0
+                    && double.IsFinite(d.Applied)&&d.Applied>0&&double.IsPositiveInfinity(d.Ratio));
+                if (zeroCapacity is not null)
+                {
+                    add(item.Item1,load.Id,"failed",method,null,"native_zero_capacity",new {
+                        formula=zeroCapacity.Formula,applied=zeroCapacity.Applied,allowable=zeroCapacity.Allowable,
+                        equivalence=equivalenceDetails,
+                        variables=zeroCapacity.Variables.Where(v=>double.IsFinite(v.Value)).ToDictionary(v=>v.Key,v=>v.Value)
+                    },shearBasis);
+                    continue;
+                }
                 var valid=checks.Where(d=>double.IsFinite(d.Ratio)&&d.Ratio>=0).ToArray();
                 var worst=valid.OrderByDescending(d=>d.Ratio).FirstOrDefault();
                 bool complete=checks.Length==2 && valid.Length==2;
