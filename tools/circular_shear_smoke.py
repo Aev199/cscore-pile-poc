@@ -43,6 +43,31 @@ def main():
     concrete=run('concrete_only',off)
     assert concrete['status']=='failed',concrete
     assert full['utilization']<concrete['utilization'],(full,concrete)
+    # Explicit concrete-only mode must work without any transverse-force inputs.
+    plain=copy.deepcopy(p)
+    plain['transverse'].update(mode='off',constructive_confirmed=False)
+    plain['calculation_context']['circular_shear'].update(
+        method='vniigs_1984_concrete_only',winding_diameter_mm=None,
+        circular_efficiency=None,efficiency_basis='Declared equivalent concrete geometry')
+    plain_fail=run('concrete_only_without_spiral_inputs',plain)
+    assert plain_fail['status']=='failed',plain_fail
+    assert abs(plain_fail['utilization']-concrete['utilization'])<1e-10
+    assert plain_fail['details']['equivalence']['effective_asw_mm2']==0
+    assert plain_fail['details']['variables']['Qsw']==0
+    assert 'shear_screening' not in wires[-1]
+    for row in plain['rows']:row['q']=100
+    plain_pass=run('concrete_only_below_one',plain)
+    assert plain_pass['status']=='passed',plain_pass
+    plain['calculation_context']['circular_shear']['confirmed']=False
+    assert run('concrete_geometry_unconfirmed',plain)['status']=='not_evaluated'
+    hidden_credit=copy.deepcopy(wires[-1])
+    hidden_credit['connection_context']['circular_shear']['circular_efficiency']=.8
+    try:
+        wall_rebar.invoke_engine(args.runner,hidden_credit)
+    except RuntimeError as error:
+        assert 'Invalid attributed circular spiral equivalence' in str(error),error
+    else:
+        raise AssertionError('Direct runner accepted hidden spiral parameters in concrete-only mode')
     for name,update in [('unconfirmed',{'confirmed':False}),('missing_efficiency',{'circular_efficiency':None})]:
         b=copy.deepcopy(p);b['calculation_context']['circular_shear'].update(update)
         row=run(name,b)

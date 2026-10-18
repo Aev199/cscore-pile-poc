@@ -102,18 +102,23 @@ function renderNativeChecks(){
  if(!station)return '';
  const names={normal_strength:'Прочность N/M',crack_formation:'Образование трещин',crack_width_long:'Продолжительное раскрытие',crack_width_short:'Непродолжительное раскрытие',shear_strip:'Бетонная полоса · Q',shear_inclined:'Наклонное сечение · Q',inclined_moment:'Наклонное сечение · M',member_stability:'Второй порядок · ULS',sls_member_stability:'Второй порядок · SLS',normal_member_strength:'Прочность с учётом второго порядка',anchorage:'Длина анкеровки',detailing:'Конструктивные требования'};
  const statuses={passed:'Пройдено',failed:'Не пройдено',calculated:'Рассчитано',not_evaluated:'Не выполнено',not_applicable:'Неприменимо',indeterminate:'Неопределённо',accounted_in_loads:'Учтено в исходных усилиях',stable:'Проверка η выполнена',unstable:'Потеря устойчивости по CScore'};
- const reasons={spiral_equivalence_not_confirmed_or_incomplete:'Заполните и подтвердите приведённую модель спирали и конструктивные требования',circular_biaxial_moment_not_supported:'Для этой приведённой модели косой изгиб не поддерживается',SLS_loads_missing:'Не заданы нормативные усилия SLS',second_order_context_missing:'Не задан учёт второго порядка',explicit_section_only_scope:'Выбрана проверка только сечения',confirm_eccentricity_in_source:'Подтвердите эксцентриситет в исходных усилиях',second_order_confirmed_in_source_not_independently_checked:'Учёт в исходных усилиях подтверждён инженером; отдельно не проверялся',transverse_geometry_or_Q_missing:'Не заданы данные поперечной арматуры или Q',inclined_moment_not_requested:'Проверка не запрошена',confirm_anchorage_and_section_support_distance:'Нужны коэффициент анкеровки и положительные расстояния до опор в обе стороны',anchorage_factor_is_input_not_an_anchorage_length_check:'Длина анкеровки будет проверяться на этапе армирования',reinforcement_detailing_stage_deferred:'Этап конструктивного оформления отложен',native_member_unstable:'CScore установил потерю устойчивости',native_SLS_member_unstable:'CScore установил потерю устойчивости при нормативных усилиях SLS',member_strength_not_confirmed:'Прочность с учётом второго порядка не подтверждена',member_eta_requires_consistent_N_M_Q_profile:'После η нужен согласованный профиль N/M/Q; локальное сочетание не подменяется',skipped_uls_fail:'Пропущено: прочность N/M не пройдена',skipped_uls_indeterminate:'Пропущено: прочность N/M не определена',native_result_not_finite:'Ядро не вернуло конечный коэффициент'};
+ const reasons={spiral_equivalence_not_confirmed_or_incomplete:'Заполните и подтвердите геометрию приведения; для учёта навивки нужны её параметры и конструктивное подтверждение',circular_biaxial_moment_not_supported:'Для этой приведённой модели косой изгиб не поддерживается',SLS_loads_missing:'Не заданы нормативные усилия SLS',second_order_context_missing:'Не задан учёт второго порядка',explicit_section_only_scope:'Выбрана проверка только сечения',confirm_eccentricity_in_source:'Подтвердите эксцентриситет в исходных усилиях',second_order_confirmed_in_source_not_independently_checked:'Учёт в исходных усилиях подтверждён инженером; отдельно не проверялся',transverse_geometry_or_Q_missing:'Не заданы данные поперечной арматуры или Q',inclined_moment_not_requested:'Проверка не запрошена',confirm_anchorage_and_section_support_distance:'Нужны коэффициент анкеровки и положительные расстояния до опор в обе стороны',anchorage_factor_is_input_not_an_anchorage_length_check:'Длина анкеровки будет проверяться на этапе армирования',reinforcement_detailing_stage_deferred:'Этап конструктивного оформления отложен',native_member_unstable:'CScore установил потерю устойчивости',native_SLS_member_unstable:'CScore установил потерю устойчивости при нормативных усилиях SLS',member_strength_not_confirmed:'Прочность с учётом второго порядка не подтверждена',member_eta_requires_consistent_N_M_Q_profile:'После η нужен согласованный профиль N/M/Q; локальное сочетание не подменяется',skipped_uls_fail:'Пропущено: прочность N/M не пройдена',skipped_uls_indeterminate:'Пропущено: прочность N/M не определена',native_result_not_finite:'Ядро не вернуло конечный коэффициент'};
  let html='<h3>Проверки CScore · принятое сечение</h3>';
  html+='<p class="hint">Проверены заданные сечения. Подбор армирования не изменён. Полный допуск для КЖ не выдан.</p>';
  for(const r of station.report.checks){
-  const title=(names[r.check_id]||r.check_id)+(r.case_id?' · '+r.case_id:'');
+  const title=(names[r.check_id]||r.check_id)+(r.case_id?' · '+r.case_id:'')
+   +(r.details?.equivalence?.concrete_only?' · без вклада навивки':'');
   html+=metric(title,(statuses[r.status]||r.status)+(Number.isFinite(r.utilization)?' · η='+fmt(r.utilization,3):''));
   if(r.check_id==='crack_formation'&&r.status==='calculated')html+='<p class="hint">'+(r.details?.cracked?'Трещины образуются':'По CScore трещины не образуются')+'</p>';
   if(r.check_id.startsWith('crack_width')&&Number.isFinite(r.details?.width_mm))html+='<p class="hint">Раскрытие: '+fmt(r.details.width_mm,3)+' мм</p>';
   if(r.details?.directions_complete===false)html+='<p class="hint">Проверены не все направления. Известное превышение сохранено.</p>';
   if(r.reason)html+='<p class="hint">'+esc(reasons[r.reason]||r.reason)+'</p>';
   if(r.basis==='research_constant_profile')html+='<p class="hint">Локальная оценка по постоянным усилиям, не проверка конструкции целиком.</p>';
-  if(r.details?.equivalence){const e=r.details.equivalence;html+='<p class="hint">По принятой приведённой модели спирали: b = '+fmt(e.b_m*1000,1)+' мм; h₀ = '+fmt(e.h0_m*1000,1)+' мм; Aₛw,экв = '+fmt(e.effective_asw_mm2,1)+' мм². χ = '+fmt(e.circular_efficiency,3)+'; проекция витка = '+fmt(e.helix_projection,4)+'. Обоснование: '+esc(e.efficiency_basis)+'. Сверка модели с АРБАТ не выполнена.</p>';}
+  if(r.details?.equivalence){const e=r.details.equivalence;
+   html+='<p class="hint">'+(e.concrete_only?'Бетонная часть, без вклада навивки':'По принятой приведённой модели спирали')+': b = '+fmt(e.b_m*1000,1)+' мм; h₀ = '+fmt(e.h0_m*1000,1)+' мм; Aₛw,экв = '+fmt(e.effective_asw_mm2,1)+' мм².';
+   if(e.concrete_only)html+=' Если бетонной части недостаточно, нужен обоснованный расчёт вклада навивки. Геометрия приведения принята инженером.';
+   else html+=' χ = '+fmt(e.circular_efficiency,3)+'; проекция витка = '+fmt(e.helix_projection,4)+'. Сверка модели с АРБАТ не выполнена.';
+   html+=' Обоснование: '+esc(e.efficiency_basis)+'.</p>';}
  }
  return html;
 }
@@ -369,6 +374,8 @@ $('connectionSettings').onclick=()=>{
  const c=nativeContext();$('secondOrderMode').value=c.second_order_mode;
  $('circularShearFields').hidden=project.kind!=='pile';
  const e=c.circular_shear;$('spiralEnable').checked=!!e;
+ $('circularShearMode').value=e?.method??'vniigs_1984_concrete_only';
+ $('spiralContributionFields').hidden=$('circularShearMode').value==='vniigs_1984_concrete_only';
  $('spiralA').value=e?.a_mm??'';$('spiralWinding').value=e?.winding_diameter_mm??'';
  $('spiralEfficiency').value=e?.circular_efficiency??'';$('spiralBasis').value=e?.efficiency_basis??'';
  $('spiralConfirmed').checked=e?.confirmed===true;
@@ -381,13 +388,16 @@ $('applyConnectionSettings').onclick=async()=>{try{
  const optional=id=>$(id).value.trim()===''?null:Number($(id).value),c=nativeContext(),z=Number($('connectionDialog').dataset.z);
  c.second_order_mode=$('secondOrderMode').value;c.l0_x_m=optional('nativeL0x');c.l0_y_m=optional('nativeL0y');c.psi=Number($('nativePsi').value);
  c.inclined_moment_requested=$('nativeMoment').checked;c.anchorage_confirmed=$('nativeAnchorageConfirmed').checked;c.anchorage_factor=optional('nativeAnchorageFactor');
+ const concreteOnly=$('circularShearMode').value==='vniigs_1984_concrete_only';
  c.circular_shear=project.kind==='pile'&&$('spiralEnable').checked ? {
-  method:'vniigs_1984_user_spiral',a_mm:optional('spiralA'),winding_diameter_mm:optional('spiralWinding'),
-  circular_efficiency:optional('spiralEfficiency'),efficiency_basis:$('spiralBasis').value.trim(),confirmed:$('spiralConfirmed').checked} : null;
+  method:$('circularShearMode').value,a_mm:optional('spiralA'),
+  winding_diameter_mm:concreteOnly?null:optional('spiralWinding'),
+  circular_efficiency:concreteOnly?null:optional('spiralEfficiency'),efficiency_basis:$('spiralBasis').value.trim(),confirmed:$('spiralConfirmed').checked} : null;
  c.sections=c.sections.filter(s=>s.z!==z);const down=optional('nativeSupportDown'),up=optional('nativeSupportUp');if(down!==null||up!==null)c.sections.push({z,support_distance_positive_m:down,support_distance_negative_m:up});
  const p={...project,calculation_context:c};await api('preview',p);project=p;dirty();render();$('connectionDialog').close();message();
  }catch(e){message(e.message);}};
 $('spiralEnable').onchange=()=>{$('spiralConfirmed').checked=false;};
+$('circularShearMode').onchange=()=>{$('spiralContributionFields').hidden=$('circularShearMode').value==='vniigs_1984_concrete_only';$('spiralConfirmed').checked=false;};
 for(const id of ['spiralA','spiralWinding','spiralEfficiency','spiralBasis'])$(id).oninput=()=>{$('spiralConfirmed').checked=false;};
 $('design').onclick=()=>calculate(false);$('check').onclick=()=>calculate(true);document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('plaxis').onclick=()=>$('plaxisDialog').showModal();$('connect').onclick=async()=>{try{catalog=null;$('objects').innerHTML='';$('phases').innerHTML='';$('extract').disabled=true;$('plaxisInfo').textContent='Подключение…';catalog=await api('plaxis/connect',{port:Number($('plaxisPort').value),password:$('plaxisPassword').value});$('plaxisPassword').value='';$('extract').disabled=false;$('objects').innerHTML=catalog.objects.map(o=>`<option value="${o.id}">${esc(o.name)} · ${esc(o.kind)}</option>`).join('');$('phases').innerHTML=catalog.phases.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('');$('plaxisInfo').textContent=Object.entries(catalog.info).map(([k,v])=>k+': '+v).join(' · ');}catch(e){$('plaxisInfo').textContent=e.message;}};

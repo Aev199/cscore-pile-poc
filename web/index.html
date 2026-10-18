@@ -30,15 +30,18 @@
 <div class="row"><label>Коэффициент включения продольной арматуры k<input id="nativeAnchorageFactor" type="number" min="0.001" max="1" step="0.05"></label><label class="check"><input id="nativeAnchorageConfirmed" type="checkbox">Анкеровка и коэффициент подтверждены инженером</label></div>
 <label>Данные опор для выбранного сечения <b id="nativeSectionZ"></b>, м</label><div class="row"><label>До опоры вниз (+s), м<input id="nativeSupportDown" type="number" min="0" step="0.1"></label><label>До опоры вверх (−s), м<input id="nativeSupportUp" type="number" min="0" step="0.1"></label></div>
 <p class="hint">Расстояния относятся только к выбранной отметке. Для проверки наклонного момента нужны положительные расстояния в обе стороны. Пусто — данных нет; 0 — опора в локальной модели не задана. Проверка использует постоянные усилия одного сечения, без обрывов стержней и переходов шага; она остаётся предварительной. Коэффициент k не заменяет расчёт длины анкеровки.</p>
-<section id="circularShearFields" hidden><h3>БНС · Q со спиральной навивкой</h3>
+<section id="circularShearFields" hidden><h3>БНС · поперечная сила Q</h3>
 <label class="check"><input id="spiralEnable" type="checkbox">Применить приведённое сечение для проверки Q</label>
-<p class="hint">Геометрия по ВНИИГС, 1984, примечанию к п. 3.3: b = 0,885D; h₀ = b − a. Совместное применение с СП 63 и эффективность спирали требуют обоснования инженера. Проверка локальная, с постоянным шагом; подбор навивки не выполняется.</p>
+<label>Учёт поперечной арматуры<select id="circularShearMode"><option value="vniigs_1984_concrete_only">Без вклада навивки · бетонная часть</option><option value="vniigs_1984_user_spiral">Приведённая навивка · исследовательский режим</option></select></label>
+<p class="hint">Принятая геометрия по ВНИИГС, 1984: b = 0,885D; h₀ = b − a. Применение этого исторического приведения совместно с СП 63 подтверждает инженер. Проверка локальная; подбор навивки не выполняется.</p>
 <label>a — от сжатой грани приведённого сечения до центра растянутой продольной арматуры, мм<input id="spiralA" type="number" min="0" step="1"></label>
+<div id="spiralContributionFields" hidden>
 <label>Диаметр навивки по оси стержня, мм<input id="spiralWinding" type="number" min="1" step="1"></label>
 <label>Эффективность по окружности χ, от 0 до 1<input id="spiralEfficiency" type="number" min="0" max="1" step="0.01"></label>
 <p class="hint">χ задаётся по принятой расчётной модели, без коэффициента подъёма витка: его программа учитывает отдельно. Значение по умолчанию не назначено. χ = 0 — без вклада навивки в Q.</p>
-<label>Обоснование χ и применения приведённой модели<input id="spiralBasis" type="text" maxlength="1000"></label>
-<label class="check"><input id="spiralConfirmed" type="checkbox">Геометрия и приведённая модель спирали подтверждены инженером</label>
+</div>
+<label>Основание применения приведённой модели<input id="spiralBasis" type="text" maxlength="1000"></label>
+<label class="check"><input id="spiralConfirmed" type="checkbox">Приведённая геометрия и выбранная модель подтверждены инженером</label>
 </section>
 <div class="dialogfoot"><button id="applyConnectionSettings" class="primary">Применить данные</button></div></dialog>
 <script src="/app.js"></script></body></html>

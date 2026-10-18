@@ -19,6 +19,28 @@ def circular_project():
 
 
 class CircularShearContracts(unittest.TestCase):
+    def test_concrete_only_needs_no_spiral_parameters_or_confirmation(self):
+        p=circular_project()
+        p['transverse'].update(mode='off',constructive_confirmed=False)
+        p['calculation_context']['circular_shear'].update(
+            method='vniigs_1984_concrete_only',winding_diameter_mm=None,
+            circular_efficiency=None,efficiency_basis='Принята геометрия ВНИИГС')
+        self.assertEqual(validate_context(p['calculation_context'])['circular_shear']['method'],
+                         'vniigs_1984_concrete_only')
+        model.validate_project(p)
+        p['calculation_context']['circular_shear']['a_mm']=800
+        with self.assertRaisesRegex(ValueError,'Рабочая высота'):
+            model.validate_project(p)
+
+    def test_concrete_only_rejects_hidden_spiral_credit(self):
+        c=circular_project()['calculation_context']
+        c['circular_shear'].update(method='vniigs_1984_concrete_only',
+            winding_diameter_mm=None,circular_efficiency=None)
+        validate_context(c)
+        for field,value in [('winding_diameter_mm',670),('circular_efficiency',.8)]:
+            b=copy.deepcopy(c);b['circular_shear'][field]=value
+            with self.assertRaises(ValueError):validate_context(b)
+
     def test_circular_mode_is_available_without_changing_selection(self):
         p=circular_project()
         model.validate_project(p)

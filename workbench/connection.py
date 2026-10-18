@@ -38,7 +38,7 @@ def validate_context(value):
     if e is not None:
         keys={'method','a_mm','winding_diameter_mm','circular_efficiency','efficiency_basis','confirmed'}
         if (not isinstance(e,dict) or set(e)!=keys
-                or e['method']!='vniigs_1984_user_spiral' or type(e['confirmed']) is not bool
+                or e['method'] not in ('vniigs_1984_user_spiral','vniigs_1984_concrete_only') or type(e['confirmed']) is not bool
                 or not isinstance(e['efficiency_basis'],str) or len(e['efficiency_basis'])>1000):
             raise ValueError('Некорректная модель приведённого сечения БНС')
         for k in ('a_mm','winding_diameter_mm','circular_efficiency'):
@@ -47,8 +47,11 @@ def validate_context(value):
                     or k=='winding_diameter_mm' and v==0
                     or k=='circular_efficiency' and v>1):
                 raise ValueError('Недопустимые параметры приведения спирали')
+        if e['method']=='vniigs_1984_concrete_only' and any(
+                e[k] is not None for k in ('winding_diameter_mm','circular_efficiency')):
+            raise ValueError('В бетонной проверке параметры вклада навивки должны отсутствовать')
         if e['confirmed'] and not e['efficiency_basis'].strip():
-            raise ValueError('Укажите обоснование коэффициента эффективности спирали')
+            raise ValueError('Укажите обоснование принятой приведённой модели')
     if not isinstance(c['sections'],list) or len(c['sections'])>200:
         raise ValueError('Не более 200 сечений с данными об опирании')
     seen=set()

@@ -123,6 +123,10 @@ def validate_project(p):
     for key,zs in groups.items():
         if zs!=stations:raise ValueError(f'{key[0]} ({key[1]}): набор отметок отличается. Согласуйте точки; пропуски не интерполируются.')
     if not any(r['basis']=='ULS' for r in rows):raise ValueError('Нужны расчётные усилия ULS')
+    circular_equivalence=p.get('calculation_context',{}).get('circular_shear') if p['kind']=='pile' else None
+    if circular_equivalence and circular_equivalence['a_mm'] is not None:
+        if circular_equivalence['a_mm']>=.885*p['pile']['diameter_mm']:
+            raise ValueError('Рабочая высота приведённого сечения должна быть положительной')
     if p['kind']=='pile' and p.get('transverse',{}).get('mode')=='screen':
         t=p['transverse']
         for k in ('diameter_mm','spacing_mm','rsw_kpa'):pile.positive(t.get(k),k)

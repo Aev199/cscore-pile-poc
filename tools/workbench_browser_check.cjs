@@ -179,6 +179,27 @@ const path=require('path');
     await page.locator('#inspection').filter({hasText:'По принятой приведённой модели спирали'}).waitFor({timeout:60000});
     assert((await page.locator('#inspection').textContent()).includes('Browser test input'));
     await page.screenshot({path:process.env.SPIRAL_SCREENSHOT||'/tmp/workbench-spiral-checks.png',fullPage:true});
+    // Concrete-only circular Q can be selected without entering a spiral coefficient.
+    await page.locator('#connectionSettings').click();
+    await page.locator('#circularShearMode').selectOption('vniigs_1984_concrete_only');
+    assert(await page.locator('#spiralContributionFields').isHidden());
+    assert(!(await page.locator('#spiralConfirmed').isChecked()));
+    await page.locator('#spiralConfirmed').check();
+    await page.locator('#applyConnectionSettings').click();
+    const concreteSaved=page.waitForEvent('download');await page.locator('#save').click();
+    const concreteDownload=await concreteSaved;const concreteStream=await concreteDownload.createReadStream();
+    const concreteChunks=[];for await(const chunk of concreteStream)concreteChunks.push(chunk);
+    const concreteProject=JSON.parse(Buffer.concat(concreteChunks).toString());
+    assert.equal(concreteProject.calculation_context.circular_shear.method,'vniigs_1984_concrete_only');
+    assert.equal(concreteProject.calculation_context.circular_shear.circular_efficiency,null);
+    concreteProject.transverse.mode='off';concreteProject.transverse.constructive_confirmed=false;
+    for(const row of concreteProject.rows)row.q=100;
+    await page.locator('#file').setInputFiles({name:'concrete.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(concreteProject))});
+    await page.locator('#connectionCheck').click();
+    await page.locator('#inspection h3').filter({hasText:'Проверки CScore'}).waitFor({timeout:60000});
+    assert((await page.locator('#inspection').textContent()).includes('Бетонная часть, без вклада навивки'));
+    assert(!(await page.locator('#inspection').textContent()).includes('χ ='));
+    await page.screenshot({path:process.env.CONCRETE_SCREENSHOT||'/tmp/workbench-concrete-checks.png',fullPage:true});
   }
   await page.reload();await page.waitForSelector('#charts svg');
   await page.screenshot({path:process.env.SCREENSHOT||'/tmp/workbench-initial.png',fullPage:true});

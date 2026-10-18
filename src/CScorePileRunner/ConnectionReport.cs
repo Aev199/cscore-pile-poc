@@ -210,8 +210,10 @@ internal static class ConnectionReport
             Missing("not_applicable","circular_biaxial_moment_not_supported"); return;
         }
         var equivalent = circular ? c.CircularShear : null;
+        bool concreteOnly = equivalent?.ConcreteOnly == true;
         double? equivalentB = equivalent is null ? null : .885*input.Pile.DiameterMm/1000;
-        if (equivalent is not null && (!equivalent.Ready || input.ShearScreening?.ConstructiveConfirmed!=true))
+        if (equivalent is not null && (!equivalent.Ready
+            || !concreteOnly && input.ShearScreening?.ConstructiveConfirmed!=true))
         {
             Missing("not_evaluated","spiral_equivalence_not_confirmed_or_incomplete"); return;
         }
@@ -222,7 +224,8 @@ internal static class ConnectionReport
         {
             Missing("not_applicable",string.Join("; ",applicability.Reasons),"Sp63Shear.Sp63ShearApplicability.Evaluate"); return;
         }
-        if (input.ShearScreening is not { Enabled:true } t || load.QKn is not double q)
+        var t = input.ShearScreening;
+        if ((!concreteOnly && t is not { Enabled:true }) || load.QKn is not double q || !double.IsFinite(q))
         {
             Missing("not_evaluated","transverse_geometry_or_Q_missing"); return;
         }
@@ -245,8 +248,13 @@ internal static class ConnectionReport
             {
                 fixedB=equivalentB;
                 fixedH0=equivalentB-equivalent.AMm!.Value/1000;
+                if (!(fixedH0>0))
+                    throw new InvalidOperationException("invalid_equivalent_concrete_geometry");
+                shearBasis="user_equivalent_concrete_only_constant_profile";
+                if (!concreteOnly)
+                {
                 double winding=equivalent.WindingDiameterMm!.Value;
-                if (!(fixedH0>0) || winding+ t.DiameterMm>=input.Pile.DiameterMm
+                if (winding+ t!.DiameterMm>=input.Pile.DiameterMm
                     || winding<=t.DiameterMm
                     || winding/2-t.DiameterMm/2+1e-6
                         <candidate.BarAxisRadiusMm+candidate.BarDiameterMm/2)
@@ -257,22 +265,27 @@ internal static class ConnectionReport
                 helixProjection=1/Math.Sqrt(1+Math.Pow(t.SpacingMm/(Math.PI*winding),2));
                 efficiency=equivalent.CircularEfficiency!.Value;
                 shearBasis="user_equivalent_spiral_constant_profile";
+                }
             }
             double b=fixedB??side.B,h0=fixedH0??side.H0;
             if (!(b>0 && h0>0)) throw new InvalidOperationException("invalid_native_shear_geometry");
-            double area = t.ConstructiveConfirmed ? t.EffectiveLegsPerCage*t.CageCount
+            double area = !concreteOnly && t!.ConstructiveConfirmed ? t.EffectiveLegsPerCage*t.CageCount
                 *Math.PI*Math.Pow(t.DiameterMm/1000,2)/4*efficiency*helixProjection : 0;
             if (equivalent is not null)
                 equivalenceDetails=new { method=equivalent.Method, b_m=b,h0_m=h0,
                     a_mm=equivalent.AMm,winding_diameter_mm=equivalent.WindingDiameterMm,
-                    circular_efficiency=efficiency,helix_projection=helixProjection,
+                    concrete_only=concreteOnly,
+                    circular_efficiency=concreteOnly ? (double?)null : efficiency,
+                    helix_projection=concreteOnly ? (double?)null : helixProjection,
                     effective_asw_mm2=area*1e6,efficiency_basis=equivalent.EfficiencyBasis,
                     confirmed=equivalent.Confirmed,
-                    limitation="historical_geometry_and_user_spiral_equivalence_not_independently_verified_SP63_or_ARBAT" };
+                    limitation=concreteOnly ? "concrete_component_only_historical_geometry_requires_engineer_confirmation"
+                        : "historical_geometry_and_user_spiral_equivalence_not_independently_verified_SP63_or_ARBAT" };
             bool moment = c.InclinedMomentRequested && c.AnchorageConfirmed
                 && c.AnchorageFactor.HasValue && c.SupportPositiveM is > 0 && c.SupportNegativeM is > 0;
             var p = new ShearInclinedInput(b,h0,side.Rb,side.Rbt,
-                t.RswKpa*area/(t.SpacingMm/1000),t.SpacingMm/1000,side.Ns,
+                concreteOnly ? 0 : t!.RswKpa*area/(t.SpacingMm/1000),
+                concreteOnly ? 0 : t!.SpacingMm/1000,side.Ns,
                 ElementKind.Other,c.AnchorageFactor??1,0,0,0,Array.Empty<double>(),moment,null,
                 FixedB:fixedB,FixedH0:fixedH0);
             var results = new[] {-1,1}.Select(d => ShearInclinedChecker.Check(p,
@@ -357,11 +370,15 @@ internal sealed class CircularShearEquivalence
     [JsonPropertyName("circular_efficiency")] public double? CircularEfficiency { get; init; }
     [JsonPropertyName("efficiency_basis")] public string EfficiencyBasis { get; init; } = "";
     [JsonPropertyName("confirmed")] public bool Confirmed { get; init; }
-    internal bool Ready => Confirmed && AMm.HasValue && WindingDiameterMm.HasValue
-        && CircularEfficiency.HasValue && !string.IsNullOrWhiteSpace(EfficiencyBasis);
+    internal bool ConcreteOnly => Method == "vniigs_1984_concrete_only";
+    internal bool Ready => Confirmed && AMm.HasValue
+        && (ConcreteOnly || WindingDiameterMm.HasValue && CircularEfficiency.HasValue)
+        && !string.IsNullOrWhiteSpace(EfficiencyBasis);
     internal void Validate()
     {
-        if (Method!="vniigs_1984_user_spiral" || EfficiencyBasis is null || EfficiencyBasis.Length>1000
+        if (Method is not ("vniigs_1984_user_spiral" or "vniigs_1984_concrete_only")
+            || ConcreteOnly && (WindingDiameterMm.HasValue || CircularEfficiency.HasValue)
+            || EfficiencyBasis is null || EfficiencyBasis.Length>1000
             || AMm is double a && (!double.IsFinite(a)||a<0)
             || WindingDiameterMm is double d && (!double.IsFinite(d)||d<=0)
             || CircularEfficiency is double f && (!double.IsFinite(f)||f<0||f>1)
