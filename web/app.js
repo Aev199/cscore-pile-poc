@@ -42,6 +42,7 @@ function renderForms(){
  $('qPitchOptions').value=choices.join('; ');
  $('qPitchChoices').innerHTML=choices.map(n=>'<option value="'+esc(n)+'"></option>').join('');
  $('exportSchedule').hidden=kind!=='wall';
+ $('exportDrawing').hidden=kind!=='wall';
  const po=project.profile_options||(project.profile_options={orientation:'same',axes_confirmed:false});
  $('profileOrientation').value=po.orientation;
  $('profileAxesConfirmed').checked=po.axes_confirmed===true;
@@ -311,6 +312,18 @@ $('qPitchOptions').onchange=e=>{
    e.target.value=(project.q_allowed_steps_mm||[100,150,200,300]).join('; ');return;
  }
  project.q_allowed_steps_mm=values.sort((a,b)=>a-b);dirty();renderForms();message();
+};
+$('exportDrawing').onclick=async()=>{
+ try{
+  if(project.kind!=='wall')throw Error('Развёртка доступна для стены в грунте');
+  const {status,dxf}=await api('reinforcement-drawing',project);
+  if(status!=='DRAFT_NOT_VERIFIED'||!dxf.includes('AC1015'))throw Error('Не удалось получить черновик DXF');
+  const blob=new Blob([dxf],{type:'application/dxf'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(project.title||'Стена').replace(/[<>:"/\\|?*]/g,'_')+'_развертка_черновик.dxf';
+  a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  message('Экспортирована черновая развёртка. Не является рабочим листом КЖ.');
+ }catch(e){message(e.message);}
 };
 $('exportSchedule').onclick=async()=>{
  try{
