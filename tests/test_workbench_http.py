@@ -73,6 +73,22 @@ class HttpTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as ctx:urlopen(request(p))
         self.assertEqual(ctx.exception.code,400)
 
+    def test_draft_dxf_contains_real_zone_geometry_and_no_approval(self):
+        from workbench.model import default_project
+        p=default_project()
+        p['zones']=[{'top':0,'bottom':-6,'tiers':[2,1]}]
+        p['transverse_zones']=[{'top':-3,'bottom':-9,'spacing_mm':150}]
+        req=Request(self.url+'/api/reinforcement-drawing',
+                    data=json.dumps(p).encode(),
+                    headers={'X-Session':self.app.token})
+        result=json.load(urlopen(req))
+        self.assertEqual(result['status'],'DRAFT_NOT_VERIFIED')
+        self.assertIn('AC1015',result['dxf'])
+        self.assertIn('KJ_CAGE',result['dxf'])
+        self.assertIn('D10/150',result['dxf'])
+        self.assertIn('KJ_NOTES',result['dxf'])
+        result['dxf'].encode('ascii')
+
     def test_path_not_exposed(self):
         with self.assertRaises(HTTPError):urlopen(self.url+'/workbench/model.py')
 
