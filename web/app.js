@@ -115,6 +115,7 @@ function renderNativeChecks(){
   if(r.check_id.startsWith('crack_width')&&Number.isFinite(r.details?.width_mm))html+='<p class="hint">Раскрытие: '+fmt(r.details.width_mm,3)+' мм</p>';
   if(r.details?.directions_complete===false)html+='<p class="hint">Проверены не все направления. Известное превышение сохранено.</p>';
   if(r.details?.force_context?.actions_basis==='source_actions_SP63_8_1_32_34'&&r.check_id.startsWith('shear_'))html+='<p class="hint">Q взята из исходных усилий без умножения на η (пп. 8.1.32–8.1.34). Коэффициент η применяется отдельно к нормальному сечению.</p>';
+  if(r.check_id==='inclined_moment'&&Number.isFinite(r.details?.applied)&&Number.isFinite(r.details?.allowable))html+='<p class="hint">Момент по заданному локальному профилю: '+fmt(r.details.applied,2)+' кН·м; несущая способность: '+fmt(r.details.allowable,2)+' кН·м. Расчёт CScore по п. 8.1.35.</p>';
   if(r.reason)html+='<p class="hint">'+esc(reasons[r.reason]||r.reason)+'</p>';
   if(r.basis==='research_constant_profile')html+='<p class="hint">Локальная оценка по постоянным усилиям, не проверка конструкции целиком.</p>';
   if(r.details?.equivalence){const e=r.details.equivalence;

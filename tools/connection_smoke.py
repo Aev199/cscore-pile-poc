@@ -79,8 +79,17 @@ def main():
         assert forces['q_kn']==60 and forces['n_kn']==-300,forces
         assert forces['eta_applied_to_q'] is False,forces
         assert forces['normal_mx_eff_knm']>forces['mx_knm'],forces
-    assert check(eta,'inclined_moment')['status']=='not_evaluated'
-    assert check(eta,'inclined_moment')['reason']=='inclined_moment_external_demand_required_with_eta'
+    native_moment=check(eta,'inclined_moment')
+    assert native_moment['status']==check(moment,'inclined_moment')['status'],native_moment
+    assert abs(native_moment['utilization']-check(moment,'inclined_moment')['utilization'])<1e-10
+    assert native_moment['details']['applied']==120,native_moment
+    assert native_moment['details']['units']=='kN*m',native_moment
+    assert native_moment['details']['force_context']['inclined_moment_basis']=='CScore.ConstantProfile.M(Point0)'
+    weak_anchorage=copy.deepcopy(member)
+    weak_anchorage['calculation_context']['anchorage_factor']=.001
+    weak=run('wall_native_eta_inclined_moment_failure',weak_anchorage)
+    assert check(weak,'inclined_moment')['status']=='failed',check(weak,'inclined_moment')
+    assert weak['status']=='failed'
     member_q_overload=copy.deepcopy(member)
     for row in member_q_overload['rows']:
         if row['basis']=='ULS':row['q']=50000
@@ -107,7 +116,7 @@ def main():
     tiny=run('wall_native_eta_barely_above_one',near_one)
     assert 1<check(tiny,'member_stability')['details']['eta_x']<1.000001
     assert check(tiny,'shear_inclined')['status'] in ('passed','failed')
-    assert check(tiny,'inclined_moment')['status']=='not_evaluated'
+    assert check(tiny,'inclined_moment')['status'] in ('passed','failed')
     mixed=copy.deepcopy(member)
     mixed['rows'] += [dict(row,case='No compression',n=0)
                      for row in member['rows'] if row['basis']=='ULS']
@@ -145,7 +154,12 @@ def main():
     for key in ('shear_strip','shear_inclined'):
         assert check(pile_amplified,key)['status'] in ('passed','failed'),check(pile_amplified,key)
         assert abs(check(pile_amplified,key)['utilization']-check(pile_short,key)['utilization'])<1e-10
-    assert check(pile_amplified,'inclined_moment')['status']=='not_evaluated'
+    assert check(pile_amplified,'inclined_moment')['status'] in ('passed','failed'),check(pile_amplified,'inclined_moment')
+    # Every requested local strength/SLS check must produce a result with full inputs.
+    for complete in (eta,pile_amplified):
+        for row in complete['stations'][0]['report']['checks']:
+            if row['check_id'] not in ('anchorage','detailing'):
+                assert row['status'] in ('passed','failed','calculated','stable','accounted_in_loads'),row
     # Loss of stability must never become a zero-utilization strength pass.
     unstable=copy.deepcopy(member)
     unstable['calculation_context'].update(l0_x_m=100,l0_y_m=100)

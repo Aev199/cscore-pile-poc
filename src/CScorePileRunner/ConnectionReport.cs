@@ -234,7 +234,6 @@ internal static class ConnectionReport
         try
         {
             if (section is null) throw new InvalidOperationException("section_unavailable");
-            bool amplifiedMember = false;
             if (c.SecondOrderMode == "cscore_member")
             {
                 if (memberActions is not RodEtaWiring.Result a)
@@ -254,16 +253,16 @@ internal static class ConnectionReport
                 }
                 // SP63 8.1.2/8.1.15 amplify eccentricity for normal-section N/M.
                 // Q in 8.1.32/8.1.33 remains the external shear; 8.1.34 supplies phiN.
-                // An amplified NORMAL-section M is not automatically the external
-                // moment about the crack end required by 8.1.35.
-                amplifiedMember = a.X.Eta!=1 || a.Y.Eta!=1
-                    || a.MxEff!=load.MxKnm || a.MyEff!=load.MyKnm;
+                // For 8.1.35 the native checker evaluates M(Point0) of the supplied
+                // force profile. Normal-section eta does not replace that profile.
             }
             object forceContext = new { second_order_mode=c.SecondOrderMode,
                 actions_basis=c.SecondOrderMode=="cscore_member" ? "source_actions_SP63_8_1_32_34"
                     : "source_actions",
                 n_kn=load.NKn,mx_knm=load.MxKnm,my_knm=load.MyKnm,q_kn=q,
                 eta_applied_to_q=false,
+                inclined_moment_basis="CScore.ConstantProfile.M(Point0)",
+                eta_applied_to_inclined_moment=false,
                 normal_mx_eff_knm=memberActions is RodEtaWiring.Result x ? Finite(x.MxEff) : null,
                 normal_my_eff_knm=memberActions is RodEtaWiring.Result y ? Finite(y.MyEff) : null,
                 eta=memberActions is RodEtaWiring.Result actions ? EtaDetails(actions) : null };
@@ -320,8 +319,7 @@ internal static class ConnectionReport
                     limitation=concreteOnly ? "concrete_component_only_historical_geometry_requires_engineer_confirmation"
                         : "historical_geometry_and_user_spiral_equivalence_not_independently_verified_SP63_or_ARBAT" };
             bool moment = c.InclinedMomentRequested && c.AnchorageConfirmed
-                && c.AnchorageFactor.HasValue && c.SupportPositiveM is > 0 && c.SupportNegativeM is > 0
-                && !amplifiedMember;
+                && c.AnchorageFactor.HasValue && c.SupportPositiveM is > 0 && c.SupportNegativeM is > 0;
             var p = new ShearInclinedInput(b,h0,side.Rb,side.Rbt,
                 concreteOnly ? 0 : t!.RswKpa*area/(t.SpacingMm/1000),
                 concreteOnly ? 0 : t!.SpacingMm/1000,side.Ns,
@@ -336,7 +334,6 @@ internal static class ConnectionReport
                 {
                     add(item.Item1,load.Id,"not_evaluated",method,null,
                         !c.InclinedMomentRequested ? "inclined_moment_not_requested"
-                            : amplifiedMember ? "inclined_moment_external_demand_required_with_eta"
                             : "confirm_anchorage_and_section_support_distance",
                         new { force_context=forceContext },shearBasis); continue;
                 }
@@ -347,6 +344,7 @@ internal static class ConnectionReport
                 {
                     add(item.Item1,load.Id,"failed",method,null,"native_zero_capacity",new {
                         formula=zeroCapacity.Formula,applied=zeroCapacity.Applied,allowable=zeroCapacity.Allowable,
+                        units=item.Item1=="inclined_moment" ? "kN*m" : "kN",
                         equivalence=equivalenceDetails,
                         force_context=forceContext,
                         variables=zeroCapacity.Variables.Where(v=>double.IsFinite(v.Value)).ToDictionary(v=>v.Key,v=>v.Value)
@@ -361,6 +359,8 @@ internal static class ConnectionReport
                 double? use = complete || valid.Any(d=>d.Ratio>1) ? worst!.Ratio : null;
                 ratio(item.Item1,load.Id,use,method,worst is null ? null : new {
                     formula = worst.Formula, directions_complete = complete,
+                    applied=worst.Applied,allowable=worst.Allowable,
+                    units=item.Item1=="inclined_moment" ? "kN*m" : "kN",
                     equivalence = equivalenceDetails,
                     force_context = forceContext,
                     missing_directions = results.Select((r,i)=>(Result:r,Direction:i==0 ? -1 : 1))
