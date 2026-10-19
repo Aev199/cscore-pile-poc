@@ -62,15 +62,15 @@ def run(runner,out):
     for c in r['stations'][0]['report']['checks']:
         if c['check_id']=='member_stability':assert c['details']['l0_y_m']==15
     (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
-    # SLS: both signs, independently supplied service forces and long/total moments.
+    # SLS: service forces and long/total moments stay as given (no ea, SP63 8.2).
     p=project();p['member_load_preparation']['length_m']=6
     p['calculation_context'].update(l0_x_m=6,l0_y_m=6)
     p['rows'].append(dict(z=0,case='S',basis='SLS',n=-250,m=375,my=0,q=0,m_long=250,my_long=0))
     r=model.check_adopted(p,runner=runner,single_section=True);station=r['stations'][0]
     widths=[c for c in station['report']['checks'] if c['check_id'].startswith('crack_width')]
-    assert len(widths)==4 and all(c['utilization'] is not None and c['utilization']>0 for c in widths)
+    assert len(widths)==2 and all(c['utilization'] is not None and c['utilization']>0 for c in widths)
     assert all(c['status']=='stable' for c in station['report']['checks'] if c['check_id']=='sls_member_stability')
-    assert {round(l['my_total_knm'],8) for l in station['sls_loads']}=={-1.33333333,1.33333333}
+    assert [(l['mx_total_knm'],l['mx_long_knm'],l['my_total_knm']) for l in station['sls_loads']]==[(150,100,0)]
     (out/'SLS_L6.json').write_text(json.dumps(dict(project=p,result=r),ensure_ascii=False,indent=2),encoding='utf-8')
     # Circular Q uses external actions, not the added normal-section My.
     p=project();p.update(kind='pile',force_scale='per_member',pile_background=12)
@@ -99,11 +99,8 @@ def run(runner,out):
         assert len(w['loads'])==1 and w['loads'][0]['mx_knm']==150 and w['loads'][0]['my_knm']==0
     w=wire(-1000,100)
     w['sls_probe']={'loads':[{'id':'S','n_kn':-500,'mx_total_knm':100,'my_total_knm':0,'mx_long_knm':50,'my_long_knm':0}]}
-    prepare(w,settings,runner)
-    assert {round(l['mx_total_knm'],8) for l in w['sls_probe']['loads']}=={110}
-    assert {round(l['mx_long_knm'],8) for l in w['sls_probe']['loads']}=={60}
-    assert {l['my_total_knm'] for l in w['sls_probe']['loads']}=={-10,10}
-    assert all(l['my_total_knm']==l['my_long_knm'] for l in w['sls_probe']['loads'])
+    sls=copy.deepcopy(w['sls_probe']);prepare(w,settings,runner)
+    assert w['sls_probe']==sls
     print('Member eccentricity: both zero-axis signs, independent lengths, preserved Q and explicit source moments passed')
 
 

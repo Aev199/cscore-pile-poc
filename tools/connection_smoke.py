@@ -73,7 +73,10 @@ def main():
     assert check(eta,'member_stability')['status']=='stable',check(eta,'member_stability')
     assert check(eta,'normal_member_strength')['status']=='passed'
     assert check(eta,'crack_width_short')['status']=='passed'
-    assert check(eta,'crack_width_short')['basis']=='native_member_CrackWidthEta.ScaleLongTotal'
+    # SP63 section 8.2: crack widths use the normative actions without eta.
+    assert check(eta,'crack_width_short')['basis']=='sls_source_actions_SP63_8_2'
+    for key in ('crack_width_long','crack_width_short'):
+        assert abs(check(eta,key)['utilization']-check(moment,key)['utilization'])<1e-10,(check(eta,key),check(moment,key))
     for key in ('shear_strip','shear_inclined'):
         actual,source=check(eta,key),check(moment,key)
         assert actual['status']==source['status'],actual
