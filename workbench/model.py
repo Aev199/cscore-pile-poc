@@ -400,6 +400,10 @@ def check_adopted(p,engine=None,runner=None,progress=lambda _:None,*,single_sect
             wall.validate_input(inp);candidates,_=wall.make_candidates(inp)
             if not candidates:raise ValueError(f'{z:g}: принятое армирование геометрически недопустимо')
             req=wall.build_engine_request(inp,candidates[0])
+            if single_section:
+                req['research_rectangle']['bars']=[
+                    {k:bar[k] for k in ('x_mm','y_mm','diameter_mm')}
+                    for bar in candidates[0]['actual_bars']]
         else:
             pile.validate_input(inp);candidates,_=pile.make_candidates(inp)
             if not candidates:raise ValueError(f'{z:g}: принятое армирование геометрически недопустимо')

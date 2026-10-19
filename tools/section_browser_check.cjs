@@ -40,6 +40,7 @@ const path=require('path');
   if(process.env.CSCORE_RUNNER){
    await page.locator('#spiralA').fill('85');
    await page.locator('#withSls').check();
+   assert.equal(await page.locator('#crackMethod').inputValue(),'arbat_conservative');
    await page.locator('#slsN').fill('-800');await page.locator('#slsM').fill('120');await page.locator('#slsLong').fill('80');
    await page.locator('#conditions summary').click();
    await page.locator('#secondOrder').selectOption('cscore_member');
@@ -54,6 +55,15 @@ const path=require('path');
    assert((await page.locator('#results').textContent()).includes('Наклонное сечение · M'));
    assert.equal(p.calculation_context.l0_x_m,6);
    assert.equal(p.calculation_context.sections[0].support_distance_negative_m,3);
+   assert.equal(p.sls_settings.preliminary_method,'arbat_conservative');
+   await page.locator('#crackMethod').selectOption('native_refined');
+   assert.equal(await page.locator('#results tbody tr').count(),0);
+   const saveNative=page.waitForEvent('download');await page.locator('#save').click();
+   const nativeFile=await saveNative;await page.locator('#file').setInputFiles(await nativeFile.path());
+   await page.waitForFunction(()=>document.querySelector('#file').value==='');
+   assert.equal(await page.locator('#crackMethod').inputValue(),'native_refined');
+   await page.locator('#run').click();await page.locator('#results tbody tr').first().waitFor({timeout:180000});
+   assert.equal(requests.at(-1).sls_settings.preliminary_method,'native_refined');
   }
   if(process.env.SECTION_SCREENSHOT)await page.screenshot({path:process.env.SECTION_SCREENSHOT,fullPage:true});
   assert.deepEqual(errors,[]);console.log('Single-section browser checks passed');

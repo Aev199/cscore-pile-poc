@@ -7,11 +7,10 @@ import pile_rebar as pile
 from workbench import model
 
 class CScoreOnly(unittest.TestCase):
-    def test_legacy_sls_method_rejected(self):
+    def test_agreed_conservative_sls_method_available(self):
         p=json.loads(Path('examples/verification/P800_sls_preselection_example.json').read_text(encoding='utf-8'))
         p['sls_probe']['preliminary_method']='arbat_conservative'
-        with self.assertRaisesRegex(ValueError,'native_refined'):
-            pile.validate_sls_probe(p['sls_probe'])
+        pile.validate_sls_probe(p['sls_probe'])
 
     def test_no_python_accidental_eccentricity_solver(self):
         p=json.loads(Path('examples/demo_bns.json').read_text(encoding='utf-8'))
@@ -30,7 +29,6 @@ class CScoreOnly(unittest.TestCase):
     def test_native_runner_has_no_custom_strength_transforms(self):
         cs=Path('src/CScorePileRunner/Program.cs').read_text(encoding='utf-8')
         for removed in ('StationBandProfile','split_at_pitch_boundaries_and_3h0_influence',
-                        'short_only_supplemental_full_load_solver','widthPreMm',
-                        'widthPsiOne','trialWidth','screeningShortWidth'):
+                        'application_shear_capacity'):
             self.assertFalse(removed in cs,removed)
         self.assertIn('cscore_native_uniform_pitch',cs)

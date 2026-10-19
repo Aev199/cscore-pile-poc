@@ -47,11 +47,11 @@ def main():
         for station in result['stations']:
             for sls in station['adopted'].get('sls_probe') or []:
                 if sls['status']=='research_calculated':
-                    assert sls['preliminary_method']=='native_refined'
-                    assert sls['preliminary_width_long_mm']==sls['width_long_mm']
-                    assert sls['preliminary_width_short_mm']==sls['width_short_mm']
-                    assert sls['preliminary_utilization_long']==sls['utilization_long']
-                    assert sls['preliminary_utilization_short']==sls['utilization_short']
+                    assert sls['preliminary_method']=='arbat_conservative'
+                    assert sls['preliminary_width_long_mm']+1e-9>=sls['width_long_mm']
+                    assert sls['preliminary_width_short_mm']+1e-9>=sls['width_short_mm']
+                    assert sls['preliminary_utilization_long']+1e-9>=sls['utilization_long']
+                    assert sls['preliminary_utilization_short']+1e-9>=sls['utilization_short']
         assert result['has_sls'] and result['design_status']=='NOT_VERIFIED'
         p['zones']=[{'top':0,'bottom':-2,'tiers':[2,2] if kind=='wall' else [2,1]}]
         recheck=model.design(p,runner=args.runner,recheck=True,progress=print)

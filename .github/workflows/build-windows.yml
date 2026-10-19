@@ -53,6 +53,8 @@ jobs:
             -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o publish
+      - name: Agreed crack method numeric and product-report regression
+        run: python tools/verify_agreed_crack_method.py --runner publish/CScorePileRunner.exe
       - name: End-to-end numerical run (real CScore, no mocks)
         shell: pwsh
         env:
@@ -161,7 +163,7 @@ jobs:
             --output results/P800_sls_research.json `
             --csv results/P800_sls_research.csv
           if ($LASTEXITCODE -ne 0) { throw 'Ordinary BNS + optional SLS mode failed' }
-          python -c "import json; a=json.load(open('results/P800_sls_research.json',encoding='utf-8')); assert a['cases'] and a['cases'][0]['sls_gate']=='calculated_uls_pass' and len(a['cases'][0]['sls_probe'])==4; s=a['cases'][0]['sls_probe']; assert all(x['design_status']=='NOT_VERIFIED' for x in s); assert all(x.get('preliminary_method')=='native_refined' for x in s if x['status']=='research_calculated'); print('preliminary SLS cases',len(s))"
+          python -c "import json; a=json.load(open('results/P800_sls_research.json',encoding='utf-8')); assert a['cases'] and a['cases'][0]['sls_gate']=='calculated_uls_pass' and len(a['cases'][0]['sls_probe'])==4; s=a['cases'][0]['sls_probe']; assert all(x['design_status']=='NOT_VERIFIED' for x in s); assert all(x.get('preliminary_method')=='arbat_conservative' for x in s if x['status']=='research_calculated'); print('preliminary SLS cases',len(s))"
           if ($LASTEXITCODE -ne 0) { throw 'SLS mode default or fail-closed contract invalid' }
       - name: "ULS-first rejection test (real CScore - no SLS for overloaded pile)"
         shell: pwsh
@@ -193,7 +195,7 @@ jobs:
         run: |
           python tools/cross_section_sls_matrix.py --runner publish/CScorePileRunner.exe --layout arbat_stated --out results/sls_matrix_aligned
           if ($LASTEXITCODE -ne 0) { throw 'ARBAT-stated geometry matrix failed' }
-          python -c "import csv; r=list(csv.DictReader(open('results/sls_matrix_aligned/cross_section_sls_matrix.csv',encoding='utf-8-sig'),delimiter=';')); assert len(r)==70; assert all(x['final_design_status']=='NOT_VERIFIED' for x in r); assert all(x['crack_solver_path']!='supplemental_full_load_Acrc2' for x in r); print('Native CScore SLS, unresolved:',sum(x['cscore_status']!='research_calculated' for x in r))"
+          python -c "import csv; r=list(csv.DictReader(open('results/sls_matrix_aligned/cross_section_sls_matrix.csv',encoding='utf-8-sig'),delimiter=';')); assert len(r)==70; assert all(x['final_design_status']=='NOT_VERIFIED' for x in r); assert all(x['method']=='arbat_conservative' for x in r); print('CScore-based conservative SLS, unresolved:',sum(x['cscore_status']!='research_calculated' for x in r))"
           if ($LASTEXITCODE -ne 0) { throw 'Native CScore SLS provenance failed' }
           python tools/compare_arbat70_crackwidth.py --csv results/sls_matrix_aligned/cross_section_sls_matrix.csv --out results/arbat70_verification
           if ($LASTEXITCODE -ne 0) { throw 'Independent crack-width comparison failed' }

@@ -141,7 +141,7 @@ class WallTests(unittest.TestCase):
                 'sls_gate':'calculated_uls_pass','sls_probe':[{
                     'id':'S1','status':'research_calculated','error':None,
                     'verified_for_design':False,'preliminary_is_final_approval':False,
-                    'preliminary_method':'native_refined','preliminary_basis':'native_refined_postcrack',
+                    'preliminary_method':req['sls_probe']['preliminary_method'],'preliminary_basis':'native_refined_postcrack',
                     'preliminary_decision':'preliminary_below_limit',
                     'preliminary_utilization_long':.6,'utilization_long':.6,
                     'preliminary_utilization_short':.7,'utilization_short':.7,

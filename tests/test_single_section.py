@@ -38,3 +38,20 @@ class SingleSectionTests(unittest.TestCase):
             self.assertEqual(len(requests[0]['candidates']),1)
             self.assertEqual([s['z'] for s in result['stations']],[0])
             self.assertFalse(result['verified_for_design'])
+
+    def test_manual_rectangle_uses_the_displayed_physical_cage_coordinates(self):
+        p=self.project()
+        p['wall'].update(panel_width_mm=400,thickness_mm=600,cage_count=1,
+                         cage_width_mm=316,end_cover_mm=42,cover_mm=42,ties_diameter_mm=8)
+        p['background']=[4,4];p['diameters']=[25,25]
+        requests=[]
+        def engine(req):
+            requests.append(req)
+            return dict(schema_version=1,cases=[dict(id=req['candidates'][0]['id'],
+                connection_report=test_connection_cycle.ConnectionContracts().report(req))])
+        model.check_adopted(p,engine=engine,single_section=True)
+        bars=requests[0]['research_rectangle']['bars']
+        self.assertEqual(len(bars),8)
+        self.assertAlmostEqual(min(b['x_mm'] for b in bars),-137.5)
+        self.assertAlmostEqual(max(b['x_mm'] for b in bars),137.5)
+        self.assertEqual({b['y_mm'] for b in bars},{-237.5,237.5})

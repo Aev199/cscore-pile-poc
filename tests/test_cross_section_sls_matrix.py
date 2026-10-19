@@ -27,7 +27,7 @@ class ResearchMatrixTests(unittest.TestCase):
             self.assertEqual(req["sls_execution_policy"], "research_all")
             self.assertEqual(len(req["candidates"]), 1)
             self.assertEqual(req["candidates"][0]["id"], sec["id"])
-            self.assertEqual(req["sls_probe"]["preliminary_method"], "native_refined")
+            self.assertEqual(req["sls_probe"]["preliminary_method"], "arbat_conservative")
             self.assertEqual(req["sls_probe"]["review_band"], 0.03)
             self.assertEqual(len(req["sls_probe"]["loads"]), 10)
             if sec["kind"] == "rectangle":

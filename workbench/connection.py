@@ -5,7 +5,8 @@ ULS_CHECKS=('normal_strength','shear_strip','shear_inclined','inclined_moment',
             'member_stability','normal_member_strength')
 SLS_CHECKS=('crack_formation','crack_width_long','crack_width_short','sls_member_stability')
 GLOBAL_CHECKS=('anchorage','detailing')
-STATUSES={'passed','failed','calculated','not_evaluated','not_applicable','indeterminate','accounted_in_loads','stable','unstable'}
+STATUSES={'passed','failed','calculated','not_evaluated','not_applicable','indeterminate','accounted_in_loads','stable','unstable',
+          'preliminary_below_limit','preliminary_exceeds_limit','engineering_review'}
 
 
 def default_context():
@@ -83,7 +84,9 @@ def expected_checks(req):
 def methods(check):
     if check in ('normal_strength','normal_member_strength'):
         return {'CScore.LimitForceSolver.AllFactor'}
-    if check in SLS_CHECKS and check!='sls_member_stability':return {'CScore.CrackWidthSolver.Compute'}
+    if check in ('crack_width_long','crack_width_short'):
+        return {'CScore.CrackWidthSolver.Compute','Application.ArbatConservativeWithCScore'}
+    if check=='crack_formation':return {'CScore.CrackWidthSolver.Compute'}
     if check in ('member_stability','sls_member_stability'):return {'CScore.Sp63.RodEtaWiring','CScore.Sp63.RodEtaWiring.Apply'}
     return {'CScore.Sp63Shear.ShearInclinedChecker.Check','CScore.Sp63Shear.Sp63ShearApplicability.Evaluate'} if check in ('shear_strip','shear_inclined','inclined_moment') else {'CScore.Sp63Shear.ShearInclinedChecker'}
 
@@ -109,7 +112,28 @@ def validate_report(req,report):
             raise ValueError('CScore: недопустимый расчётный допуск')
         if status in ('passed','failed') and row['engine_method']=='CScore.Sp63Shear.Sp63ShearApplicability.Evaluate':
             raise ValueError('CScore: применимость не является расчётом прочности')
-        if status in ('passed','failed'):
+        if (key[0] in ('crack_width_long','crack_width_short') and status in ('passed','failed')
+                and req.get('sls_probe',{}).get('preliminary_method','arbat_conservative')=='arbat_conservative'):
+            raise ValueError('SLS: выбранная консервативная оценка подменена авторским результатом')
+        if row['engine_method']=='Application.ArbatConservativeWithCScore':
+            if (key[0] not in ('crack_width_long','crack_width_short')
+                    or req.get('sls_probe',{}).get('preliminary_method','arbat_conservative')!='arbat_conservative'
+                    or status not in ('preliminary_below_limit','preliminary_exceeds_limit','engineering_review')):
+                raise ValueError('SLS: консервативная оценка не является исходным расчётом CScore')
+        if status in ('preliminary_below_limit','preliminary_exceeds_limit','engineering_review'):
+            d=row.get('details')
+            if (key[0] not in ('crack_width_long','crack_width_short')
+                    or type(ratio) not in (int,float) or not math.isfinite(ratio) or ratio<0
+                    or not isinstance(d,dict) or d.get('decision') not in
+                        ('preliminary_below_limit','preliminary_exceeds_limit','engineering_review')):
+                raise ValueError('SLS: некорректная предварительная оценка')
+            native=d.get('native_utilization')
+            if (type(native) not in (int,float) or not math.isfinite(native) or native<0
+                    or row['engine_method']=='Application.ArbatConservativeWithCScore' and ratio+1e-9<native
+                    or status=='preliminary_below_limit' and ratio>1
+                    or status=='preliminary_exceeds_limit' and ratio<=1):
+                raise ValueError('SLS: неверный коэффициент предварительной оценки')
+        elif status in ('passed','failed'):
             detail=row.get('details')
             zero_capacity=(status=='failed' and ratio is None and row.get('reason')=='native_zero_capacity'
                 and key[0] in ('shear_strip','shear_inclined','inclined_moment')
@@ -137,8 +161,8 @@ def validate_report(req,report):
             raise ValueError('CScore: недопустимое внешнее подтверждение')
         if status in ('not_evaluated','not_applicable','indeterminate','accounted_in_loads') and not row.get('reason'):
             raise ValueError('CScore: не указана причина пропуска проверки')
-        failures |= status in ('failed','unstable')
-        gaps |= status in ('not_evaluated','not_applicable','indeterminate') or (isinstance(row.get('details'),dict) and row['details'].get('directions_complete') is False)
+        failures |= status in ('failed','unstable','preliminary_exceeds_limit')
+        gaps |= status in ('not_evaluated','not_applicable','indeterminate','engineering_review') or (isinstance(row.get('details'),dict) and row['details'].get('directions_complete') is False)
     if seen!=expected:raise ValueError('CScore: возвращены не все необходимые проверки')
     return {**report,'status':'failed' if failures else 'incomplete' if gaps else 'calculated_not_verified',
             'has_failures':failures,'has_gaps':gaps}

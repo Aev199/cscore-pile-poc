@@ -4,7 +4,7 @@ using CScore;
 using CScore.Sp63;
 using CScore.Sp63Shear;
 
-// Integration/reporting only. All capacities, crack widths and eta come from CScore.
+// Strength/eta from CScore; crack estimates explicitly identify the selected method.
 internal static class ConnectionReport
 {
     private static JsonElement Json(object value) => JsonSerializer.SerializeToElement(value);
@@ -22,7 +22,7 @@ internal static class ConnectionReport
             double? ratio = null, string reason = "", object? details = null,
             string basis = "native_section") => rows.Add(new {
                 check_id = id, case_id = caseId, status, utilization = ratio,
-                engine_method = "CScore." + method, reason, details, basis,
+                engine_method = method.StartsWith("Application.") ? method : "CScore." + method, reason, details, basis,
                 verified_for_design = false });
         void Ratio(string id, string caseId, double? ratio, string method,
             object? details = null, string basis = "native_section")
@@ -166,10 +166,29 @@ internal static class ConnectionReport
                 {
                     Add("crack_formation",load.Id,"calculated","CrackWidthSolver.Compute",
                         details:new { cracked = True(r,"cracked"), mcrc_knm = Number(r,"mcrc_knm") },basis:basis);
-                    Ratio("crack_width_long",load.Id,Number(r,"utilization_long"),"CrackWidthSolver.Compute",
-                        new { width_mm = Number(r,"width_long_mm") },basis);
-                    Ratio("crack_width_short",load.Id,Number(r,"utilization_short"),"CrackWidthSolver.Compute",
-                        new { width_mm = Number(r,"width_short_mm") },basis);
+                    bool conservative = Text(r,"preliminary_method") == "arbat_conservative";
+                    foreach (string duration in new[] { "long", "short" })
+                    {
+                        var ratio = Number(r,"preliminary_utilization_" + duration);
+                        var details = new { width_mm = Number(r,"preliminary_width_" + duration + "_mm"),
+                            native_width_mm = Number(r,"width_" + duration + "_mm"),
+                            native_utilization = Number(r,"utilization_" + duration),
+                            method = Text(r,"preliminary_method"),
+                            estimate_basis = Text(r,"preliminary_basis"),
+                            decision = Text(r,"preliminary_decision"),
+                            review_band = Number(r,"preliminary_review_band"),
+                            review_reason = Text(r,"preliminary_review_reason") };
+                        string method = conservative ? "Application.ArbatConservativeWithCScore" : "CrackWidthSolver.Compute";
+                        if (conservative || Text(r,"preliminary_review_reason") != "")
+                        {
+                            string decision = Text(r,"preliminary_decision");
+                            string status = decision == "engineering_review" ? decision
+                                : ratio > 1 ? "preliminary_exceeds_limit" : "preliminary_below_limit";
+                            Add("crack_width_" + duration,load.Id,status,method,ratio,
+                                details:details,basis:conservative ? "cscore_based_conservative_estimate" : basis);
+                        }
+                        else Ratio("crack_width_" + duration,load.Id,ratio,method,details,basis);
+                    }
                 }
             }
         }

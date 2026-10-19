@@ -401,6 +401,208 @@ internal static class Program
                                           + load.MyLongKnm * load.MyLongKnm);
                     var mTotal = Math.Sqrt(load.MxTotalKnm * load.MxTotalKnm
                                            + load.MyTotalKnm * load.MyTotalKnm);
+                    // Supplement ONLY the upstream early-return case where
+                    // the sustained moment is under Mcrc but the total moment
+                    // crosses Mcrc. The upstream Compute() returns zero before
+                    // calculating the total force. Repeat it with FULL action
+                    // as both arguments and take its Acrc2 transient term.
+                    // This is an independent research reconstruction, not a
+                    // rewrite or verification of the author's solver.
+                    if (!r.Cracked && r.CrcConverged
+                        && double.IsFinite(r.Mcrc) && r.Mcrc >= 0
+                        && mLong <= r.Mcrc && mTotal > r.Mcrc + 1e-8)
+                    {
+                        // The cracking-face direction must stay the same.
+                        // A rotating or reversed load would require separate
+                        // cracking threshold computations for every direction.
+                        double cross = load.MxLongKnm * load.MyTotalKnm
+                                     - load.MyLongKnm * load.MxTotalKnm;
+                        double dot = load.MxLongKnm * load.MxTotalKnm
+                                   + load.MyLongKnm * load.MyTotalKnm;
+                        if (mLong > 1e-9
+                            && (dot <= 0 || Math.Abs(cross) > 1e-8 * mLong * mTotal))
+                            throw new InvalidOperationException(
+                                "short_only_requires_proportional_nonreversing_moments");
+
+                        var full = solver.Compute(load.NKn,
+                            load.MxTotalKnm, load.MxTotalKnm,
+                            load.MyTotalKnm, load.MyTotalKnm);
+                        bool validFull = full.Cracked && full.CrcConverged
+                            && full.PlaneLong.HasValue
+                            && double.IsFinite(full.Mcrc) && full.Mcrc >= 0
+                            && Math.Abs(full.Mcrc - r.Mcrc) <= 0.05
+                            && double.IsFinite(full.Acrc2) && full.Acrc2 > 0
+                            && double.IsFinite(full.AcrcLong) && full.AcrcLong > 0
+                            && double.IsFinite(full.AcrcShort) && full.AcrcShort > 0
+                            && double.IsFinite(full.PsiS2) && full.PsiS2 > 0
+                            && double.IsFinite(full.SigmaS) && full.SigmaS >= 0;
+                        // For equal total and sustained forces, Acrc2 is the
+                        // phi1=1.0 transient term, while AcrcLong has phi1=1.4.
+                        bool consistentShortTerm = validFull
+                            && Math.Abs(full.Acrc2 - full.AcrcLong / 1.4)
+                                <= 1e-7 + 1e-6 * full.Acrc2;
+                        if (!consistentShortTerm)
+                            throw new InvalidOperationException(
+                                "short_only_supplement_failed_convergence_or_psi_identity");
+
+                        double nativeShortWidth = full.Acrc2;
+                        double screeningShortWidth = probe.PreliminaryMethod == "native_refined"
+                            ? nativeShortWidth
+                            : Math.Max(nativeShortWidth, nativeShortWidth / full.PsiS2);
+                        if (!double.IsFinite(screeningShortWidth)
+                            || screeningShortWidth < 0)
+                            throw new InvalidOperationException(
+                                "short_only_invalid_conservative_width");
+
+                        // Because ARBAT sometimes predicts long cracks even
+                        // below this preliminary CScore Mcrc, we cannot
+                        // classify this reconstructed case as a prelim PASS.
+                        // Always route it to explicit engineering review.
+                        double shortUse = screeningShortWidth / probe.AcrcUltShortMm;
+                        string shortOnlyDecision = shortUse > 1.0 + probe.ReviewBand
+                            ? "preliminary_exceeds_limit" : "engineering_review";
+                        return (object)new
+                        {
+                            id = load.Id,
+                            status = "research_calculated",
+                            error = (string?)null,
+                            preliminary_method = probe.PreliminaryMethod,
+                            preliminary_basis = "short_only_supplemental_full_load_solver",
+                            preliminary_review_reason = "cracked_only_under_total_load_unvalidated_mcrc_threshold",
+                            preliminary_width_long_mm = (double?)0.0,
+                            preliminary_utilization_long = (double?)0.0,
+                            preliminary_width_short_mm = (double?)screeningShortWidth,
+                            preliminary_utilization_short = (double?)shortUse,
+                            preliminary_governing_utilization = (double?)shortUse,
+                            preliminary_decision = shortOnlyDecision,
+                            preliminary_review_band = probe.ReviewBand,
+                            preliminary_is_final_approval = false,
+                            cracked = (bool?)true,
+                            cracked_long = false,
+                            cracked_total = true,
+                            crack_solver_path = "supplemental_full_load_Acrc2",
+                            raw_long_branch_cracked = false,
+                            crc_converged = full.CrcConverged,
+                            mcrc_knm = (double?)full.Mcrc,
+                            sigma_rebar_kpa = (double?)null,
+                            sigma_rebar_total_kpa = (double?)full.SigmaS,
+                            sigma_rebar_at_crack_kpa = (double?)null,
+                            compatibility_hypothesis = "none_short_only",
+                            compatibility_error = "no_sustained_cracks_to_reconstruct",
+                            sigma_rebar_precrack_kpa = (double?)null,
+                            psi_s_precrack_hypothesis = (double?)null,
+                            width_long_precrack_hypothesis_mm = (double?)null,
+                            utilization_long_precrack_hypothesis = (double?)null,
+                            psi_s = (double?)null,
+                            psi_s2 = (double?)full.PsiS2,
+                            crack_spacing_m = double.IsFinite(full.Ls) ? (double?)full.Ls : null,
+                            tensile_rebar_area_m2 = double.IsFinite(full.AsTens) ? (double?)full.AsTens : null,
+                            equivalent_rebar_diameter_m = double.IsFinite(full.DsEq) ? (double?)full.DsEq : null,
+                            tensile_concrete_area_m2 = double.IsFinite(full.Abt) ? (double?)full.Abt : null,
+                            effective_height_m = double.IsFinite(full.H0) ? (double?)full.H0 : null,
+                            phi1_long_times_phi2 = 1.4 * probe.Phi2,
+                            phi2 = probe.Phi2,
+                            a_crc_1_mm = (double?)0.0,
+                            a_crc_2_mm = (double?)full.Acrc2,
+                            a_crc_3_mm = (double?)0.0,
+                            width_long_mm = (double?)0.0,
+                            screening_psi_one_basis = "SP63_8.2.15_psi_s_one_transient_only",
+                            width_long_psi_one_mm = (double?)0.0,
+                            utilization_long_psi_one = (double?)0.0,
+                            width_short_mm = (double?)nativeShortWidth,
+                            utilization_long = (double?)0.0,
+                            utilization_short = (double?)(nativeShortWidth / probe.AcrcUltShortMm),
+                            verified_for_design = false
+                        };
+                    }
+
+                    // An ARBAT-oriented RESEARCH contrast: pre-cracking rebar
+                    // stress (historical OpenCS technique, superseded upstream).
+                    // We keep upstream's post-crack algorithm entirely unchanged.
+                    // For arbitrary SLS load splits this contrast is not valid:
+                    // our reference dataset uses identical sustained/total forces.
+                    bool sameMoments = Math.Abs(load.MxLongKnm - load.MxTotalKnm) < 1e-9
+                        && Math.Abs(load.MyLongKnm - load.MyTotalKnm) < 1e-9;
+                    double? sigmaPreKpa = null, psiPre = null, widthPreMm = null,
+                        utilizationPre = null;
+                    string? preError = sameMoments ? null : "sustained_total_moments_differ";
+                    if (sameMoments && r.Cracked && r.CrcConverged && r.PlaneLong.HasValue
+                        && double.IsFinite(r.PsiS) && r.PsiS > 1e-12
+                        && double.IsFinite(r.SigmaS) && r.SigmaS > 0
+                        && double.IsFinite(r.AcrcLong) && r.AcrcLong >= 0)
+                    {
+                        try
+                        {
+                            double mxDir = Math.Abs(load.MxLongKnm) > 1e-12
+                                ? load.MxLongKnm : (Math.Abs(load.MxTotalKnm) > 1e-12
+                                    ? load.MxTotalKnm : 1.0);
+                            double myDir = Math.Abs(load.MxLongKnm) > 1e-12
+                                || Math.Abs(load.MyLongKnm) > 1e-12
+                                ? load.MyLongKnm : load.MyTotalKnm;
+                            var cracking = new CrackingSolver(section, CalcType.N,
+                                solverTol: 0.5,
+                                tensionZone: CrackingSolver.LoadedTensionZone(
+                                    section, load.NKn, mxDir, myDir,
+                                    nAtZeroMoment: load.NKn));
+                            var crc = cracking.CrackingMoment(load.NKn, mxDir, myDir);
+                            double mag = Math.Sqrt(crc.Mx * crc.Mx + crc.My * crc.My);
+                            if (!crc.Converged || !crc.StrainPlane.HasValue
+                                || Math.Abs(mag - r.Mcrc) > 0.05)
+                            {
+                                preError = "precrack_threshold_not_reproduced";
+                            }
+                            else
+                            {
+                                double sigma = 0.0;
+                                foreach (var (area, ka) in section.EnumerateAreas(crc.StrainPlane.Value))
+                                {
+                                    if (area.Material?.Type != MatType.ReSteelF)
+                                        continue;
+                                    var diagrams = area.Material.GetDiagramms(
+                                        area.DiagrammType, 0.85, 0.05);
+                                    if (diagrams is null
+                                        || !diagrams.TryGetValue(CalcType.N, out var diag))
+                                        continue;
+                                    foreach (var bar in area.Fibers)
+                                    {
+                                        if (bar.TypeFiber != FiberType.point)
+                                            continue;
+                                        var eps = ka.e0 + ka.ky * bar.Y + ka.kz * bar.X;
+                                        if (eps > 0)
+                                        {
+                                            var stress = diag.Sig(eps, out _);
+                                            if (double.IsFinite(stress) && stress > sigma)
+                                                sigma = stress;
+                                        }
+                                    }
+                                }
+                                double psi = Math.Clamp(1.0 - 0.8 * sigma / r.SigmaS,
+                                    0.2, 1.0);
+                                double trialWidth = r.AcrcLong * psi / r.PsiS;
+                                if (!double.IsFinite(trialWidth) || trialWidth < 0)
+                                    preError = "invalid_compatibility_width";
+                                else
+                                {
+                                    sigmaPreKpa = sigma;
+                                    psiPre = psi;
+                                    widthPreMm = trialWidth;
+                                    utilizationPre = trialWidth / probe.AcrcUltLongMm;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            preError = "precrack_study_error:" + ex.GetType().Name;
+                        }
+                    }
+                    else if (sameMoments && !r.Cracked)
+                    {
+                        preError = "no_crack_in_upstream_result";
+                    }
+                    else if (sameMoments)
+                    {
+                        preError = "insufficient_upstream_sls_state";
+                    }
                     bool finite = double.IsFinite(r.Mcrc) && r.Mcrc >= 0
                         && double.IsFinite(r.AcrcLong) && r.AcrcLong >= 0
                         && double.IsFinite(r.AcrcShort) && r.AcrcShort >= 0
@@ -418,14 +620,159 @@ internal static class Program
                         && mTotal <= r.Mcrc + 1e-9;
                     bool validated = r.CrcConverged && finite
                         && (r.Cracked ? r.PlaneLong.HasValue : plausibleNoCrack);
-                    string? error = validated ? null : "indeterminate_native_CScore_crack_result";
-                    double? primaryWidth = validated ? r.AcrcLong : null;
-                    double? primaryShortWidth = validated ? r.AcrcShort : null;
-                    string primaryBasis = "native_refined_postcrack";
+                    // SECONDARY DIAGNOSTIC ONLY. CrackWidthSolver's internal
+                    // SolveDamped is private and may silently return a zero
+                    // result from multiple stages. For a zero return AFTER
+                    // the cracking threshold, independently attempt a
+                    // public StrainSolver equilibrium at the same service
+                    // load and diagram. This must NOT replace or approve
+                    // the upstream crack result, even if it converges.
+                    bool? independentEquilibriumConverged = null;
+                    int? independentEquilibriumIterations = null;
+                    double? independentEquilibriumResidual = null;
+                    string independentEquilibriumStatus = "not_necessary";
+                    if (!r.Cracked && r.CrcConverged
+                        && double.IsFinite(r.Mcrc) && r.Mcrc >= 0
+                        && mLong > r.Mcrc + 1e-8)
+                    {
+                        independentEquilibriumStatus = "attempted";
+                        try
+                        {
+                            var equilibrium = new StrainSolver(
+                                section, CalcType.N, ten: false, ca: true,
+                                tol: 0.5, maxIter: 80, centralJacobian: true);
+                            var independentPlane = equilibrium.Solve(
+                                load.NKn, load.MxLongKnm, load.MyLongKnm);
+                            bool planeFinite = double.IsFinite(independentPlane.e0)
+                                && double.IsFinite(independentPlane.ky)
+                                && double.IsFinite(independentPlane.kz);
+                            bool resultValid = planeFinite
+                                && double.IsFinite(equilibrium.Residual)
+                                && equilibrium.Residual >= 0;
+                            independentEquilibriumConverged =
+                                resultValid && equilibrium.Converged;
+                            independentEquilibriumIterations =
+                                equilibrium.Iterations;
+                            independentEquilibriumResidual = resultValid
+                                ? equilibrium.Residual : null;
+                            independentEquilibriumStatus =
+                                !resultValid ? "invalid_independent_solution"
+                                : equilibrium.Converged
+                                    ? "independent_equilibrium_converged"
+                                    : "independent_equilibrium_not_converged";
+                        }
+                        catch (Exception ex)
+                        {
+                            independentEquilibriumStatus =
+                                "independent_equilibrium_exception:"
+                                + ex.GetType().Name;
+                        }
+                    }
+                    // SP63 8.2.15 permits psi_s=1 for a conservative initial
+                    // screening. It preserves CScore's sigma_s, Es, ls, phi's
+                    // and changes ONLY psi_s, with no ARBAT fitting.
+                    // Cracked cases only: never turn an uncertain upstream
+                    // zero-width fallback into a valid upper bound.
+                    double? widthPsiOne = validated && r.Cracked
+                        && double.IsFinite(r.PsiS) && r.PsiS > 0
+                        ? r.AcrcLong / r.PsiS : null;
+                    if (widthPsiOne.HasValue
+                        && (!double.IsFinite(widthPsiOne.Value) || widthPsiOne.Value < 0))
+                        widthPsiOne = null;
+                    string? error = validated ? null :
+                        (!r.Cracked && r.CrcConverged
+                             && double.IsFinite(r.Mcrc) && mLong > r.Mcrc
+                            ? "upstream_post_threshold_zero_unresolved_stage"
+                            : "indeterminate_crack_solver_or_upstream_silent_fallback");
+                    // Selection here governs ONLY preliminary SLS screening.
+                    // 'arbat_conservative' does NOT imply we reproduced ARBAT:
+                    // the pre-crack stress approximation is not normatively
+                    // established for arbitrary loads or geometries.
+                    // Keep the native refined result as a separate, unchanged option.
+                    double? primaryWidth = null, primaryShortWidth = null;
+                    string primaryBasis = "not_computed";
+                    if (validated)
+                    {
+                        if (!r.Cracked)
+                        {
+                            primaryWidth = 0.0;
+                            primaryShortWidth = 0.0;
+                            primaryBasis = "uncracked_checked_both_long_and_total_thresholds";
+                        }
+                        else if (probe.PreliminaryMethod == "native_refined")
+                        {
+                            primaryWidth = r.AcrcLong;
+                            primaryShortWidth = r.AcrcShort;
+                            primaryBasis = "native_refined_postcrack";
+                        }
+                        else
+                        {
+                            // Long: ARBAT-oriented pre-crack reference stress,
+                            // if applicable, but never below native CScore.
+                            if (widthPreMm.HasValue && preError is null)
+                            {
+                                primaryWidth = Math.Max(widthPreMm.Value, r.AcrcLong);
+                                primaryBasis = "precrack_compatibility_envelope_with_native";
+                            }
+                            else if (widthPsiOne.HasValue)
+                            {
+                                primaryWidth = Math.Max(widthPsiOne.Value, r.AcrcLong);
+                                primaryBasis = "psi_s_one_fallback_compat_not_applicable";
+                            }
+
+                            // Exact same sustained and total N-M tuple:
+                            // SP63 three-component short width = a1+a2-a3
+                            // and with identical load/diagram, a2 == a3.
+                            // The short width MUST equal the long width, also
+                            // for the pre-crack compatibility estimate. This
+                            // holds only if the native solve independently
+                            // confirms equal widths. Otherwise fail closed.
+                            if (sameMoments)
+                            {
+                                double nativeWidthTolerance = Math.Max(1e-9,
+                                    1e-8 * Math.Max(Math.Abs(r.AcrcLong),
+                                                    Math.Abs(r.AcrcShort)));
+                                if (primaryWidth.HasValue
+                                    && Math.Abs(r.AcrcLong - r.AcrcShort)
+                                        <= nativeWidthTolerance)
+                                {
+                                    primaryShortWidth = primaryWidth.Value;
+                                    primaryBasis += "_fully_sustained";
+                                }
+                                else
+                                {
+                                    primaryBasis += "_native_short_long_inconsistent";
+                                }
+                            }
+                            else
+                            {
+                                // Partial sustained action: no independently
+                                // validated pre-crack transformation for the
+                                // second transient term. Use psi_s=1 for all
+                                // three native SP63 components and retain an
+                                // envelope against unmodified native CScore.
+                                double? shortPsiOne = null;
+                                if (double.IsFinite(r.PsiS) && r.PsiS > 0.0
+                                    && double.IsFinite(r.PsiS2) && r.PsiS2 > 0.0
+                                    && double.IsFinite(r.Acrc1) && double.IsFinite(r.Acrc2)
+                                    && double.IsFinite(r.Acrc3))
+                                {
+                                    double estimate = (r.Acrc1 - r.Acrc3) / r.PsiS
+                                                      + r.Acrc2 / r.PsiS2;
+                                    if (double.IsFinite(estimate) && estimate >= 0.0)
+                                        shortPsiOne = estimate;
+                                }
+                                if (shortPsiOne.HasValue)
+                                    primaryShortWidth = Math.Max(shortPsiOne.Value,
+                                                                r.AcrcShort);
+                            }
+                        }
+                    }
+
                     double? primaryUtilization = primaryWidth.HasValue
-                        ? r.UtilLong : null;
+                        ? primaryWidth.Value / probe.AcrcUltLongMm : null;
                     double? primaryShortUtilization = primaryShortWidth.HasValue
-                        ? r.UtilShort : null;
+                        ? primaryShortWidth.Value / probe.AcrcUltShortMm : null;
                     double? governingUtilization = primaryUtilization.HasValue
                         && primaryShortUtilization.HasValue
                             ? Math.Max(primaryUtilization.Value, primaryShortUtilization.Value)
@@ -451,6 +798,10 @@ internal static class Program
                             ? "upstream_default_zero_return" : "upstream_default",
                         upstream_post_threshold_zero = !r.Cracked && r.CrcConverged
                             && double.IsFinite(r.Mcrc) && mLong > r.Mcrc,
+                        secondary_equilibrium_status = independentEquilibriumStatus,
+                        secondary_equilibrium_converged = independentEquilibriumConverged,
+                        secondary_equilibrium_iterations = independentEquilibriumIterations,
+                        secondary_equilibrium_residual = independentEquilibriumResidual,
                         preliminary_width_long_mm = primaryWidth,
                         preliminary_utilization_long = primaryUtilization,
                         preliminary_width_short_mm = primaryShortWidth,
@@ -466,6 +817,14 @@ internal static class Program
                         // These do not themselves certify a correct crack result.
                         sigma_rebar_kpa = validated && double.IsFinite(r.SigmaS) ? (double?)r.SigmaS : null,
                         sigma_rebar_at_crack_kpa = validated && double.IsFinite(r.SigmaSCrc) ? (double?)r.SigmaSCrc : null,
+                        // Alternative uses PRE-crack plane only for ψs,
+                        // not for the governing CScore SLS result.
+                        compatibility_hypothesis = "precrack_sigma_s_crc_legacy_opencs_not_verified_arbat",
+                        compatibility_error = preError,
+                        sigma_rebar_precrack_kpa = validated ? sigmaPreKpa : null,
+                        psi_s_precrack_hypothesis = validated ? psiPre : null,
+                        width_long_precrack_hypothesis_mm = validated ? widthPreMm : null,
+                        utilization_long_precrack_hypothesis = validated ? utilizationPre : null,
                         psi_s = validated && double.IsFinite(r.PsiS) ? (double?)r.PsiS : null,
                         psi_s2 = validated && double.IsFinite(r.PsiS2) ? (double?)r.PsiS2 : null,
                         crack_spacing_m = validated && double.IsFinite(r.Ls) ? (double?)r.Ls : null,
@@ -479,6 +838,10 @@ internal static class Program
                         a_crc_2_mm = validated && double.IsFinite(r.Acrc2) ? (double?)r.Acrc2 : null,
                         a_crc_3_mm = validated && double.IsFinite(r.Acrc3) ? (double?)r.Acrc3 : null,
                         width_long_mm = validated ? (double?)r.AcrcLong : null,
+                        screening_psi_one_basis = "SP63_8.2.15_psi_s_equal_one_no_upstream_changes",
+                        width_long_psi_one_mm = widthPsiOne,
+                        utilization_long_psi_one = widthPsiOne.HasValue
+                            ? (double?)(widthPsiOne.Value / probe.AcrcUltLongMm) : null,
                         width_short_mm = validated ? (double?)r.AcrcShort : null,
                         utilization_long = validated ? (double?)r.UtilLong : null,
                         utilization_short = validated ? (double?)r.UtilShort : null,
@@ -723,7 +1086,7 @@ internal static class Program
                 || !double.IsFinite(probe.Phi2) || probe.Phi2 <= 0
                 || !double.IsFinite(probe.AcrcUltLongMm) || probe.AcrcUltLongMm <= 0
                 || !double.IsFinite(probe.AcrcUltShortMm) || probe.AcrcUltShortMm <= 0
-                || probe.PreliminaryMethod != "native_refined"
+                || probe.PreliminaryMethod is not ("native_refined" or "arbat_conservative")
                 || !double.IsFinite(probe.ReviewBand) || probe.ReviewBand <= 0
                 || probe.ReviewBand >= 0.25)
                 throw new ArgumentException("Explicit service characteristics, loads and limits required");
@@ -861,7 +1224,7 @@ internal sealed class SlsProbe
     [JsonPropertyName("phi2")] public double Phi2 { get; init; } = 0.5;
     [JsonPropertyName("acrc_ult_long_mm")] public double AcrcUltLongMm { get; init; } = 0.3;
     [JsonPropertyName("acrc_ult_short_mm")] public double AcrcUltShortMm { get; init; } = 0.4;
-    [JsonPropertyName("preliminary_method")] public string PreliminaryMethod { get; init; } = "native_refined";
+    [JsonPropertyName("preliminary_method")] public string PreliminaryMethod { get; init; } = "arbat_conservative";
     [JsonPropertyName("review_band")] public double ReviewBand { get; init; } = 0.03;
 }
 internal sealed class SlsLoad

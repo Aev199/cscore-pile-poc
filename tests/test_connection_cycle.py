@@ -32,13 +32,32 @@ class ConnectionContracts(unittest.TestCase):
     def report(self,req):
         return {'version':1,'verified_for_design':False,'checks':[
             dict(check_id=k,case_id=case,status='not_evaluated',utilization=None,
-                 engine_method=next(iter(methods(k))),reason='missing_input',verified_for_design=False)
+                 engine_method=next(m for m in methods(k) if m.startswith("CScore.")),reason='missing_input',verified_for_design=False)
             for k,case in expected_checks(req)]}
 
     def test_missing_data_is_incomplete_and_not_a_pass(self):
         req=self.request();r=validate_report(req,self.report(req))
         self.assertEqual(r['status'],'incomplete')
         self.assertFalse(r['verified_for_design'])
+
+    def test_conservative_cracks_are_attributed_and_never_native_passes(self):
+        req=self.request()
+        req['sls_probe']={'preliminary_method':'arbat_conservative','loads':[{'id':'S'}]}
+        report=self.report(req)
+        row=next(r for r in report['checks'] if r['check_id']=='crack_width_short')
+        row.update(status='preliminary_exceeds_limit',utilization=1.30,reason='',
+                   engine_method='Application.ArbatConservativeWithCScore',
+                   details={'decision':'preliminary_exceeds_limit','native_utilization':.96})
+        self.assertTrue(validate_report(req,report)['has_failures'])
+        row['status']='passed'
+        with self.assertRaises(ValueError):validate_report(req,report)
+        row.update(status='preliminary_below_limit',utilization=.90)
+        with self.assertRaises(ValueError):validate_report(req,report)
+        row.update(status='engineering_review',utilization=1.014)
+        row['details']['decision']='engineering_review'
+        self.assertTrue(validate_report(req,report)['has_gaps'])
+        req['sls_probe']['preliminary_method']='native_refined'
+        with self.assertRaises(ValueError):validate_report(req,report)
 
     def test_partial_duplicate_unknown_or_false_approval_rejected(self):
         req=self.request();r=self.report(req)

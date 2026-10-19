@@ -105,9 +105,9 @@ def validate_sls_probe(probe: dict) -> None:
                'preliminary_method', 'review_band', 'loads'}
     if set(probe) - allowed:
         raise InputError("Неизвестные параметры sls_probe")
-    mode = probe.get('preliminary_method', 'native_refined')
-    if mode != 'native_refined':
-        raise InputError("sls_probe.preliminary_method: только native_refined (CScore)")
+    mode = probe.get('preliminary_method', 'arbat_conservative')
+    if mode not in ('native_refined','arbat_conservative'):
+        raise InputError('sls_probe.preliminary_method: arbat_conservative или native_refined')
     band = positive(probe.get('review_band', 0.03), 'sls_probe.review_band')
     if band >= .25:
         raise InputError("sls_probe.review_band должен быть меньше 0.25")
@@ -166,15 +166,23 @@ def check_sls_results(result_rows: list, expected: dict, mode: str, band: float)
                 raise InputError('SLS: отсутствуют конечные коэффициенты длительной/кратковременной проверки')
             if not math.isclose(governing, max(a, a_short), rel_tol=1e-8, abs_tol=1e-8):
                 raise InputError('SLS: неверный управляющий коэффициент')
-            if (mode != 'native_refined'
-                    or row.get('preliminary_basis') not in (
-                        'native_refined_postcrack', 'uncracked_checked_both_long_and_total_thresholds')
-                    or not math.isclose(a,n,rel_tol=1e-9,abs_tol=1e-9)
+            if mode == 'arbat_conservative' and (a + 1e-9 < n or a_short + 1e-9 < native_short):
+                raise InputError('SLS: основной результат менее консервативен, чем CScore')
+            if mode == 'native_refined' and (not math.isclose(a,n,rel_tol=1e-9,abs_tol=1e-9)
                     or not math.isclose(a_short,native_short,rel_tol=1e-9,abs_tol=1e-9)):
                 raise InputError('SLS: результат должен совпадать с исходным CScore native_refined')
-            expected_decision = ('engineering_review' if abs(governing - 1) <= band else
-                                 'preliminary_exceeds_limit' if governing > 1 else
-                                 'preliminary_below_limit')
+            short_only = row.get('preliminary_basis') == 'short_only_supplemental_full_load_solver'
+            if short_only:
+                if (row.get('preliminary_review_reason') !=
+                    'cracked_only_under_total_load_unvalidated_mcrc_threshold'
+                    or a != 0 or n != 0 or a_short <= 0 or native_short <= 0):
+                    raise InputError('SLS: некорректный исследовательский расчёт только кратковременных трещин')
+                expected_decision = ('preliminary_exceeds_limit'
+                                     if governing > 1.0 + band else 'engineering_review')
+            else:
+                expected_decision = ('engineering_review' if abs(governing - 1) <= band else
+                                     'preliminary_exceeds_limit' if governing > 1 else
+                                     'preliminary_below_limit')
             if row.get('preliminary_decision') != expected_decision or (
                 row.get('preliminary_is_final_approval') is not False
             ):
@@ -361,7 +369,7 @@ def parse_runner_results(request: dict, raw: Any) -> list[dict]:
                 opts = request['sls_probe']
                 sls_rows = check_sls_results(
                     item.get('sls_probe'), opts,
-                    opts.get('preliminary_method', 'native_refined'),
+                    opts.get('preliminary_method', 'arbat_conservative'),
                     opts.get('review_band', 0.03)
                 )
                 validated['sls_probe'] = sls_rows

@@ -22,7 +22,7 @@ class PileSlsOptionTests(unittest.TestCase):
         main.validate_input(data)
         candidates, _ = main.make_candidates(data)
         request = main.build_engine_request(data, candidates)
-        self.assertEqual(request["sls_probe"]["preliminary_method"],"native_refined")
+        self.assertEqual(request["sls_probe"]["preliminary_method"],"arbat_conservative")
         self.assertEqual(len(request["sls_probe"]["loads"]),4)
         self.assertEqual(len(request["loads"]),3)
         self.assertEqual(request["sls_probe"]["review_band"],.03)
@@ -227,7 +227,7 @@ class PileSlsOptionTests(unittest.TestCase):
                 def fake_run(argv, **kwargs):
                     req=json.loads(kwargs["input"])
                     sls = self.fake_rows(
-                        utilization=trial,native=0.85,mode="native_refined"
+                        utilization=trial,native=0.85,mode="arbat_conservative"
                     )
                     return SimpleNamespace(
                         returncode=0,stderr="",
