@@ -234,6 +234,7 @@ internal static class ConnectionReport
         try
         {
             if (section is null) throw new InvalidOperationException("section_unavailable");
+            bool amplifiedMember = false;
             if (c.SecondOrderMode == "cscore_member")
             {
                 if (memberActions is not RodEtaWiring.Result a)
@@ -245,17 +246,26 @@ internal static class ConnectionReport
                 {
                     Missing("not_evaluated","native_member_unstable"); return;
                 }
-                // Reuse source forces only when native eta leaves BOTH axes unchanged.
-                // No tolerance: even a small amplification is not a reconstructed N/M/Q profile.
-                if (a.X.Eta!=1 || a.Y.Eta!=1 || a.MxEff!=load.MxKnm || a.MyEff!=load.MyKnm)
+                if (!double.IsFinite(a.X.Eta) || !double.IsFinite(a.Y.Eta)
+                    || a.X.Eta<1 || a.Y.Eta<1
+                    || !double.IsFinite(a.MxEff) || !double.IsFinite(a.MyEff))
                 {
-                    Missing("not_evaluated","member_eta_requires_consistent_N_M_Q_profile"); return;
+                    Missing("not_evaluated","native_member_actions_unavailable"); return;
                 }
+                // SP63 8.1.2/8.1.15 amplify eccentricity for normal-section N/M.
+                // Q in 8.1.32/8.1.33 remains the external shear; 8.1.34 supplies phiN.
+                // An amplified NORMAL-section M is not automatically the external
+                // moment about the crack end required by 8.1.35.
+                amplifiedMember = a.X.Eta!=1 || a.Y.Eta!=1
+                    || a.MxEff!=load.MxKnm || a.MyEff!=load.MyKnm;
             }
             object forceContext = new { second_order_mode=c.SecondOrderMode,
-                actions_basis=c.SecondOrderMode=="cscore_member" ? "native_eta_one_source_actions_unchanged"
+                actions_basis=c.SecondOrderMode=="cscore_member" ? "source_actions_SP63_8_1_32_34"
                     : "source_actions",
                 n_kn=load.NKn,mx_knm=load.MxKnm,my_knm=load.MyKnm,q_kn=q,
+                eta_applied_to_q=false,
+                normal_mx_eff_knm=memberActions is RodEtaWiring.Result x ? Finite(x.MxEff) : null,
+                normal_my_eff_knm=memberActions is RodEtaWiring.Result y ? Finite(y.MyEff) : null,
                 eta=memberActions is RodEtaWiring.Result actions ? EtaDetails(actions) : null };
             var pair = InclinedSectionGeometryPair.Resolve(section,ShearPlane.Vy,CalcType.C);
             var side = pair.For(load.MxKnm);
@@ -310,7 +320,8 @@ internal static class ConnectionReport
                     limitation=concreteOnly ? "concrete_component_only_historical_geometry_requires_engineer_confirmation"
                         : "historical_geometry_and_user_spiral_equivalence_not_independently_verified_SP63_or_ARBAT" };
             bool moment = c.InclinedMomentRequested && c.AnchorageConfirmed
-                && c.AnchorageFactor.HasValue && c.SupportPositiveM is > 0 && c.SupportNegativeM is > 0;
+                && c.AnchorageFactor.HasValue && c.SupportPositiveM is > 0 && c.SupportNegativeM is > 0
+                && !amplifiedMember;
             var p = new ShearInclinedInput(b,h0,side.Rb,side.Rbt,
                 concreteOnly ? 0 : t!.RswKpa*area/(t.SpacingMm/1000),
                 concreteOnly ? 0 : t!.SpacingMm/1000,side.Ns,
@@ -324,8 +335,10 @@ internal static class ConnectionReport
                 if (item.Item1=="inclined_moment" && !moment)
                 {
                     add(item.Item1,load.Id,"not_evaluated",method,null,
-                        c.InclinedMomentRequested ? "confirm_anchorage_and_section_support_distance" : "inclined_moment_not_requested",
-                        null,shearBasis); continue;
+                        !c.InclinedMomentRequested ? "inclined_moment_not_requested"
+                            : amplifiedMember ? "inclined_moment_external_demand_required_with_eta"
+                            : "confirm_anchorage_and_section_support_distance",
+                        new { force_context=forceContext },shearBasis); continue;
                 }
                 var checks=results.SelectMany(r=>r.Details).Where(d=>d.Formula==item.Item2).ToArray();
                 var zeroCapacity=checks.FirstOrDefault(d=>d.Allowable==0

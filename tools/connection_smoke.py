@@ -71,7 +71,23 @@ def main():
     assert check(eta,'normal_member_strength')['status']=='passed'
     assert check(eta,'crack_width_short')['status']=='passed'
     assert check(eta,'crack_width_short')['basis']=='native_member_CrackWidthEta.ScaleLongTotal'
-    assert check(eta,'shear_inclined')['status']=='not_evaluated'
+    for key in ('shear_strip','shear_inclined'):
+        actual,source=check(eta,key),check(moment,key)
+        assert actual['status']==source['status'],actual
+        assert abs(actual['utilization']-source['utilization'])<1e-10,(actual,source)
+        forces=actual['details']['force_context']
+        assert forces['q_kn']==60 and forces['n_kn']==-300,forces
+        assert forces['eta_applied_to_q'] is False,forces
+        assert forces['normal_mx_eff_knm']>forces['mx_knm'],forces
+    assert check(eta,'inclined_moment')['status']=='not_evaluated'
+    assert check(eta,'inclined_moment')['reason']=='inclined_moment_external_demand_required_with_eta'
+    member_q_overload=copy.deepcopy(member)
+    for row in member_q_overload['rows']:
+        if row['basis']=='ULS':row['q']=50000
+    member_q_failure=run('wall_native_eta_Q_failure',member_q_overload)
+    assert check(member_q_failure,'member_stability')['details']['eta_x']>1
+    assert check(member_q_failure,'shear_strip')['status']=='failed'
+    assert member_q_failure['status']=='failed'
     # Native eta=1 leaves the original N/M/Q unchanged: no profile reconstruction is needed.
     stocky=copy.deepcopy(member)
     stocky['calculation_context'].update(l0_x_m=.5,l0_y_m=.5)
@@ -83,14 +99,15 @@ def main():
         assert current['status']==original['status'],(key,current,original)
         assert abs(current['utilization']-original['utilization'])<1e-10,(key,current,original)
         forces=current['details']['force_context']
-        assert forces['actions_basis']=='native_eta_one_source_actions_unchanged',forces
+        assert forces['actions_basis']=='source_actions_SP63_8_1_32_34',forces
         assert forces['eta']['eta_x']==forces['eta']['eta_y']==1,forces
     near_one=copy.deepcopy(member)
     for row in near_one['rows']:
         if row['basis']=='ULS':row['n']=-.00001
     tiny=run('wall_native_eta_barely_above_one',near_one)
     assert 1<check(tiny,'member_stability')['details']['eta_x']<1.000001
-    assert check(tiny,'shear_inclined')['status']=='not_evaluated'
+    assert check(tiny,'shear_inclined')['status'] in ('passed','failed')
+    assert check(tiny,'inclined_moment')['status']=='not_evaluated'
     mixed=copy.deepcopy(member)
     mixed['rows'] += [dict(row,case='No compression',n=0)
                      for row in member['rows'] if row['basis']=='ULS']
@@ -98,8 +115,8 @@ def main():
     mixed_checks=mixed_result['stations'][0]['report']['checks']
     by_case={c['case_id']:c for c in mixed_checks if c['check_id']=='member_stability'}
     for shear in (c for c in mixed_checks if c['check_id']=='shear_inclined'):
-        unchanged=by_case[shear['case_id']]['details']['eta_x']==1
-        assert (shear['status'] in ('passed','failed'))==unchanged,shear
+        assert shear['status'] in ('passed','failed'),shear
+        assert shear['details']['force_context']['eta']['eta_x']==by_case[shear['case_id']]['details']['eta_x'],shear
     unconfirmed=copy.deepcopy(stocky);unconfirmed['eccentricity_confirmed']=False
     missing_confirmation=run('wall_native_eta_eccentricity_unconfirmed',unconfirmed)
     assert check(missing_confirmation,'shear_inclined')['status']=='not_evaluated'
@@ -125,7 +142,10 @@ def main():
     stocky_pile['calculation_context'].update(l0_x_m=12,l0_y_m=12)
     pile_amplified=run('pile_native_eta_amplified',stocky_pile)
     assert check(pile_amplified,'member_stability')['details']['eta_x']>1
-    assert check(pile_amplified,'shear_inclined')['status']=='not_evaluated'
+    for key in ('shear_strip','shear_inclined'):
+        assert check(pile_amplified,key)['status'] in ('passed','failed'),check(pile_amplified,key)
+        assert abs(check(pile_amplified,key)['utilization']-check(pile_short,key)['utilization'])<1e-10
+    assert check(pile_amplified,'inclined_moment')['status']=='not_evaluated'
     # Loss of stability must never become a zero-utilization strength pass.
     unstable=copy.deepcopy(member)
     unstable['calculation_context'].update(l0_x_m=100,l0_y_m=100)
