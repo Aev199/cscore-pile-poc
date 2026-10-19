@@ -117,6 +117,7 @@ function renderNativeChecks(){
   if(r.details?.equivalence){const e=r.details.equivalence;
    html+='<p class="hint">'+(e.concrete_only?'Бетонная часть, без вклада навивки':'По принятой приведённой модели спирали')+': b = '+fmt(e.b_m*1000,1)+' мм; h₀ = '+fmt(e.h0_m*1000,1)+' мм; Aₛw,экв = '+fmt(e.effective_asw_mm2,1)+' мм².';
    if(e.concrete_only)html+=' Если бетонной части недостаточно, нужен обоснованный расчёт вклада навивки. Геометрия приведения принята инженером.';
+   else if(e.two_conditional_legs)html+=' Один виток — две условные ветви; шаг равен полному шагу навивки. Принятое инженерное допущение для приведённого сечения.';
    else html+=' χ = '+fmt(e.circular_efficiency,3)+'; проекция витка = '+fmt(e.helix_projection,4)+'. Сверка модели с АРБАТ не выполнена.';
    html+=' Обоснование: '+esc(e.efficiency_basis)+'.</p>';}
  }
@@ -374,8 +375,8 @@ $('connectionSettings').onclick=()=>{
  const c=nativeContext();$('secondOrderMode').value=c.second_order_mode;
  $('circularShearFields').hidden=project.kind!=='pile';
  const e=c.circular_shear;$('spiralEnable').checked=!!e;
- $('circularShearMode').value=e?.method??'vniigs_1984_concrete_only';
- $('spiralContributionFields').hidden=$('circularShearMode').value==='vniigs_1984_concrete_only';
+ $('circularShearMode').value=e?.method??'vniigs_1984_two_legs';
+ $('spiralContributionFields').hidden=$('circularShearMode').value!=='vniigs_1984_user_spiral';
  $('spiralA').value=e?.a_mm??'';$('spiralWinding').value=e?.winding_diameter_mm??'';
  $('spiralEfficiency').value=e?.circular_efficiency??'';$('spiralBasis').value=e?.efficiency_basis??'';
  $('spiralConfirmed').checked=e?.confirmed===true;
@@ -388,16 +389,16 @@ $('applyConnectionSettings').onclick=async()=>{try{
  const optional=id=>$(id).value.trim()===''?null:Number($(id).value),c=nativeContext(),z=Number($('connectionDialog').dataset.z);
  c.second_order_mode=$('secondOrderMode').value;c.l0_x_m=optional('nativeL0x');c.l0_y_m=optional('nativeL0y');c.psi=Number($('nativePsi').value);
  c.inclined_moment_requested=$('nativeMoment').checked;c.anchorage_confirmed=$('nativeAnchorageConfirmed').checked;c.anchorage_factor=optional('nativeAnchorageFactor');
- const concreteOnly=$('circularShearMode').value==='vniigs_1984_concrete_only';
+ const manualSpiral=$('circularShearMode').value==='vniigs_1984_user_spiral';
  c.circular_shear=project.kind==='pile'&&$('spiralEnable').checked ? {
   method:$('circularShearMode').value,a_mm:optional('spiralA'),
-  winding_diameter_mm:concreteOnly?null:optional('spiralWinding'),
-  circular_efficiency:concreteOnly?null:optional('spiralEfficiency'),efficiency_basis:$('spiralBasis').value.trim(),confirmed:$('spiralConfirmed').checked} : null;
+  winding_diameter_mm:manualSpiral?optional('spiralWinding'):null,
+  circular_efficiency:manualSpiral?optional('spiralEfficiency'):null,efficiency_basis:$('spiralBasis').value.trim(),confirmed:$('spiralConfirmed').checked} : null;
  c.sections=c.sections.filter(s=>s.z!==z);const down=optional('nativeSupportDown'),up=optional('nativeSupportUp');if(down!==null||up!==null)c.sections.push({z,support_distance_positive_m:down,support_distance_negative_m:up});
  const p={...project,calculation_context:c};await api('preview',p);project=p;dirty();render();$('connectionDialog').close();message();
  }catch(e){message(e.message);}};
 $('spiralEnable').onchange=()=>{$('spiralConfirmed').checked=false;};
-$('circularShearMode').onchange=()=>{$('spiralContributionFields').hidden=$('circularShearMode').value==='vniigs_1984_concrete_only';$('spiralConfirmed').checked=false;};
+$('circularShearMode').onchange=()=>{$('spiralContributionFields').hidden=$('circularShearMode').value!=='vniigs_1984_user_spiral';$('spiralConfirmed').checked=false;};
 for(const id of ['spiralA','spiralWinding','spiralEfficiency','spiralBasis'])$(id).oninput=()=>{$('spiralConfirmed').checked=false;};
 $('design').onclick=()=>calculate(false);$('check').onclick=()=>calculate(true);document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('plaxis').onclick=()=>$('plaxisDialog').showModal();$('connect').onclick=async()=>{try{catalog=null;$('objects').innerHTML='';$('phases').innerHTML='';$('extract').disabled=true;$('plaxisInfo').textContent='Подключение…';catalog=await api('plaxis/connect',{port:Number($('plaxisPort').value),password:$('plaxisPassword').value});$('plaxisPassword').value='';$('extract').disabled=false;$('objects').innerHTML=catalog.objects.map(o=>`<option value="${o.id}">${esc(o.name)} · ${esc(o.kind)}</option>`).join('');$('phases').innerHTML=catalog.phases.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('');$('plaxisInfo').textContent=Object.entries(catalog.info).map(([k,v])=>k+': '+v).join(' · ');}catch(e){$('plaxisInfo').textContent=e.message;}};

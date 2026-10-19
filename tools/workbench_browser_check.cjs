@@ -179,6 +179,16 @@ const path=require('path');
     await page.locator('#inspection').filter({hasText:'По принятой приведённой модели спирали'}).waitFor({timeout:60000});
     assert((await page.locator('#inspection').textContent()).includes('Browser test input'));
     await page.screenshot({path:process.env.SPIRAL_SCREENSHOT||'/tmp/workbench-spiral-checks.png',fullPage:true});
+    // Accepted two-leg mode clears hidden legacy coefficients and uses the existing pitch.
+    await page.locator('#connectionSettings').click();
+    await page.locator('#circularShearMode').selectOption('vniigs_1984_two_legs');
+    assert(await page.locator('#spiralContributionFields').isHidden());
+    assert(!(await page.locator('#spiralConfirmed').isChecked()));
+    await page.locator('#spiralConfirmed').check();
+    await page.locator('#applyConnectionSettings').click();
+    await page.locator('#connectionDialog').waitFor({state:'hidden'});
+    await page.locator('#connectionCheck').click();
+    await page.locator('#inspection').filter({hasText:'Один виток — две условные ветви'}).waitFor({timeout:60000});
     // Concrete-only circular Q can be selected without entering a spiral coefficient.
     await page.locator('#connectionSettings').click();
     await page.locator('#circularShearMode').selectOption('vniigs_1984_concrete_only');

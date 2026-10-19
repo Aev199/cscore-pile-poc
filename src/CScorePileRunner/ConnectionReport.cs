@@ -251,7 +251,15 @@ internal static class ConnectionReport
                 if (!(fixedH0>0))
                     throw new InvalidOperationException("invalid_equivalent_concrete_geometry");
                 shearBasis="user_equivalent_concrete_only_constant_profile";
-                if (!concreteOnly)
+                if (equivalent.TwoLegs)
+                {
+                    // A transverse bar must fit around the longitudinal ring inside concrete.
+                    if (2*candidate.BarAxisRadiusMm+candidate.BarDiameterMm+2*t!.DiameterMm
+                        >=input.Pile.DiameterMm)
+                        throw new InvalidOperationException("invalid_equivalent_spiral_geometry");
+                    shearBasis="user_equivalent_two_legs_constant_profile";
+                }
+                else if (!concreteOnly)
                 {
                 double winding=equivalent.WindingDiameterMm!.Value;
                 if (winding+ t!.DiameterMm>=input.Pile.DiameterMm
@@ -275,8 +283,9 @@ internal static class ConnectionReport
                 equivalenceDetails=new { method=equivalent.Method, b_m=b,h0_m=h0,
                     a_mm=equivalent.AMm,winding_diameter_mm=equivalent.WindingDiameterMm,
                     concrete_only=concreteOnly,
-                    circular_efficiency=concreteOnly ? (double?)null : efficiency,
-                    helix_projection=concreteOnly ? (double?)null : helixProjection,
+                    two_conditional_legs=equivalent.TwoLegs,
+                    circular_efficiency=concreteOnly || equivalent.TwoLegs ? (double?)null : efficiency,
+                    helix_projection=concreteOnly || equivalent.TwoLegs ? (double?)null : helixProjection,
                     effective_asw_mm2=area*1e6,efficiency_basis=equivalent.EfficiencyBasis,
                     confirmed=equivalent.Confirmed,
                     limitation=concreteOnly ? "concrete_component_only_historical_geometry_requires_engineer_confirmation"
@@ -371,13 +380,14 @@ internal sealed class CircularShearEquivalence
     [JsonPropertyName("efficiency_basis")] public string EfficiencyBasis { get; init; } = "";
     [JsonPropertyName("confirmed")] public bool Confirmed { get; init; }
     internal bool ConcreteOnly => Method == "vniigs_1984_concrete_only";
+    internal bool TwoLegs => Method == "vniigs_1984_two_legs";
     internal bool Ready => Confirmed && AMm.HasValue
-        && (ConcreteOnly || WindingDiameterMm.HasValue && CircularEfficiency.HasValue)
+        && (ConcreteOnly || TwoLegs || WindingDiameterMm.HasValue && CircularEfficiency.HasValue)
         && !string.IsNullOrWhiteSpace(EfficiencyBasis);
     internal void Validate()
     {
-        if (Method is not ("vniigs_1984_user_spiral" or "vniigs_1984_concrete_only")
-            || ConcreteOnly && (WindingDiameterMm.HasValue || CircularEfficiency.HasValue)
+        if (Method is not ("vniigs_1984_user_spiral" or "vniigs_1984_concrete_only" or "vniigs_1984_two_legs")
+            || (ConcreteOnly || TwoLegs) && (WindingDiameterMm.HasValue || CircularEfficiency.HasValue)
             || EfficiencyBasis is null || EfficiencyBasis.Length>1000
             || AMm is double a && (!double.IsFinite(a)||a<0)
             || WindingDiameterMm is double d && (!double.IsFinite(d)||d<=0)

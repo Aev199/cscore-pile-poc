@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real native checks; coefficients below are declared test inputs, not design defaults."""
-import argparse,copy,json,sys
+import argparse,copy,json,math,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from workbench import model
@@ -34,6 +34,28 @@ def main():
     assert abs(e['b_m']-.708)<1e-10 and abs(e['h0_m']-.628)<1e-10,e
     assert 0<e['helix_projection']<1 and e['effective_asw_mm2']<2*78.54*.8,e
     assert full['engine_method']=='CScore.Sp63Shear.ShearInclinedChecker.Check'
+    two=copy.deepcopy(p)
+    two['calculation_context']['circular_shear'].update(
+        method='vniigs_1984_two_legs',winding_diameter_mm=None,
+        circular_efficiency=None,efficiency_basis='Accepted engineering model: two conditional legs per full turn')
+    two_result=run('two_legs',two)
+    te=two_result['details']['equivalence']
+    assert two_result['status']=='passed',two_result
+    assert te['two_conditional_legs'] and te['circular_efficiency'] is None and te['helix_projection'] is None,te
+    assert abs(te['effective_asw_mm2']-2*math.pi*10**2/4)<1e-10,te
+    assert wires[-1]['shear_screening']['spacing_mm']==200,wires[-1]
+    bad_two=copy.deepcopy(wires[-1]);bad_two['shear_screening']['diameter_mm']=1000
+    rejected=wall_rebar.invoke_engine(args.runner,bad_two)
+    rejected_row=next(c for c in rejected['cases'][0]['connection_report']['checks'] if c['check_id']=='shear_inclined')
+    assert rejected_row['status']=='indeterminate' and rejected_row['utilization'] is None,rejected_row
+    qsw=two_result['details']['variables']['qsw']
+    assert abs(qsw-170000*(te['effective_asw_mm2']/1e6)/.2)<1e-8,qsw
+    closer=copy.deepcopy(two);closer['transverse']['spacing_mm']=100
+    closer_result=run('two_legs_half_pitch',closer)
+    assert abs(closer_result['details']['variables']['qsw']-2*qsw)<1e-8,closer_result
+    assert closer_result['utilization']<=two_result['utilization'],closer_result
+    two['calculation_context']['circular_shear']['confirmed']=False
+    assert run('two_legs_unconfirmed',two)['status']=='not_evaluated'
     # Direct runner input cannot bypass the physical enclosure of the ring.
     bad=copy.deepcopy(wires[0]);bad['connection_context']['circular_shear']['winding_diameter_mm']=100
     raw=wall_rebar.invoke_engine(args.runner,bad)

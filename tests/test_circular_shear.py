@@ -19,6 +19,16 @@ def circular_project():
 
 
 class CircularShearContracts(unittest.TestCase):
+    def test_two_legs_uses_existing_bar_and_pitch_without_manual_efficiency(self):
+        p=circular_project()
+        e=p['calculation_context']['circular_shear']
+        e.update(method='vniigs_1984_two_legs',winding_diameter_mm=None,
+                 circular_efficiency=None,efficiency_basis='Принято: один виток — две условные ветви')
+        model.validate_project(p)
+        for field,value in [('winding_diameter_mm',670),('circular_efficiency',1)]:
+            b=copy.deepcopy(p);b['calculation_context']['circular_shear'][field]=value
+            with self.assertRaises(ValueError):model.validate_project(b)
+
     def test_concrete_only_needs_no_spiral_parameters_or_confirmation(self):
         p=circular_project()
         p['transverse'].update(mode='off',constructive_confirmed=False)
