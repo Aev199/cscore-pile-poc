@@ -42,7 +42,7 @@ def parse(text):
     cases = []
     for block in re.split(r'\n\s*кН\s+кН\*м[^\n]*\n', text)[1:]:
         f = block.split('\n', 1)[0].split()
-        c = dict(case=int(f[0]), n=num(f[1]), my=num(f[2]), qz=num(f[3]), mz=num(f[4]), gamma=num(f[7]), psi=num(f[8]), ratios={})
+        c = dict(case=int(f[0]), n=num(f[1]), my=num(f[2]), qz=num(f[3]), mz=num(f[4]), gamma=num(f[7]), long_share=num(f[8]), ratios={})
         for line in block.split('\n')[2:]:
             if line.startswith('Коэффициент использования') or line.strip().startswith('---'):
                 break
@@ -70,9 +70,9 @@ def project(head, c):
         k = 1000 / head['b']  # the wall form takes actions per metre and multiplies by panel width once
     n, mx, my = c['n'] * k, c['my'] * k, c['mz'] * k
     p['rows'] = [dict(z=0, case='U', basis='ULS', n=n, m=mx, my=my, q=0, m_long=None),
-                 dict(z=0, case='S', basis='SLS', n=n, n_long=n * c['psi'], m=mx, my=my, q=0,
-                      m_long=mx * c['psi'], my_long=my * c['psi'])]  # ARBAT psi applies to all actions
-    p['calculation_context'].update(second_order_mode='cscore_member', l0_x_m=3, l0_y_m=3, psi=c['psi'])
+                 dict(z=0, case='S', basis='SLS', n=n, n_long=n * c['long_share'], m=mx, my=my, q=0,
+                      m_long=mx * c['long_share'], my_long=my * c['long_share'])]  # ARBAT sustained share applies to all actions (not psi_s)
+    p['calculation_context'].update(second_order_mode='cscore_member', l0_x_m=3, l0_y_m=3, psi=c['long_share'])  # product 'psi' = sustained moment share for eta
     p['member_load_preparation'] = dict(mode='sp63', length_m=3, structural_scheme='statically_determinate')
     p['eccentricity_confirmed'] = False
     return p
@@ -123,7 +123,7 @@ def main():
                 if ref is None and not o['value']:
                     continue
                 dev = lambda v: None if not ref or v is None else round((v - ref) / ref * 100, 2)
-                rows.append(dict(file=path.name, case=c['case'], n=c['n'], my=c['my'], mz=c['mz'], psi=c['psi'], check=key,
+                rows.append(dict(file=path.name, case=c['case'], n=c['n'], my=c['my'], mz=c['mz'], long_share=c['long_share'], check=key,
                                  arbat=ref, product=o['value'] and round(o['value'], 4), dev_pct=dev(o['value']), status=o['status'],
                                  native=o['native'] and round(o['native'], 4), native_dev_pct=dev(o['native']),
                                  basis=o['basis'] or ''))

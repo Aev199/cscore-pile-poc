@@ -1,4 +1,4 @@
-﻿file;case;n;my;mz;psi;check;arbat;product;dev_pct;status;native;native_dev_pct;basis
+﻿file;case;n;my;mz;long_share;check;arbat;product;dev_pct;status;native;native_dev_pct;basis
 300x5002.rtf;1;0.0;60.0;0.0;1.0;normal;0.529;0.5309;0.36;passed;;;
 300x5002.rtf;1;0.0;60.0;0.0;1.0;crack_short;0.74;0.7737;4.56;preliminary_below_limit;0.4439;-40.02;precrack_compatibility_envelope_with_native_fully_sustained
 300x5002.rtf;1;0.0;60.0;0.0;1.0;crack_long;0.987;1.0316;4.52;preliminary_exceeds_limit;0.5918;-40.04;precrack_compatibility_envelope_with_native_fully_sustained
