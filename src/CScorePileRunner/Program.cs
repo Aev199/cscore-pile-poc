@@ -936,9 +936,10 @@ internal static class Program
     // through the agreed estimate above (acrc(phi1=1.0) = acrc(phi1=1.4) / 1.4
     // for the same state), so separate sustained and total axial forces are
     // honoured. If the sustained action alone is below Mcrc but the total action
-    // has formed cracks, acrc1 is taken with psi_s=1 (SP63 8.2.15, conservative):
-    // CScore's psi_s=1 total width scaled by the cracked-section rebar stress
-    // ratio; ls, phi2 and Es are those of the cracked total state.
+    // has formed cracks, acrc1 uses the psi_s of the cracked total state: the
+    // agreed total-state width scaled by the cracked-section rebar stress ratio
+    // sigma_s(N_l, M_l) / sigma_s(N, M); ls, phi2, psi_s and Es are those of the
+    // total state (the sustained stress alone would give psi_s below its bound).
     static object SplitSp63Estimate(BatchInput input, Candidate candidate, CrossSection section,
         SlsProbe probe, SlsLoad load, double nLong)
     {
@@ -993,9 +994,8 @@ internal static class Program
             }
             else
             {
-                if (Number(total, "width_long_psi_one_mm") is not double psiOneTotal
-                    || Number(total, "sigma_rebar_kpa") is not double sigmaTotalNative || sigmaTotalNative <= 0)
-                    return Indeterminate("split_total_state_without_psi_one_width");
+                if (Number(total, "sigma_rebar_kpa") is not double sigmaTotalNative || sigmaTotalNative <= 0)
+                    return Indeterminate("split_total_state_without_rebar_stress");
                 var sigmaTotal = CrackedRebarStress(section, load.NKn, load.MxTotalKnm, load.MyTotalKnm);
                 var sigmaSustained = CrackedRebarStress(section, nLong, load.MxLongKnm, load.MyLongKnm);
                 // Same stress readout as CScore's sigma_s; reject a different state.
@@ -1003,9 +1003,9 @@ internal static class Program
                     || Math.Abs(st - sigmaTotalNative) > 0.02 * sigmaTotalNative)
                     return Indeterminate("split_cracked_rebar_stress_not_reproduced");
                 double phi3Total = load.NKn > 1e-3 ? 1.2 : 1.0, phi3Sustained = nLong > 1e-3 ? 1.2 : 1.0;
-                a1 = psiOneTotal * sl / st * phi3Sustained / phi3Total;
+                a1 = wTotal * sl / st * phi3Sustained / phi3Total;
                 n1 = 0.0;
-                basis = "sp63_8_2_6_split_sustained_below_mcrc_psi_s_one";
+                basis = "sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s";
             }
         }
         double a3 = a1 / 1.4, n3 = n1 / 1.4;

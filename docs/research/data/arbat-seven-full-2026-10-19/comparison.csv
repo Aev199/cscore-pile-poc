@@ -79,11 +79,11 @@
 500x7002.rtf;7;150.0;130.0;0.0;1.0;crack_long;0.732;0.7665;4.71;preliminary_below_limit;0.2879;-60.67;precrack_compatibility_envelope_with_native_fully_sustained
 500x7002.rtf;8;0.0;10.0;0.0;1.0;normal;0.02;0.0203;1.53;passed;;;
 500x7002.rtf;9;0.0;160.0;0.0;0.5;normal;0.324;0.3249;0.28;passed;;;
-500x7002.rtf;9;0.0;160.0;0.0;0.5;crack_short;0.371;0.3937;6.11;preliminary_below_limit;0.143;-61.45;sp63_8_2_6_split_sustained_below_mcrc_psi_s_one
-500x7002.rtf;9;0.0;160.0;0.0;0.5;crack_long;0.284;0.3461;21.88;preliminary_below_limit;0;-100.0;sp63_8_2_6_split_sustained_below_mcrc_psi_s_one
+500x7002.rtf;9;0.0;160.0;0.0;0.5;crack_short;0.371;0.3841;3.54;preliminary_below_limit;0.143;-61.45;sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s
+500x7002.rtf;9;0.0;160.0;0.0;0.5;crack_long;0.284;0.3016;6.21;preliminary_below_limit;0;-100.0;sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s
 500x7002.rtf;10;-250.0;140.0;80.0;0.5;normal;0.322;0.3241;0.66;passed;;;
-500x7002.rtf;10;-250.0;140.0;80.0;0.5;crack_short;0.398;0.4215;5.9;preliminary_below_limit;0.2516;-36.79;sp63_8_2_6_split_sustained_below_mcrc_psi_s_one
-500x7002.rtf;10;-250.0;140.0;80.0;0.5;crack_long;0.296;0.3631;22.68;preliminary_below_limit;0;-100.0;sp63_8_2_6_split_sustained_below_mcrc_psi_s_one
+500x7002.rtf;10;-250.0;140.0;80.0;0.5;crack_short;0.398;0.4133;3.83;preliminary_below_limit;0.2516;-36.79;sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s
+500x7002.rtf;10;-250.0;140.0;80.0;0.5;crack_long;0.296;0.3248;9.72;preliminary_below_limit;0;-100.0;sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s
 500x7002.rtf;10;-250.0;140.0;80.0;0.5;n_ncr;0.007;0.0067;-4.09;;;;
 d10002.rtf;1;0.0;60.0;0.0;1.0;normal;0.032;0.0325;1.64;passed;;;
 d10002.rtf;2;0.0;180.0;0.0;1.0;normal;0.097;0.0976;0.59;passed;;;
@@ -139,7 +139,7 @@ d8002.rtf;6;-500.0;160.0;0.0;1.0;n_ncr;0.002;0.0036;78.85;;;;
 d8002.rtf;7;150.0;130.0;0.0;1.0;normal;0.171;0.1719;0.55;passed;;;
 d8002.rtf;8;0.0;10.0;0.0;1.0;normal;0.011;0.0106;-3.47;passed;;;
 d8002.rtf;9;0.0;160.0;0.0;0.5;normal;0.169;0.1699;0.53;passed;;;
-d8002.rtf;9;0.0;160.0;0.0;0.5;crack_short;;0.2587;;preliminary_below_limit;0.0568;;sp63_8_2_6_split_sustained_below_mcrc_psi_s_one
-d8002.rtf;9;0.0;160.0;0.0;0.5;crack_long;;0.2436;;preliminary_below_limit;0;;sp63_8_2_6_split_sustained_below_mcrc_psi_s_one
+d8002.rtf;9;0.0;160.0;0.0;0.5;crack_short;;0.2486;;preliminary_below_limit;0.0568;;sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s
+d8002.rtf;9;0.0;160.0;0.0;0.5;crack_long;;0.1965;;preliminary_below_limit;0;;sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s
 d8002.rtf;10;-250.0;140.0;80.0;0.5;normal;0.144;0.1452;0.82;passed;;;
 d8002.rtf;10;-250.0;140.0;80.0;0.5;n_ncr;0.001;0.0018;84.03;;;;

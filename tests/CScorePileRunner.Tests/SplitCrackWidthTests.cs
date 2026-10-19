@@ -63,14 +63,16 @@ public class SplitCrackWidthTests
     }
 
     [Fact]
-    public void SustainedBelowCrackingMomentUsesPsiOneOnFormedCracks()
+    public void SustainedBelowCrackingMomentUsesTotalStatePsiOnFormedCracks()
     {
         var split = Probe("""{"id":"S","n_kn":0,"mx_total_knm":160,"my_total_knm":0,"mx_long_knm":40,"my_long_knm":0}""");
         var total = Probe("""{"id":"T","n_kn":0,"mx_total_knm":160,"my_total_knm":0,"mx_long_knm":160,"my_long_knm":0}""");
         Assert.True(Number(total, "mcrc_knm") > 40);
-        Assert.Equal("sp63_8_2_6_split_sustained_below_mcrc_psi_s_one", split.GetProperty("preliminary_basis").GetString());
+        Assert.Equal("sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s", split.GetProperty("preliminary_basis").GetString());
+        // Nearly linear cracked section at N=0: about the total-state width times M_l/M.
         double a1 = Number(split, "preliminary_width_long_mm");
-        Assert.True(a1 > 0 && a1 < Number(total, "width_long_psi_one_mm"));
+        double proportional = Number(total, "preliminary_width_long_mm") * 40 / 160;
+        Assert.InRange(a1 / proportional, 0.97, 1.03);
         Assert.Equal(0, Number(split, "width_long_mm"));
     }
 
