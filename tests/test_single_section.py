@@ -76,3 +76,24 @@ class SingleSectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'повторно'):model.validate_project(p,single_section=True)
         p['eccentricity_confirmed']=False
         model.validate_project(p,single_section=True)
+
+    def test_sustained_axial_force_reaches_cscore_once_scaled(self):
+        for kind in ('wall','pile'):
+            p=self.project();p['kind']=kind
+            if kind=='pile':p['force_scale']='per_member'
+            factor=p['wall']['panel_width_mm']/1000 if kind=='wall' else 1
+            p['rows'].append(dict(z=0,case='SLS',basis='SLS',n=-80,n_long=-40,m=20,q=0,m_long=10))
+            requests=[]
+            def engine(req):
+                requests.append(req)
+                return dict(schema_version=1,cases=[dict(id=req['candidates'][0]['id'],
+                    connection_report=test_connection_cycle.ConnectionContracts().report(req))])
+            model.check_adopted(p,engine=engine,single_section=True)
+            load=requests[0]['sls_probe']['loads'][0]
+            self.assertAlmostEqual(load['n_kn'],-80*factor)
+            self.assertAlmostEqual(load['n_long_kn'],-40*factor)
+
+    def test_sustained_axial_force_only_for_service_rows(self):
+        p=self.project();p['rows'][0]['n_long']=-50
+        with self.assertRaisesRegex(ValueError,'длительная N'):model.validate_project(p,single_section=True)
+

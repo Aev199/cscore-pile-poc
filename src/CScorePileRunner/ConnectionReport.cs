@@ -134,14 +134,10 @@ internal static class ConnectionReport
                             if (stabilityStatus=="unstable") reason = stabilityReason;
                             else
                             {
-                                var moments = CrackWidthEta.ScaleLongTotal(
-                                    load.MxLongKnm, load.MxTotalKnm, load.MyLongKnm, load.MyTotalKnm,
-                                    a.MxEff, a.MyEff);
-                                var adjusted = new SlsLoad { Id = load.Id, NKn = load.NKn,
-                                    MxLongKnm = moments.MxLongEff, MxTotalKnm = moments.MxTotalEff,
-                                    MyLongKnm = moments.MyLongEff, MyTotalKnm = moments.MyTotalEff };
-                                result = Json(Program.RunCrackProbe(input,candidate,new[] { adjusted })[0]);
-                                basis = "native_member_CrackWidthEta.ScaleLongTotal";
+                                // SP63 8.1.7 (ea) and 8.1.15 (eta) belong to the strength
+                                // calculation; section 8.2 uses the normative actions as given.
+                                result = serviceRows?.GetValueOrDefault(load.Id);
+                                basis = "sls_source_actions_SP63_8_2";
                             }
                         }
                         catch (Exception ex) { reason = "native_SLS_member_error:" + ex.Message;

@@ -53,7 +53,7 @@ def parse(text):
     return head, cases
 
 
-def project(head, c, sls_raw=False):
+def project(head, c):
     p = json.loads((ROOT / 'examples/verification/member_length15_manual.json').read_text(encoding='utf-8'))
     a, d = head['a₁'], head['d']
     cover = a - TIE
@@ -70,13 +70,11 @@ def project(head, c, sls_raw=False):
         k = 1000 / head['b']  # the wall form takes actions per metre and multiplies by panel width once
     n, mx, my = c['n'] * k, c['my'] * k, c['mz'] * k
     p['rows'] = [dict(z=0, case='U', basis='ULS', n=n, m=mx, my=my, q=0, m_long=None),
-                 dict(z=0, case='S', basis='SLS', n=n, m=mx, my=my, q=0, m_long=mx * c['psi'], my_long=my * c['psi'])]
+                 dict(z=0, case='S', basis='SLS', n=n, n_long=n * c['psi'], m=mx, my=my, q=0,
+                      m_long=mx * c['psi'], my_long=my * c['psi'])]  # ARBAT psi applies to all actions
     p['calculation_context'].update(second_order_mode='cscore_member', l0_x_m=3, l0_y_m=3, psi=c['psi'])
     p['member_load_preparation'] = dict(mode='sp63', length_m=3, structural_scheme='statically_determinate')
     p['eccentricity_confirmed'] = False
-    if sls_raw:  # diagnostic: raw actions, no ea and no eta (affects SLS of compressed cases)
-        p['member_load_preparation'] = {'mode': 'source'}; p['eccentricity_confirmed'] = True
-        p['calculation_context']['second_order_mode'] = 'section_only'
     return p
 
 
@@ -91,8 +89,8 @@ def engine_for(head, runner):
     return engine
 
 
-def run(head, c, runner, sls_raw=False):
-    r = model.check_adopted(project(head, c, sls_raw), engine=engine_for(head, runner), runner=runner, single_section=True)
+def run(head, c, runner):
+    r = model.check_adopted(project(head, c), engine=engine_for(head, runner), runner=runner, single_section=True)
     checks = r['stations'][0]['report']['checks']
     out = {}
     for key, cid in CHECKS.items():
@@ -100,10 +98,11 @@ def run(head, c, runner, sls_raw=False):
         vals = [k for k in rows if k['utilization'] is not None]
         best = max(vals, key=lambda k: k['utilization']) if vals else None
         out[key] = dict(value=best and best['utilization'], status='/'.join(sorted({k['status'] for k in rows})),
-                        native=best and (best.get('details') or {}).get('native_utilization'))
+                        native=best and (best.get('details') or {}).get('native_utilization'),
+                        basis=best and (best.get('details') or {}).get('estimate_basis'))
     ncr = [abs(c['n']) / min(k['details']['ncr_x_kn'], k['details']['ncr_y_kn']) for k in checks
            if k['check_id'] == 'member_stability' and (k.get('details') or {}).get('ncr_x_kn')]
-    out['n_ncr'] = dict(value=max(ncr) if ncr and c['n'] < 0 else None, status='', native=None)
+    out['n_ncr'] = dict(value=max(ncr) if ncr and c['n'] < 0 else None, status='', native=None, basis=None)
     return out
 
 
@@ -119,7 +118,6 @@ def main():
         reference.append(dict(file=path.name, head=head, cases=cases))
         for c in cases:
             ours = run(head, c, a.runner)
-            raw = run(head, c, a.runner, sls_raw=True) if c['n'] < 0 else None
             for key, label in LABELS.items():
                 ref, o = c['ratios'].get(label), ours[key]
                 if ref is None and not o['value']:
@@ -128,8 +126,7 @@ def main():
                 rows.append(dict(file=path.name, case=c['case'], n=c['n'], my=c['my'], mz=c['mz'], psi=c['psi'], check=key,
                                  arbat=ref, product=o['value'] and round(o['value'], 4), dev_pct=dev(o['value']), status=o['status'],
                                  native=o['native'] and round(o['native'], 4), native_dev_pct=dev(o['native']),
-                                 sls_raw=round(raw[key]['value'], 4) if raw and key.startswith('crack') and raw[key]['value'] is not None else None,
-                                 sls_raw_dev_pct=dev(raw[key]['value']) if raw and key.startswith('crack') else None))
+                                 basis=o['basis'] or ''))
             print(path.name, c['case'], flush=True)
     (a.out / 'arbat-reference.json').write_text(json.dumps(reference, ensure_ascii=False, indent=1), encoding='utf-8')
     with open(a.out / 'comparison.csv', 'w', newline='', encoding='utf-8-sig') as fh:
