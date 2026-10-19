@@ -41,12 +41,25 @@ def prepare(request,settings,runner):
                         capture_output=True,text=True,encoding='utf-8',timeout=120)
     if proc.returncode:raise ValueError('CScore: не удалось подготовить эксцентриситет: '+proc.stderr[:1000])
     result=json.loads(proc.stdout);prepared={'ULS':[],'SLS':[]};seen=set();covered=set()
+    # Validate branch coverage, not normative eccentricity: these are the
+    # documented sign-selection rules of --prepare-member-loads.
+    expected_signs={}
+    for load in loads:
+        def signs(moment):
+            return (-1,1) if load['n_kn']<0 and abs(moment)<1e-12 else (-1,) if moment<0 else (1,)
+        expected_signs[load['id']]={(x,y) for x in signs(load['mx_total_knm']) for y in signs(load['my_total_knm'])}
+    returned_signs={source:set() for source in original}
     if result.get('method')!='CScore.Sp63.Normal.Sp63MemberContext':raise ValueError('Нет подтверждённой подготовки CScore')
     for row in result.get('loads',[]):
         source=row.get('source_id');name=row.get('id')
         if source not in original or (source,name) in seen or not isinstance(name,str):
             raise ValueError('CScore: некорректные варианты эксцентриситета')
         seen.add((source,name));covered.add(source);kind,src=original[source]
+        pair=(row.get('sign_x'),row.get('sign_y'))
+        if (any(type(sign) is not int for sign in pair) or pair not in expected_signs[source]
+                or pair in returned_signs[source]):
+            raise ValueError('CScore: неверные или повторные сочетания знаков эксцентриситета')
+        returned_signs[source].add(pair)
         for key in ('n_kn','mx_total_knm','my_total_knm','mx_long_knm','my_long_knm'):
             if type(row.get(key)) not in (int,float) or not math.isfinite(row[key]):
                 raise ValueError('CScore: неконечные подготовленные усилия')
@@ -57,6 +70,8 @@ def prepare(request,settings,runner):
         else:dst.update({key:row[key] for key in ('mx_total_knm','my_total_knm','mx_long_knm','my_long_knm')})
         prepared[kind].append(dst)
     if covered!=set(original):raise ValueError('CScore: пропущены сочетания при подготовке эксцентриситета')
+    if returned_signs!=expected_signs:
+        raise ValueError('CScore: неполный набор знаков эксцентриситета')
     request['loads']=prepared['ULS']
     if 'sls_probe' in request:request['sls_probe']['loads']=prepared['SLS']
     request['connection_context']['eccentricity_in_loads']=True
