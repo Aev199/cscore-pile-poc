@@ -17,9 +17,10 @@ function renderGeometry(){
  $('geometryAdvanced').innerHTML=(wall?field('wall.cage_count','Число каркасов',{min:1,step:1})+field('wall.cage_width_mm','Ширина каркаса, мм',{min:1})+field('wall.end_cover_mm','Торцевой защитный слой, мм',{min:0})+field('wall.min_cage_gap_mm','Минимальный зазор каркасов, мм',{min:0}):'')+field(kind+'.min_clear_spacing_mm','Минимальный просвет стержней, мм',{min:1});
  $('transverseTitle').textContent=wall?'Поперечное армирование':'Спиральная навивка';
  $('transverseFields').innerHTML=field('transverse.diameter_mm',wall?'Диаметр хомута, мм':'Диаметр навивки, мм',{min:1})+field('transverse.spacing_mm',wall?'Шаг хомутов, мм':'Полный шаг витка, мм',{min:1})+(wall?field('transverse.effective_legs_per_cage','Рабочих ветвей на каркас',{min:1,step:1}):'')+field('transverse.rsw_kpa','Rsw поперечной стали, МПа',{min:.001,factor:1000});
- $('forceUnits').textContent=wall?'На метр стены: N, Q — кН/м; M — кН·м/м':'На одну сваю: N, Q — кН; M — кН·м';
+ renderUnits();
  draw();toggles();
 }
+function renderUnits(){const wall=project.kind==='wall';$('loadBasisLabel').hidden=!wall;$('forceUnits').textContent=wall?($('loadBasis').value==='per_section'?'На заданное сечение: N, Q — кН; M — кН·м':'На метр стены: N, Q — кН/м; M — кН·м/м'):'На одну сваю: N, Q — кН; M — кН·м';}
 const materialLabels={concrete_rb_kpa:'Rb бетона, МПа',concrete_rbt_kpa:'Rbt бетона, МПа',concrete_e_kpa:'Eb бетона, МПа',rebar_rs_kpa:'Rs продольной стали, МПа',rebar_e_kpa:'Es стали, МПа',concrete_ec1:'εb1',concrete_ec2:'εb2',concrete_et1:'εbt1',concrete_et2:'εbt2',rebar_ec2:'εs−',rebar_et2:'εs+'};
 function matField(prefix,key){return field(prefix+'.'+key,materialLabels[key]||key,{factor:key.endsWith('_kpa')?1000:1});}
 function renderMaterials(){
@@ -64,12 +65,14 @@ function toggles(){
 function build(){
  const p=structuredClone(project),wall=p.kind==='wall';
  p.force_scale=wall?'per_metre':'per_member';p.moment_sign=1;p.max_tier=1;p.zones=[];p.transverse_zones=[];p.transverse_layout={mode:'proposed',positions_mm:[],geometry_confirmed:false};
- p.title='Ручная проверка '+(wall?'СВГ':'БНС');p.source={type:'manual'};
+ p.title='Ручная проверка '+(wall?'СВГ':'БНС');p.source={type:'manual',manual_force_basis:wall?$('loadBasis').value:'per_section'};
  p.materials_confirmed=$('confirmed').checked;p.eccentricity_confirmed=$('eccentricity').checked;
  p[p.kind].ties_diameter_mm=p.transverse.diameter_mm;
  p.transverse.mode=$('withQ').checked?'screen':'off';p.transverse.constructive_confirmed=$('tiesConfirmed').checked;
  p.rows=[{z:0,case:'ULS',basis:'ULS',n:n('n'),m:n('m'),q:n('q'),m_long:null}];
  if($('withSls').checked){p.rows.push({z:0,case:'SLS',basis:'SLS',n:n('slsN'),m:n('slsM'),q:0,m_long:n('slsLong')});p.sls_settings.acrc_ult_long_mm=n('limitLong');p.sls_settings.acrc_ult_short_mm=n('limitShort');}
+ // Existing wall API consumes per-metre forces; this is unit/basis conversion only.
+ if(wall&&$('loadBasis').value==='per_section')for(const r of p.rows)for(const key of ['n','m','q','m_long'])if(r[key]!==null)r[key]*=1000/p.wall.panel_width_mm;
  const inclined=$('withInclinedM').checked;
  p.calculation_context={second_order_mode:$('secondOrder').value,l0_x_m:$('secondOrder').value==='cscore_member'?n('l0x'):null,l0_y_m:$('secondOrder').value==='cscore_member'?n('l0y'):null,psi:$('secondOrder').value==='cscore_member'?n('psi'):1,inclined_moment_requested:inclined,anchorage_confirmed:inclined&&$('anchorageConfirmed').checked,anchorage_factor:inclined?n('anchorage'):null,sections:inclined?[{z:0,support_distance_positive_m:n('supportDown'),support_distance_negative_m:n('supportUp')}]:[],circular_shear:!wall&&$('withQ').checked?{method:'vniigs_1984_two_legs',a_mm:n('spiralA'),winding_diameter_mm:null,circular_efficiency:null,efficiency_basis:'Принятая модель: один полный виток — две условные ветви; b = 0,885D, h0 = b − a.',confirmed:$('spiralConfirmed').checked}:null};
  return p;
@@ -85,18 +88,21 @@ function renderResults(result,p){
  const body=checks.map(r=>{
   const d=r.details||{},k=r.check_id;let applied=d.applied,capacity=d.allowable,unit=d.units==='kN*m'?' кН·м':d.units==='kN'?' кН':'';
   if(k.startsWith('crack_width')){applied=d.width_mm;capacity=k.endsWith('long')?p.sls_settings.acrc_ult_long_mm:p.sls_settings.acrc_ult_short_mm;unit=' мм';}
-  if(k==='crack_formation'){applied=p.rows.find(x=>x.basis==='SLS')?.m;capacity=d.mcrc_knm;unit=' кН·м';}
+  if(k==='crack_formation'){applied=p.rows.find(x=>x.basis==='SLS')?.m*(p.kind==='wall'?p.wall.panel_width_mm/1000:1);capacity=d.mcrc_knm;unit=' кН·м';}
   let status=statuses[r.status]||r.status;if(k==='crack_formation'&&r.status==='calculated')status=d.cracked?'Образуются':'Не образуются';
   const cls=['passed','stable'].includes(r.status)?'pass':['failed','unstable'].includes(r.status)?'fail':'missing';
-  const demand=k==='normal_strength'||k==='normal_member_strength'?fmt(p.rows[0].n)+' / '+fmt(p.rows[0].m):Number.isFinite(applied)?fmt(applied)+unit:'—';
+  const forceFactor=p.kind==='wall'?p.wall.panel_width_mm/1000:1;
+  const demand=k==='normal_strength'||k==='normal_member_strength'?fmt(p.rows[0].n*forceFactor)+' / '+fmt(p.rows[0].m*forceFactor):Number.isFinite(applied)?fmt(applied)+unit:'—';
   const explanation=reasons[r.reason]||r.reason||'';
   return `<tr><td>${esc(names[k]||k)}<details><summary>Подробности CScore</summary>${explanation?'<p>'+esc(explanation)+'</p>':''}<pre>${esc(JSON.stringify(r,null,2))}</pre></details></td><td>${esc(demand)}</td><td>${Number.isFinite(capacity)?esc(fmt(capacity)+unit):'—'}</td><td>${fmt(r.utilization)}</td><td class="${cls}">${esc(status)}</td></tr>`;
  }).join('');
- $('results').innerHTML='<table><thead><tr><th>Проверка</th><th>Воздействие / раскрытие</th><th>Предел</th><th>Использ.</th><th>Результат</th></tr></thead><tbody>'+body+'</tbody></table><p class="resultnote">Коэффициенты использования получены от CScore. Для N/M указан исходный N / M; коэффициент относится к совместному действию. Для Q ядро возвращает силы на расчётную захватку (СВГ) или сваю. В таблице трещинообразования — M / Mcrc; итог определяется CScore с учётом N. Подробные результаты, единицы и η доступны в строке проверки.</p><p class="resultnote">Область проверки: '+(p.calculation_context.second_order_mode==='section_only'?'локальное сечение, без устойчивости элемента':'локальное сечение с заданным учётом второго порядка')+'. Длина анкеровки и деталировка не проверены.</p>';
+ $('results').innerHTML='<table><thead><tr><th>Проверка</th><th>Воздействие / раскрытие</th><th>Предел</th><th>Использ.</th><th>Результат</th></tr></thead><tbody>'+body+'</tbody></table><p class="resultnote">Усилия в результатах даны на всё заданное сечение: кН, кН·м. Коэффициенты использования получены от CScore. Для N/M указан исходный N / M; коэффициент относится к совместному действию. Для Q ядро возвращает силы на расчётную захватку (СВГ) или сваю. В таблице трещинообразования — M / Mcrc; итог определяется CScore с учётом N. Подробные результаты, единицы и η доступны в строке проверки.</p><p class="resultnote">Область проверки: '+(p.calculation_context.second_order_mode==='section_only'?'локальное сечение, без устойчивости элемента':'локальное сечение с заданным учётом второго порядка')+'. Длина анкеровки и деталировка не проверены.</p>';
 }
 function load(p){
  project=p;project.max_tier=1;project.zones=[];project.transverse_zones=[];
- $('kind').value=project.kind;const c=p.calculation_context||{},u=p.rows.find(r=>r.basis==='ULS'),s=p.rows.find(r=>r.basis==='SLS');
+ $('kind').value=project.kind;$('loadBasis').value=p.source?.manual_force_basis||'per_metre';const c=p.calculation_context||{},factor=p.kind==='wall'&&$('loadBasis').value==='per_section'?p.wall.panel_width_mm/1000:1;
+ const u=p.rows.find(r=>r.basis==='ULS')?{...p.rows.find(r=>r.basis==='ULS')}:null,s=p.rows.find(r=>r.basis==='SLS')?{...p.rows.find(r=>r.basis==='SLS')}:null;
+ for(const r of [u,s])if(r)for(const key of ['n','m','q','m_long'])if(r[key]!==null)r[key]*=factor;
  for(const [id,value] of Object.entries({n:u?.n??'',m:u?.m??'',q:u?.q??'',slsN:s?.n??'',slsM:s?.m??'',slsLong:s?.m_long??'',limitLong:p.sls_settings.acrc_ult_long_mm,limitShort:p.sls_settings.acrc_ult_short_mm,secondOrder:c.second_order_mode||'section_only',l0x:c.l0_x_m??'',l0y:c.l0_y_m??'',psi:c.psi??1,supportDown:c.sections?.[0]?.support_distance_positive_m??'',supportUp:c.sections?.[0]?.support_distance_negative_m??'',anchorage:c.anchorage_factor??'',spiralA:c.circular_shear?.a_mm??''}))$(id).value=value;
  $('withSls').checked=!!s;$('withQ').checked=p.transverse.mode==='screen';$('withInclinedM').checked=!!c.inclined_moment_requested;
  $('confirmed').checked=!!p.materials_confirmed;$('eccentricity').checked=!!p.eccentricity_confirmed;$('tiesConfirmed').checked=!!p.transverse.constructive_confirmed;$('spiralConfirmed').checked=!!c.circular_shear?.confirmed;$('anchorageConfirmed').checked=!!c.anchorage_confirmed;
@@ -106,12 +112,13 @@ function load(p){
 $('sectionForm').addEventListener('input',e=>{
  if(!project||busy)return;const el=e.target;
  if(el.dataset.path){setPath(el.dataset.path,Number(el.value)*Number(el.dataset.factor));if(el.dataset.path.startsWith('materials.')||el.dataset.path.startsWith('sls_settings.'))$('confirmed').checked=false;else if(!el.dataset.path.startsWith('transverse.'))$('spiralConfirmed').checked=false;
+  if(project.kind==='wall'&&project.wall.cage_count===1&&['wall.panel_width_mm','wall.end_cover_mm','wall.cage_count'].includes(el.dataset.path)){project.wall.cage_width_mm=project.wall.panel_width_mm-2*project.wall.end_cover_mm;const width=document.querySelector('[data-path="wall.cage_width_mm"]');if(width)width.value=project.wall.cage_width_mm;}
   if(el.dataset.path.startsWith('transverse.')){project[project.kind].ties_diameter_mm=project.transverse.diameter_mm;$('tiesConfirmed').checked=false;$('spiralConfirmed').checked=false;}draw();}
  invalidate();error();
 });
 $('sectionForm').addEventListener('change',e=>{if(!project)return;if(e.target.id==='kind'){
  project.kind=$('kind').value;$('tiesConfirmed').checked=false;$('spiralConfirmed').checked=false;renderGeometry();
- }toggles();});
+ }if(e.target.id==='loadBasis')renderUnits();toggles();});
 $('sectionForm').onsubmit=async e=>{
  e.preventDefault();if(busy)return;error();let p;try{p=build();}catch(ex){error(ex.message);return;}
  busy=true;const controls=[...$('sectionForm').querySelectorAll('input,select,button')],disabled=controls.map(e=>e.disabled);controls.forEach(e=>e.disabled=true);$('open').disabled=true;$('save').disabled=true;$('run').textContent='Расчёт…';
@@ -124,5 +131,5 @@ $('open').onclick=()=>$('file').click();$('file').onchange=async e=>{try{const p
 api('default').then(p=>{
  p.wall={...p.wall,panel_width_mm:1000,thickness_mm:600,cage_count:1,cage_width_mm:900,end_cover_mm:50,cover_mm:40,ties_diameter_mm:8};
  p.transverse={...p.transverse,mode:'screen',diameter_mm:8};p.pile.ties_diameter_mm=8;p.max_tier=1;
- p.rows=[{z:0,case:'ULS',basis:'ULS',n:-1000,m:150,q:100,m_long:null}];load(p);
+ p.source={type:'manual',manual_force_basis:'per_section'};p.rows=[{z:0,case:'ULS',basis:'ULS',n:-1000,m:150,q:100,m_long:null}];load(p);
 }).catch(ex=>error(ex.message));
