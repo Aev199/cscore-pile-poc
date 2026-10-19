@@ -40,6 +40,7 @@ internal static class ConnectionReport
 
         foreach (var load in input.Loads)
         {
+            RodEtaWiring.Result? memberActions = null;
             var n = nativeNormal[load.Id];
             Ratio("normal_strength", load.Id,
                 True(n, "converged") && Text(n, "error") == "" ? Number(n, "utilization") : null,
@@ -67,6 +68,7 @@ internal static class ConnectionReport
                 {
                     if (section is null) throw new InvalidOperationException("section_unavailable");
                     var adjusted = Adjust(section, context, load.NKn, load.MxKnm, load.MyKnm);
+                    memberActions = adjusted;
                     bool stable = adjusted.X.Stable && adjusted.Y.Stable;
                     LimitForceResult? memberStrength = stable
                         ? LimitForceSolver.ForCrossSection(section, CalcType.C, ten: false)
@@ -96,7 +98,7 @@ internal static class ConnectionReport
                     Add("normal_member_strength", load.Id, "indeterminate", "LimitForceSolver.AllFactor", reason: ex.Message);
                 }
             }
-            Shear(input, candidate, load, section, context, Add, Ratio);
+            Shear(input, candidate, load, section, context, memberActions, Add, Ratio);
         }
         if (input.SlsProbe is null)
         {
@@ -194,7 +196,7 @@ internal static class ConnectionReport
         radius_fallback_x = r.X.RadiusFromBoundingBox, radius_fallback_y = r.Y.RadiusFromBoundingBox };
 
     private static void Shear(BatchInput input,Candidate candidate,LoadCase load,CrossSection? section,
-        ConnectionContext c,
+        ConnectionContext c, RodEtaWiring.Result? memberActions,
         Action<string,string,string,string,double?,string,object?,string> add,
         Action<string,string,double?,string,object?,string> ratio)
     {
@@ -234,10 +236,27 @@ internal static class ConnectionReport
             if (section is null) throw new InvalidOperationException("section_unavailable");
             if (c.SecondOrderMode == "cscore_member")
             {
-                // Applying member eta to isolated M/Q would change equilibrium.
-                // Do not silently combine differently prepared actions.
-                Missing("not_evaluated","member_eta_requires_consistent_N_M_Q_profile"); return;
+                if (memberActions is not RodEtaWiring.Result a)
+                {
+                    Missing("not_evaluated",c.EccentricityInLoads
+                        ? "native_member_actions_unavailable" : "confirm_eccentricity_in_source"); return;
+                }
+                if (!a.X.Stable || !a.Y.Stable)
+                {
+                    Missing("not_evaluated","native_member_unstable"); return;
+                }
+                // Reuse source forces only when native eta leaves BOTH axes unchanged.
+                // No tolerance: even a small amplification is not a reconstructed N/M/Q profile.
+                if (a.X.Eta!=1 || a.Y.Eta!=1 || a.MxEff!=load.MxKnm || a.MyEff!=load.MyKnm)
+                {
+                    Missing("not_evaluated","member_eta_requires_consistent_N_M_Q_profile"); return;
+                }
             }
+            object forceContext = new { second_order_mode=c.SecondOrderMode,
+                actions_basis=c.SecondOrderMode=="cscore_member" ? "native_eta_one_source_actions_unchanged"
+                    : "source_actions",
+                n_kn=load.NKn,mx_knm=load.MxKnm,my_knm=load.MyKnm,q_kn=q,
+                eta=memberActions is RodEtaWiring.Result actions ? EtaDetails(actions) : null };
             var pair = InclinedSectionGeometryPair.Resolve(section,ShearPlane.Vy,CalcType.C);
             var side = pair.For(load.MxKnm);
             object? equivalenceDetails = null;
@@ -316,6 +335,7 @@ internal static class ConnectionReport
                     add(item.Item1,load.Id,"failed",method,null,"native_zero_capacity",new {
                         formula=zeroCapacity.Formula,applied=zeroCapacity.Applied,allowable=zeroCapacity.Allowable,
                         equivalence=equivalenceDetails,
+                        force_context=forceContext,
                         variables=zeroCapacity.Variables.Where(v=>double.IsFinite(v.Value)).ToDictionary(v=>v.Key,v=>v.Value)
                     },shearBasis);
                     continue;
@@ -329,6 +349,7 @@ internal static class ConnectionReport
                 ratio(item.Item1,load.Id,use,method,worst is null ? null : new {
                     formula = worst.Formula, directions_complete = complete,
                     equivalence = equivalenceDetails,
+                    force_context = forceContext,
                     missing_directions = results.Select((r,i)=>(Result:r,Direction:i==0 ? -1 : 1))
                         .Where(r=>!r.Result.Details.Any(d=>d.Formula==item.Item2&&double.IsFinite(d.Ratio)&&d.Ratio>=0))
                         .Select(r=>r.Direction).ToArray(),
