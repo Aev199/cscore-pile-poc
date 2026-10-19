@@ -53,6 +53,34 @@ jobs:
             -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o publish
+      - name: Section application tests (Python parity, engine, Word report, headless UI)
+        shell: pwsh
+        run: |
+          dotnet test tests/SectionCalc.Tests/SectionCalc.Tests.csproj -c Release --logger 'console;verbosity=normal'
+          if ($LASTEXITCODE -ne 0) { throw 'SectionCalc tests failed' }
+          $env:SECTION_APP_SCREENSHOTS = Join-Path (Get-Location) 'results/section-app'
+          dotnet test tests/SectionApp.Tests/SectionApp.Tests.csproj -c Release --logger 'console;verbosity=normal'
+          if ($LASTEXITCODE -ne 0) { throw 'SectionApp UI tests failed' }
+      - name: Publish desktop application
+        shell: pwsh
+        run: |
+          dotnet publish src/SectionApp/SectionApp.csproj -c Release `
+            -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true -o publish-app
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop application publish failed' }
+          New-Item -ItemType Directory release-app -Force | Out-Null
+          Copy-Item publish-app/SectionApp.exe release-app/
+          Copy-Item docs/section-app.md release-app/
+          Copy-Item examples/section-app/*.section.json release-app/
+          Copy-Item results/section-app/*.png release-app/
+          Compress-Archive -Path release-app/* -DestinationPath section-app-windows.zip -Force
+      - name: Desktop application archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: section-app-windows
+          path: section-app-windows.zip
+          retention-days: 14
       - name: Agreed crack method numeric and product-report regression
         run: python tools/verify_agreed_crack_method.py --runner publish/CScorePileRunner.exe
       - name: Two-plane member eccentricity and source shear regression

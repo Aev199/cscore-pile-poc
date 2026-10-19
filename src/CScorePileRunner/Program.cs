@@ -17,10 +17,31 @@ internal static class Program
     {
         try
         {
-            if (args.SequenceEqual(new[] { "--prepare-loads" })) return PrepareLoads();
-            if (args.SequenceEqual(new[] { "--prepare-member-loads" })) return PrepareMemberLoads();
-            if (args.Length != 0) throw new ArgumentException("Unsupported runner command");
-            var input = JsonSerializer.Deserialize<BatchInput>(Console.In.ReadToEnd(), ReadOptions)
+            if (args.Length > 1) throw new ArgumentException("Unsupported runner command");
+            Console.Out.Write(Execute(args.Length == 1 ? args[0] : "", Console.In.ReadToEnd()));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.ToString());
+            return 2;
+        }
+    }
+
+    // In-process entry used by the desktop application: the same commands and
+    // JSON contracts as the command-line runner; throws instead of exit code 2.
+    internal static string Execute(string command, string json) => command switch
+    {
+        "" => RunBatch(json),
+        "--prepare-loads" => PrepareLoads(json),
+        "--prepare-member-loads" => PrepareMemberLoads(json),
+        _ => throw new ArgumentException("Unsupported runner command")
+    };
+
+    private static string RunBatch(string json)
+    {
+        {
+            var input = JsonSerializer.Deserialize<BatchInput>(json, ReadOptions)
                 ?? throw new ArgumentException("Пустой JSON");
             Validate(input);
             input.ConnectionContext?.Validate();
@@ -139,7 +160,7 @@ internal static class Program
                     connection_report = input.ConnectionContext is null ? null
                         : ConnectionReport.Build(input,candidate,values,slsValues,slsGate) });
             }
-            Console.Out.Write(JsonSerializer.Serialize(new
+            return JsonSerializer.Serialize(new
             {
                 schema_version = 1,
                 engine = "OpenCS.CScore.LimitForceSolver",
@@ -149,21 +170,15 @@ internal static class Program
                     ? "uls_ndm_and_local_shear_research_screen_not_design_verified"
                     : "uls_ndm_section_only_without_eta_shear_cracks",
                 cases = records
-            }));
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(ex.ToString());
-            return 2;
+            });
         }
     }
 
     // Two-plane member input preparation only. Normative eccentricities are
     // obtained from the upstream helpers; resistance and eta remain untouched.
-    private static int PrepareMemberLoads()
+    private static string PrepareMemberLoads(string json)
     {
-        var input = JsonSerializer.Deserialize<MemberPreparationInput>(Console.In.ReadToEnd(), ReadOptions)
+        var input = JsonSerializer.Deserialize<MemberPreparationInput>(json, ReadOptions)
             ?? throw new ArgumentException("Missing member preparation input");
         if (!double.IsFinite(input.LengthM) || input.LengthM <= 0
             || !double.IsFinite(input.HeightXM) || input.HeightXM <= 0
@@ -198,15 +213,14 @@ internal static class Program
                     my_long_knm=Prepare(load.MyLongKnm,eay,sy),
                     source=load, sign_x=sx,sign_y=sy });
         }
-        Console.Out.Write(JsonSerializer.Serialize(new { schema_version=1,
+        return JsonSerializer.Serialize(new { schema_version=1,
             method="CScore.Sp63.Normal.Sp63MemberContext",ea_x_mm=eax*1000,ea_y_mm=eay*1000,
-            loads=prepared }));
-        return 0;
+            loads=prepared });
     }
 
-    private static int PrepareLoads()
+    private static string PrepareLoads(string json)
     {
-        var input = JsonSerializer.Deserialize<LoadPreparationInput>(Console.In.ReadToEnd(), ReadOptions)
+        var input = JsonSerializer.Deserialize<LoadPreparationInput>(json, ReadOptions)
             ?? throw new ArgumentException("Missing load preparation data");
         if (!double.IsFinite(input.DiameterMm) || input.DiameterMm <= 0
             || !double.IsFinite(input.LengthMm) || input.LengthMm <= 0
@@ -244,8 +258,7 @@ internal static class Program
                 delta_mx_knm = mx - l.MxKnm, delta_my_knm = my - l.MyKnm,
                 ea_mm = l.NKn < 0 ? ea * 1000.0 : 0.0 });
         }
-        Console.Out.Write(JsonSerializer.Serialize(new { loads, audit, ea_mm = ea * 1000.0 }));
-        return 0;
+        return JsonSerializer.Serialize(new { loads, audit, ea_mm = ea * 1000.0 });
     }
 
     // A native infinite ratio is a known failure only when its capacity is exactly zero.

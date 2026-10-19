@@ -1,0 +1,287 @@
+<!-- Design code of SoilStiffness (web/src/styles/tokens.css, App.css): gb-* tokens. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="GbPageBg" Color="#F3F5F6" />
+    <SolidColorBrush x:Key="GbTitlebarBg" Color="#263640" />
+    <SolidColorBrush x:Key="GbPanelBg" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="GbSectionBg" Color="#EDF1F2" />
+    <SolidColorBrush x:Key="GbHoverBg" Color="#F6F8F8" />
+    <SolidColorBrush x:Key="GbBorder" Color="#C8D1D5" />
+    <SolidColorBrush x:Key="GbBorderStrong" Color="#9EACB3" />
+    <SolidColorBrush x:Key="GbText" Color="#263238" />
+    <SolidColorBrush x:Key="GbMuted" Color="#455A64" />
+    <SolidColorBrush x:Key="GbGrey" Color="#616161" />
+    <SolidColorBrush x:Key="GbAccent" Color="#216897" />
+    <SolidColorBrush x:Key="GbAccentButton" Color="#276F9F" />
+    <SolidColorBrush x:Key="GbAccentSoft" Color="#E6F0F6" />
+    <SolidColorBrush x:Key="GbAccentBorder" Color="#A9C8DC" />
+    <SolidColorBrush x:Key="GbSuccess" Color="#337C3B" />
+    <SolidColorBrush x:Key="GbSuccessSoft" Color="#EAF3EB" />
+    <SolidColorBrush x:Key="GbSuccessBorder" Color="#BDD8C0" />
+    <SolidColorBrush x:Key="GbWarning" Color="#BD6D00" />
+    <SolidColorBrush x:Key="GbWarningText" Color="#8F5000" />
+    <SolidColorBrush x:Key="GbWarningSoft" Color="#FFF4E5" />
+    <SolidColorBrush x:Key="GbWarningBorder" Color="#E7C28B" />
+    <SolidColorBrush x:Key="GbError" Color="#D32F2F" />
+    <SolidColorBrush x:Key="GbErrorSoft" Color="#FFEBEE" />
+    <SolidColorBrush x:Key="GbErrorBorder" Color="#FFCDD2" />
+    <FontFamily x:Key="GbFont">Roboto, Segoe UI, Arial</FontFamily>
+    <!-- Fluent keys mapped to the design code. -->
+    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#216897" />
+    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#9EACB3" />
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillChecked" Color="#276F9F" />
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="#216897" />
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeChecked" Color="#276F9F" />
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFill" Color="#276F9F" />
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStroke" Color="#276F9F" />
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPointerOver" Color="#216897" />
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStrokePointerOver" Color="#216897" />
+    <CornerRadius x:Key="ControlCornerRadius">3</CornerRadius>
+  </Styles.Resources>
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource GbPageBg}" />
+    <Setter Property="FontFamily" Value="{StaticResource GbFont}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource GbText}" />
+  </Style>
+
+  <!-- Panels -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource GbPanelBg}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="5" />
+    <Setter Property="Padding" Value="16,12" />
+  </Style>
+  <Style Selector="TextBlock.cardTitle">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{StaticResource GbText}" />
+    <Setter Property="Margin" Value="0,0,0,10" />
+  </Style>
+  <Style Selector="TextBlock.label">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{StaticResource GbMuted}" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+  </Style>
+  <Style Selector="TextBlock.hint">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="Foreground" Value="{StaticResource GbGrey}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.th">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{StaticResource GbMuted}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.thead">
+    <Setter Property="Background" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="8,6" />
+  </Style>
+  <Style Selector="Border.trow">
+    <Setter Property="BorderBrush" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="8,5" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.trow:pointerover">
+    <Setter Property="Background" Value="{StaticResource GbHoverBg}" />
+  </Style>
+  <Style Selector="Border.tableFrame">
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+
+  <!-- Inputs -->
+  <Style Selector="TextBox">
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Height" Value="30" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Padding" Value="8,5" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorderStrong}" />
+    <Setter Property="Foreground" Value="{StaticResource GbText}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox.cell">
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="Padding" Value="5,3" />
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="HorizontalContentAlignment" Value="Right" />
+  </Style>
+  <Style Selector="TextBox:disabled /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{StaticResource GbPageBg}" />
+    <Setter Property="BorderBrush" Value="#E5EAEC" />
+  </Style>
+  <Style Selector="TextBox:disabled">
+    <Setter Property="Foreground" Value="#9AA5AB" />
+  </Style>
+  <Style Selector="TextBox.cell.name">
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Height" Value="30" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorderStrong}" />
+  </Style>
+  <Style Selector="ComboBox.cell">
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Padding" Value="6,2" />
+  </Style>
+  <Style Selector="CheckBox, RadioButton">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Foreground" Value="{StaticResource GbText}" />
+  </Style>
+
+  <!-- Buttons (.button in App.css) -->
+  <Style Selector="Button">
+    <Setter Property="Height" Value="32" />
+    <Setter Property="Padding" Value="13,0" />
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Background" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource GbMuted}" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#E4E9EB" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorderStrong}" />
+    <Setter Property="Foreground" Value="{StaticResource GbText}" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource GbAccentButton}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbAccentButton}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource GbAccent}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbAccent}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.apply">
+    <Setter Property="Background" Value="{StaticResource GbSuccess}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbSuccess}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.apply:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#2C6B33" />
+    <Setter Property="BorderBrush" Value="#2C6B33" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+  <Style Selector="Button.small">
+    <Setter Property="Height" Value="26" />
+    <Setter Property="Padding" Value="9,0" />
+    <Setter Property="FontSize" Value="11" />
+  </Style>
+  <Style Selector="Button.link">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{StaticResource GbGrey}" />
+    <Setter Property="Padding" Value="4,0" />
+    <Setter Property="Height" Value="26" />
+  </Style>
+  <!-- Segmented switch (.target-switch) -->
+  <Style Selector="Button.seg">
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="16,0" />
+  </Style>
+  <Style Selector="Button.seg.first">
+    <Setter Property="CornerRadius" Value="3,0,0,3" />
+  </Style>
+  <Style Selector="Button.seg.last">
+    <Setter Property="CornerRadius" Value="0,3,3,0" />
+    <Setter Property="Margin" Value="-1,0,0,0" />
+  </Style>
+  <Style Selector="Button.seg.selected">
+    <Setter Property="Background" Value="{StaticResource GbAccentButton}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbAccentButton}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="Button.seg.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource GbAccent}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+
+  <!-- Notices (.notice.*) -->
+  <Style Selector="Border.notice">
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="10,8" />
+  </Style>
+  <Style Selector="Border.notice.info"><Setter Property="Background" Value="{StaticResource GbAccentSoft}" /><Setter Property="BorderBrush" Value="{StaticResource GbAccentBorder}" /></Style>
+  <Style Selector="Border.notice.ok"><Setter Property="Background" Value="{StaticResource GbSuccessSoft}" /><Setter Property="BorderBrush" Value="{StaticResource GbSuccessBorder}" /></Style>
+  <Style Selector="Border.notice.warn"><Setter Property="Background" Value="{StaticResource GbWarningSoft}" /><Setter Property="BorderBrush" Value="{StaticResource GbWarningBorder}" /></Style>
+  <Style Selector="Border.notice.bad"><Setter Property="Background" Value="{StaticResource GbErrorSoft}" /><Setter Property="BorderBrush" Value="{StaticResource GbErrorBorder}" /></Style>
+  <Style Selector="Border.notice.info TextBlock"><Setter Property="Foreground" Value="#215D8E" /></Style>
+  <Style Selector="Border.notice.ok TextBlock"><Setter Property="Foreground" Value="{StaticResource GbSuccess}" /></Style>
+  <Style Selector="Border.notice.warn TextBlock"><Setter Property="Foreground" Value="{StaticResource GbWarningText}" /></Style>
+  <Style Selector="Border.notice.bad TextBlock"><Setter Property="Foreground" Value="{StaticResource GbError}" /></Style>
+
+  <!-- Status pills and dots -->
+  <Style Selector="Border.pill">
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="8,1" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.pill TextBlock"><Setter Property="FontSize" Value="10.5" /><Setter Property="FontWeight" Value="Medium" /></Style>
+  <Style Selector="Border.pill.ok"><Setter Property="Background" Value="{StaticResource GbSuccessSoft}" /></Style>
+  <Style Selector="Border.pill.ok TextBlock"><Setter Property="Foreground" Value="{StaticResource GbSuccess}" /></Style>
+  <Style Selector="Border.pill.bad"><Setter Property="Background" Value="{StaticResource GbErrorSoft}" /></Style>
+  <Style Selector="Border.pill.bad TextBlock"><Setter Property="Foreground" Value="{StaticResource GbError}" /></Style>
+  <Style Selector="Border.pill.warn"><Setter Property="Background" Value="{StaticResource GbWarningSoft}" /></Style>
+  <Style Selector="Border.pill.warn TextBlock"><Setter Property="Foreground" Value="{StaticResource GbWarningText}" /></Style>
+  <Style Selector="Border.pill.muted"><Setter Property="Background" Value="{StaticResource GbSectionBg}" /></Style>
+  <Style Selector="Border.pill.muted TextBlock"><Setter Property="Foreground" Value="{StaticResource GbGrey}" /></Style>
+  <Style Selector="Border.bar"><Setter Property="Height" Value="4" /><Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="{StaticResource GbSectionBg}" /></Style>
+  <Style Selector="Border.fill"><Setter Property="Height" Value="4" /><Setter Property="CornerRadius" Value="2" /><Setter Property="HorizontalAlignment" Value="Left" /></Style>
+  <Style Selector="Border.fill.ok"><Setter Property="Background" Value="{StaticResource GbSuccess}" /></Style>
+  <Style Selector="Border.fill.bad"><Setter Property="Background" Value="{StaticResource GbError}" /></Style>
+  <Style Selector="Border.fill.warn"><Setter Property="Background" Value="{StaticResource GbWarning}" /></Style>
+  <Style Selector="Border.fill.muted"><Setter Property="Background" Value="{StaticResource GbBorderStrong}" /></Style>
+
+  <!-- Tabs (.field-switch) -->
+  <Style Selector="TabControl">
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="TabItem">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="Foreground" Value="{StaticResource GbMuted}" />
+  </Style>
+  <Style Selector="TabItem:selected">
+    <Setter Property="Foreground" Value="{StaticResource GbAccent}" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="TabItem:selected /template/ Border#PART_SelectedPipe">
+    <Setter Property="Background" Value="{StaticResource GbAccent}" />
+  </Style>
+
+  <Style Selector="ProgressBar">
+    <Setter Property="Foreground" Value="{StaticResource GbAccent}" />
+    <Setter Property="Background" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="MinHeight" Value="4" />
+    <Setter Property="Height" Value="4" />
+  </Style>
+</Styles>

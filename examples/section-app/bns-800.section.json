@@ -1,0 +1,102 @@
+{
+  "Version": 1,
+  "Title": "БНС Ø800",
+  "Kind": "Pile",
+  "Pile": {
+    "DiameterMm": 800,
+    "CoverMm": 50,
+    "SpiralDiameterMm": 10,
+    "BarCount": 12,
+    "BarDiameterMm": 25,
+    "MinClearSpacingMm": 25
+  },
+  "Wall": {
+    "WidthMm": 1000,
+    "ThicknessMm": 600,
+    "CoverMm": 50,
+    "StirrupDiameterMm": 10,
+    "PositiveFace": {
+      "BarCount": 5,
+      "BarDiameterMm": 25
+    },
+    "NegativeFace": {
+      "BarCount": 5,
+      "BarDiameterMm": 25
+    },
+    "MinClearSpacingMm": 25
+  },
+  "ConcreteClass": "B30",
+  "RebarClass": "A500",
+  "TransverseClass": "A240",
+  "SustainedLoadFactor": true,
+  "Loads": [
+    {
+      "Name": "Расчётное 1",
+      "Basis": "Uls",
+      "N": -1500,
+      "Mx": 250,
+      "My": 0,
+      "Q": 120,
+      "NLong": null,
+      "MxLong": null,
+      "MyLong": null
+    },
+    {
+      "Name": "Расчётное 2",
+      "Basis": "Uls",
+      "N": -900,
+      "Mx": -180,
+      "My": 0,
+      "Q": 90,
+      "NLong": null,
+      "MxLong": null,
+      "MyLong": null
+    },
+    {
+      "Name": "Нормативное",
+      "Basis": "Sls",
+      "N": -1200,
+      "Mx": 190,
+      "My": 0,
+      "Q": 0,
+      "NLong": null,
+      "MxLong": 150,
+      "MyLong": null
+    }
+  ],
+  "Conditions": {
+    "Eccentricity": "Sp63",
+    "MemberLengthM": 6,
+    "StaticallyDeterminate": false,
+    "SecondOrder": "Cscore",
+    "L0xM": 6,
+    "L0yM": 6,
+    "SustainedShare": 1,
+    "CrackLimitLongMm": 0.3,
+    "CrackLimitShortMm": 0.4,
+    "ShearCheck": true,
+    "ShearPitchMm": 200,
+    "StirrupLegs": 4,
+    "PileShearAMm": 85,
+    "ShearModelConfirmed": true,
+    "InclinedMoment": false,
+    "AnchorageFactor": 1,
+    "SupportDistanceDownM": 3,
+    "SupportDistanceUpM": 3
+  },
+  "Selection": {
+    "PileCountMin": 8,
+    "PileCountMax": 24,
+    "PileCountStep": 2,
+    "WallCountMin": 3,
+    "WallCountMax": 10,
+    "WallSymmetric": true,
+    "Diameters": [
+      16,
+      20,
+      25,
+      28,
+      32
+    ]
+  }
+}
