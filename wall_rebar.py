@@ -35,7 +35,7 @@ def scaled_loads(rows, width_m, sls=False):
         raise InputError('loads: требуется 1–1000 сочетаний')
     result, seen = [], set()
     for row in rows:
-        exact_keys(row, {'id', *mapping, 'n_long_kn_per_m'} if sls else {'id', *mapping, 'q_kn_per_m'}, 'loads')
+        exact_keys(row, {'id', *mapping} if sls else {'id', *mapping, 'q_kn_per_m'}, 'loads')
         name = row.get('id')
         if not isinstance(name, str) or not name.strip() or name in seen:
             raise InputError('loads: пустой или повторный ID')
@@ -44,8 +44,6 @@ def scaled_loads(rows, width_m, sls=False):
         for key, dest in mapping.items():
             converted[dest] = finite_number(row.get(key), key) * width_m
             finite_number(converted[dest], dest)
-        if sls and row.get('n_long_kn_per_m') is not None:
-            converted['n_long_kn'] = finite_number(row['n_long_kn_per_m'], 'n_long_kn_per_m') * width_m
         if not sls and 'q_kn_per_m' in row:
             converted['q_kn'] = finite_number(row['q_kn_per_m'], 'q_kn_per_m') * width_m
         converted.update({'my_total_knm': 0, 'my_long_knm': 0} if sls else {'my_knm': 0})

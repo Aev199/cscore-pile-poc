@@ -58,14 +58,13 @@ def validate_rows(rows):
     if not isinstance(rows,list) or not 1<=len(rows)<=3000:raise ValueError('Требуется 1–3000 строк усилий')
     out=[]
     for i,r in enumerate(rows):
-        if not isinstance(r,dict) or set(r)-set(FIELDS)-{'my','my_long','n_long'}:raise ValueError(f'Строка {i+1}: неверные столбцы')
+        if not isinstance(r,dict) or set(r)-set(FIELDS)-{'my','my_long'}:raise ValueError(f'Строка {i+1}: неверные столбцы')
         if r.get('basis') not in ('ULS','SLS'):raise ValueError(f'Строка {i+1}: назначьте ULS или SLS')
         if not isinstance(r.get('case'),str) or not r['case'].strip():raise ValueError('Не задано сочетание/фаза')
         a={k:number(r.get(k),k) for k in ('z','n','m','q')}
         a.update(case=r['case'].strip(),basis=r['basis'])
-        for key in ('my','my_long','n_long'):
+        for key in ('my','my_long'):
             if key in r and r[key] is not None:a[key]=number(r[key],key)
-        if a.get('n_long') is not None and r['basis']!='SLS':raise ValueError(f'Строка {i+1}: длительная N задаётся только для SLS')
         a['m_long']=number(r.get('m_long'),'m_long') if r['basis']=='SLS' else None
         out.append(a)
     return out
@@ -95,7 +94,7 @@ def normalized_rows(p):
     sign=p.get('moment_sign')
     if type(sign) is not int or sign not in (-1,1):raise ValueError('Направление момента: +1 или -1')
     for r in rows:
-        for key in ('n','n_long','m','q','m_long','my','my_long'):
+        for key in ('n','m','q','m_long','my','my_long'):
             if r.get(key) is not None:r[key]=number(r[key]*factor*(sign if key in ('m','m_long','my','my_long') else 1),key)
     return rows
 
@@ -203,12 +202,10 @@ def section_input(p,rows,tiers=None):
         req['sls_probe']=copy.deepcopy(p['sls_settings'])
         if p['kind']=='wall':
             req['sls_probe']['loads']=[{'id':f"{r['case']} #{i+1}",'n_kn_per_m':r['n'],
-                'mx_total_knm_per_m':r['m'],'mx_long_knm_per_m':r['m_long'],
-                **({'n_long_kn_per_m':r['n_long']} if r.get('n_long') is not None else {})} for i,r in enumerate(s)]
+                'mx_total_knm_per_m':r['m'],'mx_long_knm_per_m':r['m_long']} for i,r in enumerate(s)]
         else:
             req['sls_probe']['loads']=[{'id':f"{r['case']} #{i+1}",'n_kn':r['n'],
-                'mx_total_knm':r['m'],'mx_long_knm':r['m_long'],'my_total_knm':0,'my_long_knm':0,
-                **({'n_long_kn':r['n_long']} if r.get('n_long') is not None else {})} for i,r in enumerate(s)]
+                'mx_total_knm':r['m'],'mx_long_knm':r['m_long'],'my_total_knm':0,'my_long_knm':0} for i,r in enumerate(s)]
     return req
 
 

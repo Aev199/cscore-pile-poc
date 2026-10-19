@@ -17,12 +17,10 @@ from workbench.connection import validate_report
 
 
 def run(runner):
-    # T09/T10: partly sustained actions, SP63 8.2.6 split into sustained and total states.
     cases=[('R300x500', 'T01', 'long', 1.0316302052621296),
            ('R400x600', 'T02', 'long', 1.7392021983328885),
            ('R400x600', 'T07', 'short', 1.4314045937550512),
-           ('C600', 'T09', 'short', 1.1458448068514773),
-           ('C600', 'T10', 'long', 0.5923435130783482)]
+           ('C600', 'T09', 'short', 1.212285843533191)]
     for prefix,case,duration,expected in cases:
         section=next(s for s in matrix.section_definitions('arbat_stated') if s['id'].startswith(prefix))
         request=matrix.make_request(section,'arbat_conservative')
@@ -36,10 +34,6 @@ def run(runner):
             if p.returncode:raise RuntimeError(p.stderr)
             result=json.loads(p.stdout)['cases'][0]
             probe=result['sls_probe'][0]
-            if mode=='native_refined' and 'n_long_kn' in req['sls_probe']['loads'][0]:
-                # The author's solver takes one N; a separate sustained N fails closed.
-                assert probe['status']=='indeterminate' and probe['error'].endswith('native_refined_requires_single_axial_force'),probe
-                continue
             assert probe['status']=='research_calculated',probe
             report=validate_report(req,result['connection_report'])
             row=next(r for r in report['checks'] if r['check_id']=='crack_width_'+duration)
@@ -51,14 +45,8 @@ def run(runner):
                 assert math.isclose(row['utilization'],expected,rel_tol=1e-6),row
                 print(f'{prefix}/{case}: agreed {duration} K={row["utilization"]:.6f}; native K={row["details"]["native_utilization"]:.6f}')
             else:assert row['engine_method']=='CScore.CrackWidthSolver.Compute'
-        conservative,native=outputs['arbat_conservative'],outputs.get('native_refined')
-        if conservative['preliminary_basis'].startswith('sp63_8_2_6_'):
-            # Separate sustained N is outside the native single-N contract.
-            for key in ('long','short'):
-                assert conservative['preliminary_utilization_'+key]+1e-12>=conservative['utilization_'+key]
-            continue
         for key in ('width_long_mm','width_short_mm','utilization_long','utilization_short','mcrc_knm'):
-            assert conservative[key]==native[key],key
+            assert outputs['arbat_conservative'][key]==outputs['native_refined'][key],key
     print('Agreed crack method: numeric references, product report and unchanged native option passed')
 
 

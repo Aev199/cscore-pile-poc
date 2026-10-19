@@ -36,17 +36,3 @@ class MemberPreparationContract(unittest.TestCase):
         self.assertEqual(len(req['loads']),4)
         self.assertTrue(req['connection_context']['eccentricity_in_loads'])
         self.assertTrue(all(l['q_kn']==100 and l['source_mx_knm']==0 and l['source_my_knm']==0 for l in req['loads']))
-
-    def test_sls_actions_are_not_given_accidental_eccentricity(self):
-        req=self.request()
-        req['sls_probe']={'loads':[dict(id='S',n_kn=-500,n_long_kn=-250,mx_total_knm=0,my_total_knm=0,
-                                        mx_long_knm=0,my_long_knm=0)]}
-        sls=copy.deepcopy(req['sls_probe']);payload=[]
-        def run(cmd,input,**_):
-            payload.append(json.loads(input))
-            return SimpleNamespace(returncode=0,stdout=json.dumps(self.response([(-1,-1),(-1,1),(1,-1),(1,1)])),stderr='')
-        with patch('workbench.member_loads.subprocess.run',side_effect=run):
-            prepare(req,dict(mode='sp63',length_m=15,structural_scheme='statically_indeterminate'),'runner')
-        self.assertEqual(req['sls_probe'],sls)
-        self.assertEqual([l['id'] for l in payload[0]['loads']],['ULS:U'])
-

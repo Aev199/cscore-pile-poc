@@ -138,8 +138,6 @@ def validate_sls_probe(probe: dict) -> None:
         for key in ('n_kn', 'mx_total_knm', 'my_total_knm',
                     'mx_long_knm', 'my_long_knm'):
             finite_number(action.get(key), f'sls_probe.loads[{i}].{key}')
-        if action.get('n_long_kn') is not None:  # omitted: sustained N equals total N
-            finite_number(action['n_long_kn'], f'sls_probe.loads[{i}].n_long_kn')
 
 
 def check_sls_results(result_rows: list, expected: dict, mode: str, band: float) -> list:

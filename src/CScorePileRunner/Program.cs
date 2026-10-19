@@ -433,16 +433,6 @@ internal static class Program
             {
                 try
                 {
-                    double nLong = load.NLongKn ?? load.NKn;
-                    bool sameAxial = Math.Abs(nLong - load.NKn) < 1e-9;
-                    bool fullySustained = sameAxial
-                        && Math.Abs(load.MxLongKnm - load.MxTotalKnm) < 1e-9
-                        && Math.Abs(load.MyLongKnm - load.MyTotalKnm) < 1e-9;
-                    if (!fullySustained && probe.PreliminaryMethod != "native_refined")
-                        return SplitSp63Estimate(input, candidate, section, probe, load, nLong);
-                    // CrackWidthSolver.Compute takes one axial force for both parts.
-                    if (!sameAxial)
-                        throw new InvalidOperationException("native_refined_requires_single_axial_force");
                     var solver = new CrackWidthSolver(
                         section,
                         calcCrc: CalcType.N,
@@ -930,159 +920,6 @@ internal static class Program
         }
     }
 
-    // SP63 8.2.6 / 8.2.15 for a partly sustained action: crack formation is
-    // checked under the total action; acrc1 and acrc3 use the sustained N_l, M_l,
-    // acrc2 the total N, M. Each state is one fully sustained CScore call
-    // through the agreed estimate above (acrc(phi1=1.0) = acrc(phi1=1.4) / 1.4
-    // for the same state), so separate sustained and total axial forces are
-    // honoured. If the sustained action alone is below Mcrc but the total action
-    // has formed cracks, acrc1 is taken with psi_s=1 (SP63 8.2.15, conservative):
-    // CScore's psi_s=1 total width scaled by the cracked-section rebar stress
-    // ratio; ls, phi2 and Es are those of the cracked total state.
-    static object SplitSp63Estimate(BatchInput input, Candidate candidate, CrossSection section,
-        SlsProbe probe, SlsLoad load, double nLong)
-    {
-        object Indeterminate(string error) => new { id = load.Id, status = "indeterminate", error,
-            preliminary_method = probe.PreliminaryMethod, n_long_kn = nLong, verified_for_design = false };
-        double mLong = Math.Sqrt(load.MxLongKnm * load.MxLongKnm + load.MyLongKnm * load.MyLongKnm);
-        double mTotal = Math.Sqrt(load.MxTotalKnm * load.MxTotalKnm + load.MyTotalKnm * load.MyTotalKnm);
-        double dot = load.MxLongKnm * load.MxTotalKnm + load.MyLongKnm * load.MyTotalKnm;
-        double cross = load.MxLongKnm * load.MyTotalKnm - load.MyLongKnm * load.MxTotalKnm;
-        // A rotating or reversed sustained moment cracks another face.
-        if (mLong > 1e-9 && (dot <= 0 || Math.Abs(cross) > 1e-8 * mLong * mTotal))
-            return Indeterminate("split_requires_proportional_nonreversing_moments");
-
-        static JsonElement State(BatchInput input, Candidate candidate, string id, double n, double mx, double my)
-            => JsonSerializer.SerializeToElement(RunCrackProbe(input, candidate, new[] { new SlsLoad {
-                Id = id, NKn = n, MxLongKnm = mx, MxTotalKnm = mx, MyLongKnm = my, MyTotalKnm = my } })[0]);
-        static string Text(JsonElement e, string key)
-            => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
-        static double? Number(JsonElement e, string key)
-            => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
-        static bool Cracked(JsonElement e)
-            => e.TryGetProperty("cracked", out var v) && v.ValueKind == JsonValueKind.True;
-
-        var total = State(input, candidate, load.Id + ":total", load.NKn, load.MxTotalKnm, load.MyTotalKnm);
-        if (Text(total, "status") != "research_calculated")
-            return Indeterminate("split_total_state:" + Text(total, "error"));
-        double a1, a2, n1, n2;
-        string basis;
-        JsonElement? sustained = null;
-        if (!Cracked(total))
-        {
-            a1 = a2 = n1 = n2 = 0.0;
-            basis = "sp63_8_2_6_uncracked_under_total_action";
-        }
-        else
-        {
-            if (Number(total, "preliminary_width_long_mm") is not double wTotal
-                || Number(total, "width_long_mm") is not double nTotal)
-                return Indeterminate("split_total_state_without_width");
-            a2 = wTotal / 1.4; n2 = nTotal / 1.4;
-            var s = State(input, candidate, load.Id + ":sustained", nLong, load.MxLongKnm, load.MyLongKnm);
-            sustained = s;
-            if (Text(s, "status") != "research_calculated")
-                return Indeterminate("split_sustained_state:" + Text(s, "error"));
-            if (Cracked(s))
-            {
-                if (Number(s, "preliminary_width_long_mm") is not double wSustained
-                    || Number(s, "width_long_mm") is not double nSustained)
-                    return Indeterminate("split_sustained_state_without_width");
-                a1 = wSustained; n1 = nSustained;
-                basis = "sp63_8_2_6_split_sustained_" + Text(s, "preliminary_basis");
-            }
-            else
-            {
-                if (Number(total, "width_long_psi_one_mm") is not double psiOneTotal
-                    || Number(total, "sigma_rebar_kpa") is not double sigmaTotalNative || sigmaTotalNative <= 0)
-                    return Indeterminate("split_total_state_without_psi_one_width");
-                var sigmaTotal = CrackedRebarStress(section, load.NKn, load.MxTotalKnm, load.MyTotalKnm);
-                var sigmaSustained = CrackedRebarStress(section, nLong, load.MxLongKnm, load.MyLongKnm);
-                // Same stress readout as CScore's sigma_s; reject a different state.
-                if (sigmaTotal is not double st || sigmaSustained is not double sl
-                    || Math.Abs(st - sigmaTotalNative) > 0.02 * sigmaTotalNative)
-                    return Indeterminate("split_cracked_rebar_stress_not_reproduced");
-                double phi3Total = load.NKn > 1e-3 ? 1.2 : 1.0, phi3Sustained = nLong > 1e-3 ? 1.2 : 1.0;
-                a1 = psiOneTotal * sl / st * phi3Sustained / phi3Total;
-                n1 = 0.0;
-                basis = "sp63_8_2_6_split_sustained_below_mcrc_psi_s_one";
-            }
-        }
-        double a3 = a1 / 1.4, n3 = n1 / 1.4;
-        double widthLong = a1, widthShort = a1 + a2 - a3;
-        double nativeLong = n1, nativeShort = n1 + n2 - n3;
-        if (!new[] { widthLong, widthShort, nativeLong, nativeShort }.All(v => double.IsFinite(v) && v >= 0))
-            return Indeterminate("split_invalid_width");
-        double useLong = widthLong / probe.AcrcUltLongMm, useShort = widthShort / probe.AcrcUltShortMm;
-        double governing = Math.Max(useLong, useShort);
-        string decision = Math.Abs(governing - 1.0) <= probe.ReviewBand ? "engineering_review"
-            : governing > 1.0 ? "preliminary_exceeds_limit" : "preliminary_below_limit";
-        return new
-        {
-            id = load.Id,
-            status = "research_calculated",
-            error = (string?)null,
-            preliminary_method = probe.PreliminaryMethod,
-            preliminary_basis = basis,
-            preliminary_review_reason = "",
-            preliminary_width_long_mm = (double?)widthLong,
-            preliminary_utilization_long = (double?)useLong,
-            preliminary_width_short_mm = (double?)widthShort,
-            preliminary_utilization_short = (double?)useShort,
-            preliminary_governing_utilization = (double?)governing,
-            preliminary_decision = decision,
-            preliminary_review_band = probe.ReviewBand,
-            preliminary_is_final_approval = false,
-            cracked = (bool?)Cracked(total),
-            crc_converged = true,
-            mcrc_knm = Number(total, "mcrc_knm"),
-            n_long_kn = nLong,
-            a_crc_1_mm = (double?)a1,
-            a_crc_2_mm = (double?)a2,
-            a_crc_3_mm = (double?)a3,
-            width_long_mm = (double?)nativeLong,
-            width_short_mm = (double?)nativeShort,
-            utilization_long = (double?)(nativeLong / probe.AcrcUltLongMm),
-            utilization_short = (double?)(nativeShort / probe.AcrcUltShortMm),
-            total_state = total,
-            sustained_state = sustained,
-            verified_for_design = false
-        };
-    }
-
-    // Maximum tensile rebar stress on the cracked (ten=false) service plane,
-    // read like CrackWidthSolver's sigma_s; null without convergence.
-    static double? CrackedRebarStress(CrossSection section, double n, double mx, double my)
-    {
-        var solver = new StrainSolver(section, CalcType.N, ten: false, ca: true,
-            tol: 0.5, maxIter: 80, centralJacobian: true);
-        var plane = solver.Solve(n, mx, my);
-        if (!solver.Converged || !double.IsFinite(plane.e0) || !double.IsFinite(plane.ky) || !double.IsFinite(plane.kz))
-            return null;
-        double sigma = 0.0;
-        foreach (var (area, ka) in section.EnumerateAreas(plane))
-        {
-            if (area.Material?.Type != MatType.ReSteelF)
-                continue;
-            var diagrams = area.Material.GetDiagramms(area.DiagrammType, 0.85, 0.05);
-            if (diagrams is null || !diagrams.TryGetValue(CalcType.N, out var diag))
-                continue;
-            foreach (var bar in area.Fibers)
-            {
-                if (bar.TypeFiber != FiberType.point)
-                    continue;
-                var eps = ka.e0 + ka.ky * bar.Y + ka.kz * bar.X;
-                if (eps > 0)
-                {
-                    var stress = diag.Sig(eps, out _);
-                    if (double.IsFinite(stress) && stress > sigma)
-                        sigma = stress;
-                }
-            }
-        }
-        return double.IsFinite(sigma) ? sigma : null;
-    }
-
     // CScore eagerly creates material diagrams for all four internal calculation states.
     private static readonly CalcType[] MaterialModes =
         [CalcType.C, CalcType.CL, CalcType.N, CalcType.NL];
@@ -1449,8 +1286,6 @@ internal sealed class SlsLoad
 {
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("n_kn")] public double NKn { get; init; }
-    // Sustained axial force; omitted means equal to the total n_kn.
-    [JsonPropertyName("n_long_kn")] public double? NLongKn { get; init; }
     [JsonPropertyName("mx_long_knm")] public double MxLongKnm { get; init; }
     [JsonPropertyName("my_long_knm")] public double MyLongKnm { get; init; }
     [JsonPropertyName("mx_total_knm")] public double MxTotalKnm { get; init; }
