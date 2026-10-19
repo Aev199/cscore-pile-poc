@@ -55,6 +55,8 @@ jobs:
             -o publish
       - name: Agreed crack method numeric and product-report regression
         run: python tools/verify_agreed_crack_method.py --runner publish/CScorePileRunner.exe
+      - name: Two-plane member eccentricity and source shear regression
+        run: python tools/verify_member_eccentricity.py --runner publish/CScorePileRunner.exe
       - name: End-to-end numerical run (real CScore, no mocks)
         shell: pwsh
         env:
@@ -243,6 +245,8 @@ jobs:
           $env:SECTION_SCREENSHOT = Join-Path (Get-Location) 'results/section-manual.png'
           node tools/section_browser_check.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Single-section browser interaction failed' }
+          node tools/member_browser_check.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Member eccentricity browser interaction failed' }
       - name: Pack deliverables
         shell: pwsh
         run: |
@@ -256,6 +260,7 @@ jobs:
           Copy-Item workbench/*.py release/workbench/
           Copy-Item web release/ -Recurse
           Copy-Item docs/workbench-guide.md release/
+          Copy-Item examples/verification/member_length15_manual.json release/
           Copy-Item docs/cscore-connection-cycle.md release/
           New-Item -ItemType Directory release/research -Force | Out-Null
           Copy-Item docs/research/circular-shear-equivalent-section-2026-10-18.md release/research/

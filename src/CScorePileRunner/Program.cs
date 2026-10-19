@@ -18,11 +18,16 @@ internal static class Program
         try
         {
             if (args.SequenceEqual(new[] { "--prepare-loads" })) return PrepareLoads();
+            if (args.SequenceEqual(new[] { "--prepare-member-loads" })) return PrepareMemberLoads();
             if (args.Length != 0) throw new ArgumentException("Unsupported runner command");
             var input = JsonSerializer.Deserialize<BatchInput>(Console.In.ReadToEnd(), ReadOptions)
                 ?? throw new ArgumentException("Пустой JSON");
             Validate(input);
             input.ConnectionContext?.Validate();
+            if (input.Loads.Any(l=>l.SourceMxKnm.HasValue!=l.SourceMyKnm.HasValue
+                || l.SourceMxKnm is double sx && !double.IsFinite(sx)
+                || l.SourceMyKnm is double sy && !double.IsFinite(sy)))
+                throw new ArgumentException("Invalid external moment provenance");
             var records = new List<object>();
             foreach (var candidate in input.Candidates)
             {
@@ -154,6 +159,51 @@ internal static class Program
         }
     }
 
+    // Two-plane member input preparation only. Normative eccentricities are
+    // obtained from the upstream helpers; resistance and eta remain untouched.
+    private static int PrepareMemberLoads()
+    {
+        var input = JsonSerializer.Deserialize<MemberPreparationInput>(Console.In.ReadToEnd(), ReadOptions)
+            ?? throw new ArgumentException("Missing member preparation input");
+        if (!double.IsFinite(input.LengthM) || input.LengthM <= 0
+            || !double.IsFinite(input.HeightXM) || input.HeightXM <= 0
+            || !double.IsFinite(input.HeightYM) || input.HeightYM <= 0
+            || input.Loads.Count == 0 || input.Loads.Count > 1000
+            || input.Loads.Select(l=>l.Id).Distinct().Count()!=input.Loads.Count)
+            throw new ArgumentException("Invalid member preparation geometry or loads");
+        var scheme = input.StructuralScheme switch {
+            "statically_determinate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyDeterminate,
+            "statically_indeterminate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyIndeterminate,
+            _ => throw new ArgumentException("Missing structural scheme") };
+        double eax = CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightXM);
+        double eay = CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightYM);
+        var prepared = new List<object>();
+        foreach (var load in input.Loads)
+        {
+            if (string.IsNullOrWhiteSpace(load.Id) || new[] { load.NKn,load.MxTotalKnm,load.MyTotalKnm,
+                    load.MxLongKnm,load.MyLongKnm }.Any(v=>!double.IsFinite(v)))
+                throw new ArgumentException("Invalid member preparation load");
+            int[] Signs(double m) => load.NKn < 0 && Math.Abs(m)<1e-12 ? [-1,1] : [m<0 ? -1 : 1];
+            double Prepare(double m,double ea,int zeroSign) => load.NKn >= 0 ? m
+                : (Math.Abs(m)<1e-12 ? zeroSign : Math.Sign(m))*Math.Abs(load.NKn)
+                    * CScore.Sp63.Normal.Sp63MemberContext.EffectiveEccentricity(
+                        Math.Abs(m)/Math.Abs(load.NKn),ea,scheme);
+            var xs=Signs(load.MxTotalKnm);var ys=Signs(load.MyTotalKnm);
+            foreach (int sx in xs) foreach (int sy in ys)
+                prepared.Add(new { id=load.Id+(xs.Length*ys.Length>1 ? $" [ea {sx:+0;-0},{sy:+0;-0}]" : ""),
+                    source_id=load.Id, n_kn=load.NKn,
+                    mx_total_knm=Prepare(load.MxTotalKnm,eax,sx),
+                    my_total_knm=Prepare(load.MyTotalKnm,eay,sy),
+                    mx_long_knm=Prepare(load.MxLongKnm,eax,sx),
+                    my_long_knm=Prepare(load.MyLongKnm,eay,sy),
+                    source=load, sign_x=sx,sign_y=sy });
+        }
+        Console.Out.Write(JsonSerializer.Serialize(new { schema_version=1,
+            method="CScore.Sp63.Normal.Sp63MemberContext",ea_x_mm=eax*1000,ea_y_mm=eay*1000,
+            loads=prepared }));
+        return 0;
+    }
+
     private static int PrepareLoads()
     {
         var input = JsonSerializer.Deserialize<LoadPreparationInput>(Console.In.ReadToEnd(), ReadOptions)
@@ -210,7 +260,7 @@ internal static class Program
     private static object[] RunShearScreening(BatchInput input, Candidate candidate)
     {
         var options = input.ShearScreening!;
-        return input.Loads.Select(load =>
+        return input.Loads.Select(load => load.ExternalActions()).Select(load =>
         {
             try
             {
@@ -1159,6 +1209,11 @@ internal sealed class LoadCase
     [JsonPropertyName("mx_knm")] public double MxKnm { get; init; }
     [JsonPropertyName("my_knm")] public double MyKnm { get; init; }
     [JsonPropertyName("q_kn")] public double? QKn { get; init; }
+    [JsonPropertyName("source_mx_knm")] public double? SourceMxKnm { get; init; }
+    [JsonPropertyName("source_my_knm")] public double? SourceMyKnm { get; init; }
+    internal LoadCase ExternalActions() => new() { Id=Id,NKn=NKn,QKn=QKn,
+        MxKnm=SourceMxKnm??MxKnm,MyKnm=SourceMyKnm??MyKnm };
+
 }
 
 
@@ -1254,4 +1309,23 @@ internal sealed class LoadPreparationInput
     [JsonPropertyName("diameter_mm")] public double DiameterMm { get; init; }
     [JsonPropertyName("length_mm")] public double LengthMm { get; init; }
     [JsonPropertyName("zero_moment_axis")] public string? ZeroMomentAxis { get; init; }
+}
+
+internal sealed class MemberPreparationInput
+{
+    [JsonPropertyName("length_m")] public double LengthM { get; init; }
+    [JsonPropertyName("height_x_m")] public double HeightXM { get; init; }
+    [JsonPropertyName("height_y_m")] public double HeightYM { get; init; }
+    [JsonPropertyName("structural_scheme")] public string StructuralScheme { get; init; } = "";
+    [JsonPropertyName("loads")] public List<MemberPreparationLoad> Loads { get; init; } = [];
+}
+
+internal sealed class MemberPreparationLoad
+{
+    [JsonRequired,JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonRequired,JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonRequired,JsonPropertyName("mx_total_knm")] public double MxTotalKnm { get; init; }
+    [JsonRequired,JsonPropertyName("my_total_knm")] public double MyTotalKnm { get; init; }
+    [JsonRequired,JsonPropertyName("mx_long_knm")] public double MxLongKnm { get; init; }
+    [JsonRequired,JsonPropertyName("my_long_knm")] public double MyLongKnm { get; init; }
 }

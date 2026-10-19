@@ -55,3 +55,24 @@ class SingleSectionTests(unittest.TestCase):
         self.assertAlmostEqual(min(b['x_mm'] for b in bars),-137.5)
         self.assertAlmostEqual(max(b['x_mm'] for b in bars),137.5)
         self.assertEqual({b['y_mm'] for b in bars},{-237.5,237.5})
+
+    def test_second_moment_is_converted_once_and_reaches_cscore(self):
+        p=self.project();p['wall']['panel_width_mm']=400
+        p['wall'].update(cage_count=1,cage_width_mm=300)
+        p['rows'][0]['my']=50
+        requests=[]
+        def engine(req):
+            requests.append(req)
+            return dict(schema_version=1,cases=[dict(id=req['candidates'][0]['id'],
+                connection_report=test_connection_cycle.ConnectionContracts().report(req))])
+        model.check_adopted(p,engine=engine,single_section=True)
+        self.assertEqual(requests[0]['loads'][0]['my_knm'],20)
+
+    def test_automatic_eccentricity_requires_real_length_and_rejects_double_application(self):
+        p=self.project()
+        p['member_load_preparation']={'mode':'sp63','structural_scheme':'statically_indeterminate'}
+        with self.assertRaisesRegex(ValueError,'длину'):model.validate_project(p,single_section=True)
+        p['member_load_preparation']['length_m']=15
+        with self.assertRaisesRegex(ValueError,'повторно'):model.validate_project(p,single_section=True)
+        p['eccentricity_confirmed']=False
+        model.validate_project(p,single_section=True)

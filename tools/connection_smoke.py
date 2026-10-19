@@ -18,6 +18,9 @@ def main():
     def check(r,key,case=None):
         return next(c for c in r['stations'][0]['report']['checks'] if c['check_id']==key and (case is None or c['case_id']==case))
     p=model.default_project();p.update(materials_confirmed=True,eccentricity_confirmed=True,max_tier=1)
+    # This suite checks the unmodified native report; conservative estimates
+    # have their own numerical/product-report gate in verify_agreed_crack_method.
+    p['sls_settings']['preliminary_method']='native_refined'
     p['rows']=[dict(z=z,case=case,basis=basis,n=n,m=m,q=q,m_long=ml)
         for z in (0,-2) for case,basis,n,m,q,ml in [('U','ULS',-100,40,20,None),('S','SLS',-80,30,15,30)]]
     p['transverse'].update(mode='screen',constructive_confirmed=True)

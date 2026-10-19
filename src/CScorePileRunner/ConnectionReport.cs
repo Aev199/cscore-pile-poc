@@ -98,7 +98,7 @@ internal static class ConnectionReport
                     Add("normal_member_strength", load.Id, "indeterminate", "LimitForceSolver.AllFactor", reason: ex.Message);
                 }
             }
-            Shear(input, candidate, load, section, context, memberActions, Add, Ratio);
+            Shear(input, candidate, load.ExternalActions(), section, context, memberActions, Add, Ratio);
         }
         if (input.SlsProbe is null)
         {

@@ -58,11 +58,13 @@ def validate_rows(rows):
     if not isinstance(rows,list) or not 1<=len(rows)<=3000:raise ValueError('Требуется 1–3000 строк усилий')
     out=[]
     for i,r in enumerate(rows):
-        if not isinstance(r,dict) or set(r)-set(FIELDS):raise ValueError(f'Строка {i+1}: неверные столбцы')
+        if not isinstance(r,dict) or set(r)-set(FIELDS)-{'my','my_long'}:raise ValueError(f'Строка {i+1}: неверные столбцы')
         if r.get('basis') not in ('ULS','SLS'):raise ValueError(f'Строка {i+1}: назначьте ULS или SLS')
         if not isinstance(r.get('case'),str) or not r['case'].strip():raise ValueError('Не задано сочетание/фаза')
         a={k:number(r.get(k),k) for k in ('z','n','m','q')}
         a.update(case=r['case'].strip(),basis=r['basis'])
+        for key in ('my','my_long'):
+            if key in r and r[key] is not None:a[key]=number(r[key],key)
         a['m_long']=number(r.get('m_long'),'m_long') if r['basis']=='SLS' else None
         out.append(a)
     return out
@@ -92,8 +94,8 @@ def normalized_rows(p):
     sign=p.get('moment_sign')
     if type(sign) is not int or sign not in (-1,1):raise ValueError('Направление момента: +1 или -1')
     for r in rows:
-        for key in ('n','m','q','m_long'):
-            if r[key] is not None:r[key]=number(r[key]*factor*(sign if key in ('m','m_long') else 1),key)
+        for key in ('n','m','q','m_long','my','my_long'):
+            if r.get(key) is not None:r[key]=number(r[key]*factor*(sign if key in ('m','m_long','my','my_long') else 1),key)
     return rows
 
 
@@ -105,6 +107,12 @@ def counts(p,tiers):
 def validate_project(p, *, single_section=False):
     if not isinstance(p,dict) or p.get('version')!=1:raise ValueError('Неподдерживаемый формат проекта')
     rows=normalized_rows(p)
+    from .member_loads import validate as validate_preparation
+    prep=validate_preparation(p.get('member_load_preparation'))
+    if not single_section and (prep['mode']!='source' or any(r.get('my',0) or r.get('my_long',0) for r in rows)):
+        raise ValueError('Два момента и подготовка эксцентриситета доступны в ручной проверке')
+    if prep['mode']=='sp63' and p.get('eccentricity_confirmed'):
+        raise ValueError('Нельзя добавлять эксцентриситет повторно к уже подготовленным усилиям')
     from .connection import validate_context
     validate_context(p.get('calculation_context',{}))
     wall.integer(p.get('max_tier'),1,3,'Ступеней усиления')
@@ -425,13 +433,25 @@ def check_adopted(p,engine=None,runner=None,progress=lambda _:None,*,single_sect
                     raise ValueError(f'{z:g}: на границе разных шагов CScore не имеет модели перехода; проверка этого сечения не выполнена')
                 req['shear_screening']['spacing_mm']=active[0]
 
+        station_rows=[r for r in rows if r['z']==z]
+        factor=p['wall']['panel_width_mm']/1000 if p['kind']=='wall' else 1
+        for load,row in zip(req['loads'],[r for r in station_rows if r['basis']=='ULS']):
+            load['my_knm']=row.get('my',0)*factor
+        for load,row in zip(req.get('sls_probe',{}).get('loads',[]),[r for r in station_rows if r['basis']=='SLS']):
+            load['my_total_knm']=row.get('my',0)*factor
+            load['my_long_knm']=row.get('my_long',0)*factor
+        from .member_loads import validate as validate_preparation, prepare
+        settings=validate_preparation(p.get('member_load_preparation'))
+        preparation=prepare(req,settings,runner) if settings['mode']=='sp63' else None
         raw=engine(req)
         cases=raw.get('cases') if isinstance(raw,dict) else None
         if (not isinstance(raw,dict) or raw.get('schema_version')!=1 or not isinstance(cases,list) or len(cases)!=1
                 or cases[0].get('id')!=req['candidates'][0]['id']):
             raise ValueError('CScore: неизвестное принятое сечение')
         report=validate_report(req,cases[0].get('connection_report'))
-        stations.append({'z':z,'candidate':cases[0]['id'],'report':report})
+        stations.append({'z':z,'candidate':cases[0]['id'],'report':report,
+                         'loads':req['loads'],'sls_loads':req.get('sls_probe',{}).get('loads',[]),
+                         'member_load_preparation':preparation})
     return {'stations':stations,'status':'failed' if any(s['report']['has_failures'] for s in stations)
             else 'incomplete' if any(s['report']['has_gaps'] for s in stations) else 'calculated_not_verified',
             'scope':'native_checks_adopted_discrete_sections','verified_for_design':False}
