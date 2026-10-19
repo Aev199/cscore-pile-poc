@@ -22,6 +22,24 @@ class HttpTests(unittest.TestCase):
         with self.assertRaises(HTTPError):urlopen(self.url+'/api/default')
         r=Request(self.url+'/api/default',headers={'X-Session':self.app.token})
         self.assertEqual(json.load(urlopen(r))['kind'],'wall')
+
+    def test_manual_section_is_start_page_and_profile_remains_available(self):
+        html=urlopen(self.url).read().decode()
+        self.assertIn('Проверка сечения',html)
+        self.assertNotIn('__SESSION__',html)
+        self.assertIn(self.app.token,html)
+        self.assertIn('id="n"',html)
+        self.assertIn('id="charts"',urlopen(self.url+'/profile').read().decode())
+        self.assertEqual(urlopen(self.url+'/section.js').status,200)
+        self.assertEqual(urlopen(self.url+'/section.css').status,200)
+
+    def test_single_section_endpoint_accepts_one_station_without_fake_depth(self):
+        from workbench.model import default_project
+        p=default_project();p['rows']=[p['rows'][0]];p['max_tier']=1
+        r=Request(self.url+'/api/section-calculate',data=json.dumps({'project':p}).encode(),headers={'X-Session':self.app.token})
+        with self.assertRaises(HTTPError) as ctx:urlopen(r)
+        # Reaches the real engine availability check, rather than requiring two depths.
+        self.assertIn('CScorePileRunner',ctx.exception.read().decode())
     def test_cross_origin_rejected_and_missing_runner_reported(self):
         r=Request(self.url+'/api/table',data=b'{}',headers={'X-Session':self.app.token,'Origin':'https://evil.invalid'})
         with self.assertRaises(HTTPError) as ctx:urlopen(r)

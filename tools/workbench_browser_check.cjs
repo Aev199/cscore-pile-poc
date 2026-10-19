@@ -13,7 +13,7 @@ const path=require('path');
   const url=await new Promise((resolve,reject)=>{let all='';server.stdout.on('data',d=>{all+=d;const m=all.match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});server.on('exit',c=>reject(Error('Server exit '+c+(serverErrors?'\n'+serverErrors:''))));setTimeout(()=>reject(Error('Server startup timeout')),10000).unref();});
   browser=await chromium.launch({headless:true,args:['--no-sandbox']});
   const page=await browser.newPage({viewport:{width:1500,height:1050}});let errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(url);await page.waitForSelector('#charts svg');
+  await page.goto(url+'/profile');await page.waitForSelector('#charts svg');
   assert.equal(await page.locator('#charts svg').count(),5);
   assert(!(await page.locator('#spacingLabel').isVisible()));
   // No hidden background audit until the engineer explicitly opens diagnostics.

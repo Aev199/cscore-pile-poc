@@ -238,6 +238,9 @@ jobs:
           $env:CSCORE_RUNNER = Join-Path (Get-Location) 'publish/CScorePileRunner.exe'
           node tools/workbench_browser_check.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Workbench browser interaction failed' }
+          $env:SECTION_SCREENSHOT = Join-Path (Get-Location) 'results/section-manual.png'
+          node tools/section_browser_check.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Single-section browser interaction failed' }
       - name: Pack deliverables
         shell: pwsh
         run: |
@@ -260,6 +263,7 @@ jobs:
           Copy-Item results/workbench-preview.png release/
           Copy-Item results/workbench-native-checks.png release/
           Copy-Item results/workbench-spiral-checks.png release/
+          Copy-Item results/section-manual.png release/
           Copy-Item examples/wall_cages.json release/
           Copy-Item docs/wall-cage-selection.md release/
           Copy-Item results/wall_smoke release/ -Recurse

@@ -102,7 +102,7 @@ def counts(p,tiers):
     return [(p['background'][i]-1)*tiers[i]+1 for i in range(2)]
 
 
-def validate_project(p):
+def validate_project(p, *, single_section=False):
     if not isinstance(p,dict) or p.get('version')!=1:raise ValueError('Неподдерживаемый формат проекта')
     rows=normalized_rows(p)
     from .connection import validate_context
@@ -117,7 +117,11 @@ def validate_project(p):
         wall.integer(p.get('pile_background'),6,32,'Стержней кольца')
         pile.positive(p.get('pile_diameter'),'Диаметр стержня')
     stations={r['z'] for r in rows}
-    if len(stations)<2 or len(stations)>200:raise ValueError('Нужно 2–200 различных отметок')
+    if single_section:
+        if len(stations)!=1:raise ValueError('Для ручной проверки нужно ровно одно сечение')
+        if p.get('zones') or p.get('transverse_zones') or p['max_tier']!=1 or p.get('transverse_layout',{}).get('mode','proposed')!='proposed':
+            raise ValueError('Для ручной проверки задайте постоянное армирование без подбора и участков')
+    elif len(stations)<2 or len(stations)>200:raise ValueError('Нужно 2–200 различных отметок')
     groups={}
     for r in rows:groups.setdefault((r['case'],r['basis']),set()).add(r['z'])
     for key,zs in groups.items():
@@ -146,7 +150,7 @@ def validate_project(p):
     validate_zones(p.get('zones',[]),max(stations),min(stations))
     if p.get('transverse_zones',[]):
         if p['kind']!='wall':raise ValueError('Участки шага Q доступны только для стены')
-    if p['kind']=='wall':
+    if p['kind']=='wall' and not single_section:
         validate_transverse_zones(p.get('transverse_zones',[]),max(stations),min(stations),
                                   p.get('transverse',{}).get('spacing_mm',200))
     layout=p.get('transverse_layout') or {'mode':'proposed'}
@@ -381,10 +385,10 @@ def screen_background_profile(p, engine=None, runner=None):
             'verified_for_design':False}
 
 
-def check_adopted(p,engine=None,runner=None,progress=lambda _:None):
+def check_adopted(p,engine=None,runner=None,progress=lambda _:None,*,single_section=False):
     """Assess adopted sections through CScore, independently of selection/ranking."""
     from .connection import request_context, validate_report
-    rows=validate_project(p)
+    rows=validate_project(p,single_section=single_section)
     if p.get('materials_confirmed') is not True:
         raise ValueError('Подтвердите материалы перед проверкой CScore')
     engine=engine or (lambda req:wall.invoke_engine(runner,req))

@@ -1,0 +1,40 @@
+"""Single-section input must never fabricate a second depth or select bars."""
+import unittest
+from workbench import model
+import test_connection_cycle
+
+
+class SingleSectionTests(unittest.TestCase):
+    def project(self):
+        p=model.default_project()
+        p.update(materials_confirmed=True, eccentricity_confirmed=True, max_tier=1)
+        p['rows']=[dict(z=0,case='ULS',basis='ULS',n=-100,m=30,q=10,m_long=None)]
+        return p
+
+    def test_one_station_is_explicitly_scoped(self):
+        p=self.project()
+        with self.assertRaises(ValueError):model.validate_project(p)
+        self.assertEqual(len(model.validate_project(p,single_section=True)),1)
+        p['rows'].append(dict(p['rows'][0],z=-1))
+        with self.assertRaises(ValueError):model.validate_project(p,single_section=True)
+
+    def test_single_section_rejects_reinforcement_zones_and_search(self):
+        p=self.project();p['zones']=[dict(top=0,bottom=-1,tiers=[2,2])]
+        with self.assertRaises(ValueError):model.validate_project(p,single_section=True)
+        p['zones']=[];p['max_tier']=2
+        with self.assertRaises(ValueError):model.validate_project(p,single_section=True)
+
+    def test_single_station_reaches_existing_engine_once_for_wall_and_pile(self):
+        for kind in ('wall','pile'):
+            p=self.project();p['kind']=kind
+            if kind=='pile':p['force_scale']='per_member'
+            requests=[]
+            def engine(req):
+                requests.append(req)
+                return dict(schema_version=1,cases=[dict(id=req['candidates'][0]['id'],
+                    connection_report=test_connection_cycle.ConnectionContracts().report(req))])
+            result=model.check_adopted(p,engine=engine,single_section=True)
+            self.assertEqual(len(requests),1)
+            self.assertEqual(len(requests[0]['candidates']),1)
+            self.assertEqual([s['z'] for s in result['stations']],[0])
+            self.assertFalse(result['verified_for_design'])

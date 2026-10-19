@@ -24,8 +24,8 @@ class App:
         self.runner=runner;self.token=secrets.token_urlsafe(32)
         self.jobs={};self.pool=ThreadPoolExecutor(max_workers=1);self.connection=None;self.guard=threading.Lock()
 
-    def start(self,p,recheck,profile=False,connection=False):
-        model.validate_project(p)
+    def start(self,p,recheck,profile=False,connection=False,single_section=False):
+        model.validate_project(p,single_section=single_section)
         if not self.runner.exists():raise ValueError('Нет CScorePileRunner.exe. Используйте Windows-архив сборки или укажите --runner.')
         with self.guard:
             if any(j['status']=='running' for j in self.jobs.values()):raise ValueError('Расчёт уже идёт. Дождитесь завершения.')
@@ -34,7 +34,7 @@ class App:
         def run():
             try:
                 def progress(msg):self.jobs[key]['message']=msg
-                result=(model.check_adopted(p,runner=self.runner,progress=progress) if connection
+                result=(model.check_adopted(p,runner=self.runner,progress=progress,single_section=single_section) if connection
                         else model.screen_background_profile(p,runner=self.runner) if profile
                         else model.design(p,runner=self.runner,progress=progress,recheck=recheck))
                 self.jobs[key].update(status='done',result=result,message='Расчёт завершён')
@@ -64,10 +64,10 @@ def handler_for(app):
                     key=parse_qs(urlparse(self.path).query).get('id',[''])[0]
                     return self.respond(200,app.jobs.get(key,{'status':'error','message':'Задание не найдено'}))
                 return self.respond(404,{'error':'Not found'})
-            files={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8')}
+            files={'/':('section.html','text/html; charset=utf-8'),'/profile':('index.html','text/html; charset=utf-8'),'/section.js':('section.js','text/javascript; charset=utf-8'),'/section.css':('section.css','text/css; charset=utf-8'),'/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8')}
             if path not in files:return self.respond(404,{'error':'Not found'})
             name,kind=files[path];data=(ROOT/'web'/name).read_bytes()
-            if name=='index.html':data=data.replace(b'__SESSION__',app.token.encode())
+            if name in ('index.html','section.html'):data=data.replace(b'__SESSION__',app.token.encode())
             self.respond(200,data,kind)
         def do_POST(self):
             try:
@@ -92,6 +92,7 @@ def handler_for(app):
                             'dxf':make_wall_dxf(data,draft)}
                 elif path=='/api/calculate':result=app.start(data['project'],data.get('recheck',False))
                 elif path=='/api/connection-calculate':result=app.start(data['project'],False,connection=True)
+                elif path=='/api/section-calculate':result=app.start(data['project'],False,connection=True,single_section=True)
                 elif path=='/api/profile-calculate':result=app.start(data['project'],False,profile=True)
                 elif path=='/api/plaxis/connect':
                     with LOCK:
