@@ -68,7 +68,7 @@ public class EngineTests
         // Seismic (without the option) and special combinations do not take part in the crack checks.
         Assert.DoesNotContain(r.Rows, x => x.CheckId.StartsWith("crack_width") && (x.CaseId.StartsWith("сейсм") || x.CaseId.StartsWith("особое")));
         Assert.Contains(r.Rows, x => x.CheckId.StartsWith("crack_width") && x.CaseId == "кратк");
-        Assert.Contains(r.Rows, x => x.Combination.Contains("сейсмика"));
+        Assert.Contains(r.Rows, x => x.Combination.Contains("сейсмическое"));
         Assert.Contains(r.Notes, n => n.Contains("m_tr"));
     }
 

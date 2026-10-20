@@ -21,7 +21,7 @@ public class ReportTests
             var errors = new OpenXmlValidator().Validate(doc).Select(e => e.Path?.XPath + " :: " + e.Description).Distinct().ToList();
             Assert.True(errors.Count == 0, string.Join("\n", errors.Take(12)));
             string text = doc.MainDocumentPart!.Document.Body!.InnerText;
-            foreach (var expected in new[] { "Расчёт сечения", "Исходные данные", "Усилия", "Результаты проверок",
+            foreach (var expected in new[] { "Расчёт железобетонного сечения", "Исходные данные", "Расчётные усилия", "Результаты расчёта",
                          "Подбор армирования", "Примечания", "Прочность нормального сечения", "19.10.2026" })
                 Assert.Contains(expected, text);
             Assert.Single(doc.MainDocumentPart.ImageParts);
@@ -32,8 +32,8 @@ public class ReportTests
     [Fact]
     public void ReportListsCoefficientsAndCombinationKinds()
     {
-        foreach (var (p, expected) in new[] { (ExampleFiles.Pile(), new[] { "сейсмика", "m_tr", "kдл", "γf" }),
-                     (ExampleFiles.Wall(), new[] { "γb3 = 0,85", "особое", "кратковр.", "СП 296", "γn" }) })
+        foreach (var (p, expected) in new[] { (ExampleFiles.Pile(), new[] { "сейсмическое", "m_tr", "kдл", "γf", "ηx = 1/(1 − N/Ncr,x)", "Qsw = 0,75·qsw·C0", "kult" }),
+                     (ExampleFiles.Wall(), new[] { "γb3 = 0,85", "особое", "кратковременное", "СП 296", "γn", "ψs = 1 − 0,8·σs,crc/σs", "acrc,1 + acrc,2 − acrc,3" }) })
         {
             var result = Engine.Check(p);
             string path = Path.Combine(Path.GetTempPath(), $"section-report-{Guid.NewGuid():N}.docx");

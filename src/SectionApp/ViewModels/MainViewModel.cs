@@ -18,7 +18,7 @@ public partial class MainViewModel : ObservableObject
         nameof(ResultIsStale), nameof(VerdictText), nameof(VerdictTone), nameof(GoverningText), nameof(InputErrors),
         nameof(HasInputErrors), nameof(SelectionSummary), nameof(HasSelection), nameof(SteelText), nameof(SelectedTab),
         nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(KindTitle), nameof(EtaByCscore),
-        nameof(SelectedLoad), nameof(L0Text), nameof(LimitedWidth), nameof(InputTab), nameof(SeismicUsed), nameof(SpecialUsed), nameof(SpecialDesign),
+        nameof(SelectedLoad), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders), nameof(LimitedWidth), nameof(InputTab), nameof(SeismicUsed), nameof(SpecialUsed), nameof(SpecialDesign),
     ];
 
     CancellationTokenSource? cancel;
@@ -34,7 +34,7 @@ public partial class MainViewModel : ObservableObject
     public IReadOnlyList<string> ConcreteClasses { get; } = MaterialTables.Concretes.Select(c => c.Name).ToList();
     public IReadOnlyList<string> RebarClasses { get; } = MaterialTables.Rebars.Select(r => r.Name).ToList();
     public IReadOnlyList<string> SecondOrderOptions { get; } =
-        ["Рассчитать η в CScore", "Уже учтено в усилиях", "Не учитывать (только сечение)"];
+        ["Учитывать (п. 8.1.15)", "Учтено в усилиях", "Не учитывать"];
     public IReadOnlyList<string> CrackCategoryOptions { get; } = ["Ограниченное раскрытие трещин", "Трещины не допускаются"];
     public IReadOnlyList<string> CrackRequirementOptions { get; } = ["Сохранность арматуры", "Ограничение проницаемости"];
 
@@ -104,7 +104,8 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<LoadRowViewModel> Loads { get; } = [];
     public ObservableCollection<CheckRowViewModel> SummaryRows { get; } = [];
-    public ObservableCollection<CheckRowViewModel> DetailRows { get; } = [];
+    public ObservableCollection<CombinationRowViewModel> CombinationRows { get; } = [];
+    [ObservableProperty] string[] combinationHeaders = ["Прочность", "N/Ncr", "Q", "acrc, прод.", "acrc, непрод."];
     public ObservableCollection<SelectionRowViewModel> SelectionRows { get; } = [];
 
     // ---- state ----
@@ -117,14 +118,15 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] bool showProgress;
     [ObservableProperty] bool hasResult;
     [ObservableProperty] bool resultIsStale;
-    [ObservableProperty] string verdictText = "Расчёт ещё не выполнялся";
+    [ObservableProperty] string verdictText = "Расчёт не выполнен";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo))]
     string verdictTone = "info";
     public bool VerdictOk => VerdictTone == "ok";
     public bool VerdictBad => VerdictTone == "bad";
     public bool VerdictWarn => VerdictTone == "warn";
     public bool VerdictInfo => VerdictTone == "info";
-    [ObservableProperty] string governingText = "Заполните данные и нажмите «Проверить».";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasGoverning))] string governingText = "";
+    public bool HasGoverning => GoverningText.Length > 0;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasInputErrors))] string inputErrors = "";
     public bool HasInputErrors => InputErrors.Length > 0;
     [ObservableProperty] string selectionSummary = "";
@@ -414,7 +416,7 @@ public partial class MainViewModel : ObservableObject
             added++;
         }
         StatusText = added > 0 ? $"Вставлено сочетаний: {added}" + (skipped > 0 ? $", пропущено строк: {skipped}" : "")
-            : "В буфере обмена нет строк с числами (ожидается: название, N, Mx, My, Q, γf, kдл)";
+            : "В буфере обмена нет строк с усилиями";
         if (added > 0) { SelectedLoad = Loads[^1]; InputsChanged(); }
         return added;
     }
@@ -438,7 +440,7 @@ public partial class MainViewModel : ObservableObject
         var progress = new Progress<(int Done, int Total, string Label)>(x =>
         {
             Progress = x.Total == 0 ? 0 : 100.0 * x.Done / x.Total;
-            StatusText = x.Label.Length > 0 ? $"Подбор: {x.Label} ({x.Done + 1} из {x.Total} в очереди)" : "Подбор завершён";
+            StatusText = x.Label.Length > 0 ? $"Подбор: {x.Label} ({x.Done + 1}/{x.Total})" : "Подбор завершён";
         });
         await Run("Подбор армирования…", token => Selection.Run(p, progress, token), ShowSelection);
     }
@@ -472,13 +474,12 @@ public partial class MainViewModel : ObservableObject
         HasResult = true; ResultIsStale = false; InputErrors = "";
         VerdictText = ReportWriter.VerdictText(r.Verdict);
         VerdictTone = r.Verdict switch { Verdict.Passed => "ok", Verdict.Failed => "bad", _ => "warn" };
-        GoverningText = r.Governing is CheckRow g
-            ? $"Определяющая: {g.Title} · {g.Combination} · K = {ReportWriter.Utilization(g.Utilization)}"
-            : "Коэффициенты не получены";
+        GoverningText = ReportWriter.GoverningText(r);
         SummaryRows.Clear();
-        foreach (var row in r.Summary) SummaryRows.Add(CheckRowViewModel.From(row, r));
-        DetailRows.Clear();
-        foreach (var row in r.Rows.Where(x => x.Status != "not_evaluated" && x.CheckId != "crack_formation")) DetailRows.Add(CheckRowViewModel.From(row, r));
+        foreach (var row in ReportWriter.SummaryRows(r)) SummaryRows.Add(CheckRowViewModel.From(row, r));
+        CombinationRows.Clear();
+        foreach (var line in ReportWriter.Combinations(r)) CombinationRows.Add(new CombinationRowViewModel(line));
+        CombinationHeaders = ReportWriter.CombinationHeaders(r);
         StatusText = $"Расчёт выполнен · {DateTime.Now:HH:mm}";
     }
 
@@ -489,9 +490,9 @@ public partial class MainViewModel : ObservableObject
         foreach (var o in s.Outcomes) SelectionRows.Add(new SelectionRowViewModel(o, o == s.Best, this));
         HasSelection = true; SelectedTab = 1;
         SelectionSummary = s.Best is SelectionOutcome best
-            ? $"Самый лёгкий проходящий вариант: {best.Candidate.Description}, As = {best.Candidate.SteelAreaMm2.ToString("0", Ru)} мм². Нажмите «Принять», чтобы перенести его в сечение."
-            : "Ни один вариант из заданного диапазона не прошёл все проверки. Расширьте диапазон числа или диаметров стержней.";
-        if (s.GeometricallyRejected > 0) SelectionSummary += $" Не поместились в сечении: {s.GeometricallyRejected}.";
+            ? $"Минимальное армирование: {best.Candidate.Description}, As = {best.Candidate.SteelAreaMm2.ToString("0", Ru)} мм²."
+            : "В заданном диапазоне подходящих вариантов нет.";
+        if (s.GeometricallyRejected > 0) SelectionSummary += $" Не помещаются в сечении: {s.GeometricallyRejected}.";
         StatusText = "Подбор завершён";
     }
 
@@ -508,9 +509,9 @@ public partial class MainViewModel : ObservableObject
     void ClearResults()
     {
         lastResult = null; lastSelection = null; HasResult = false; ResultIsStale = false; HasSelection = false;
-        SummaryRows.Clear(); DetailRows.Clear(); SelectionRows.Clear();
-        VerdictText = "Расчёт ещё не выполнялся"; VerdictTone = "info"; SelectionSummary = "";
-        GoverningText = "Заполните данные и нажмите «Проверить».";
+        SummaryRows.Clear(); CombinationRows.Clear(); SelectionRows.Clear();
+        VerdictText = "Расчёт не выполнен"; VerdictTone = "info"; SelectionSummary = "";
+        GoverningText = "";
     }
 
     // ---- files ----

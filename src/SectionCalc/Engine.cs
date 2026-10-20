@@ -14,8 +14,16 @@ public sealed record CheckRow(string CheckId, string Title, string CaseId, strin
     public bool IsReview => Status is "engineering_review" or "indeterminate";
 }
 
+/// <summary>One engine load case (a source combination with one sign of the accidental eccentricity).</summary>
+public sealed record CaseInfo(string Id, string Source, CombinationKind Kind, double N, double Mx, double My, double Q,
+    double SourceMx, double SourceMy, MaterialSet Materials, MaterialSet ShearMaterials, double? UltimateFactor);
+
+/// <summary>Normative actions of one combination and the engine's crack calculation for them.</summary>
+public sealed record ServiceInfo(string Id, double N, double NLong, double Mx, double MxLong, double My, double MyLong, JsonElement? Crack);
+
 public sealed record CheckResult(SectionProject Project, BarLayout Layout, IReadOnlyList<CheckRow> Rows,
-    double? EaXMm, double? EaYMm, Verdict Verdict, CheckRow? Governing, IReadOnlyList<string> Notes)
+    double? EaXMm, double? EaYMm, Verdict Verdict, CheckRow? Governing, IReadOnlyList<string> Notes,
+    IReadOnlyDictionary<string, CaseInfo> Cases, IReadOnlyList<ServiceInfo> Service)
 {
     /// <summary>Largest utilisation per check type, for the summary list.</summary>
     public IEnumerable<CheckRow> Summary => Rows.Where(r => !Engine.InfoOnly.Contains(r.CheckId) && !r.Reason.EndsWith("not_requested"))
@@ -34,19 +42,19 @@ public static class Engine
 
     public static readonly IReadOnlyDictionary<string, string> Titles = new Dictionary<string, string>
     {
-        ["normal_strength"] = "Прочность нормального сечения (N, M)",
-        ["member_stability"] = "Устойчивость, N / Ncr",
-        ["normal_member_strength"] = "Прочность с учётом прогиба (η)",
-        ["shear_strip"] = "Q: прочность бетонной полосы (8.55)",
-        ["shear_inclined"] = "Q: наклонное сечение (8.56)",
-        ["inclined_moment"] = "Момент в наклонном сечении (8.63)",
-        ["sls_member_stability"] = "Устойчивость при нормативных усилиях",
+        ["normal_strength"] = "Прочность нормального сечения",
+        ["member_stability"] = "Продольный изгиб, N/Ncr",
+        ["normal_member_strength"] = "Прочность нормального сечения с учётом прогиба",
+        ["shear_strip"] = "Прочность по наклонной полосе",
+        ["shear_inclined"] = "Прочность наклонного сечения на Q",
+        ["inclined_moment"] = "Прочность наклонного сечения на M",
+        ["sls_member_stability"] = "Продольный изгиб при нормативных усилиях",
         ["crack_formation"] = "Образование трещин",
-        ["no_cracks"] = "Трещины не допускаются: M / Mcrc",
-        ["crack_width_long"] = "Раскрытие трещин, продолжительное",
-        ["crack_width_short"] = "Раскрытие трещин, непродолжительное",
-        ["slenderness_x"] = "Предельная гибкость в плоскости Mx",
-        ["slenderness_y"] = "Предельная гибкость в плоскости My",
+        ["no_cracks"] = "Образование трещин, M/Mcrc",
+        ["crack_width_long"] = "Ширина раскрытия трещин, продолжительное",
+        ["crack_width_short"] = "Ширина раскрытия трещин, непродолжительное",
+        ["slenderness_x"] = "Гибкость в плоскости Mx",
+        ["slenderness_y"] = "Гибкость в плоскости My",
         ["anchorage"] = "Анкеровка",
         ["detailing"] = "Конструктивные требования",
     };
@@ -57,7 +65,7 @@ public static class Engine
         ["calculated"] = "рассчитано", ["not_evaluated"] = "не выполнялась", ["not_applicable"] = "неприменимо",
         ["indeterminate"] = "не определено", ["accounted_in_loads"] = "учтено в усилиях",
         ["preliminary_below_limit"] = "выполнено", ["preliminary_exceeds_limit"] = "не выполнено",
-        ["engineering_review"] = "на границе, проверить",
+        ["engineering_review"] = "на пределе",
     };
 
     public static CheckResult Check(SectionProject project, CancellationToken cancel = default)
@@ -68,6 +76,8 @@ public static class Engine
         var rows = new List<CheckRow>();
         double? eax = null, eay = null;
         var normalByCase = new Dictionary<string, double>();
+        var cases = new Dictionary<string, CaseInfo>();
+        var service = new List<ServiceInfo>();
         // SLS: normative = design / γf × γn,ser; sustained = k × normative. Evaluated in the first engine
         // request (its materials are the SLS ones) and kept only if every ULS check of every group passed.
         var sls = ServiceActions(project);
@@ -87,29 +97,48 @@ public static class Engine
             eax ??= ex; eay ??= ey;
             foreach (var l in uls) normalByCase[l.Id] = l.N;
             var materials = MaterialTables.Uls(project, kind);
-            var all = Run(project, uls, first ? sls : [], materials, group.Key.Share);
-            if (first) slsRows = all.Where(r => SlsChecks.Contains(r.CheckId)).ToList();
+            var (all, raw) = Run(project, uls, first ? sls : [], materials, group.Key.Share);
+            if (first)
+            {
+                slsRows = all.Where(r => SlsChecks.Contains(r.CheckId)).ToList();
+                var probes = raw["sls_probe"] is JsonArray pa
+                    ? pa.Where(x => x is not null).ToDictionary(x => (string)x!["id"]!, x => JsonSerializer.Deserialize<JsonElement>(x!.ToJsonString()))
+                    : [];
+                service.AddRange(sls.Select(a => new ServiceInfo(a.Id, a.N, a.NLong, a.Mx, a.MxLong, a.My, a.MyLong,
+                    probes.TryGetValue(a.Id, out var e) ? e : null)));
+            }
             first = false;
             var groupRows = all.Where(r => !SlsChecks.Contains(r.CheckId) && !GlobalChecks.Contains(r.CheckId)).ToList();
+            var shearMaterials = materials;
             if (kind.Seismic && c.ShearCheck)
             {
                 // SP 14 table 5.4: inclined sections take their own m_tr.
+                shearMaterials = MaterialTables.Uls(project, kind, inclined: true);
                 groupRows.RemoveAll(r => ShearChecks.Contains(r.CheckId));
-                groupRows.AddRange(Run(project, uls, [], MaterialTables.Uls(project, kind, inclined: true), group.Key.Share)
+                groupRows.AddRange(Run(project, uls, [], shearMaterials, group.Key.Share).Rows
                     .Where(r => ShearChecks.Contains(r.CheckId)));
             }
-            rows.AddRange(groupRows.Select(r => r with { Combination = Combination(r.CaseId, group.First(), kind) }));
+            var factors = raw["loads"] is JsonArray la
+                ? la.Where(x => x is not null).ToDictionary(x => (string)x!["id"]!, x => x!["factor"] is JsonValue fv && fv.TryGetValue<double>(out var f) ? f : (double?)null)
+                : [];
+            foreach (var l in uls)
+                cases[l.Id] = new CaseInfo(l.Id, l.SourceName, kind, l.N, l.Mx, l.My, l.Q, l.SourceMx ?? l.Mx, l.SourceMy ?? l.My,
+                    materials, shearMaterials, factors.GetValueOrDefault(l.Id));
+            rows.AddRange(groupRows.Select(r => r with
+            {
+                Combination = Combination(cases.TryGetValue(r.CaseId, out var ci) ? ci.Source : r.CaseId, kind),
+            }));
         }
 
         if (sls.Count > 0)
         {
             bool ulsOk = !rows.Any(r => r.IsFailure || r.Status == "indeterminate");
             if (ulsOk)
-                rows.AddRange(slsRows.Select(r => r with { Combination = r.CaseId + " · нормативное" }));
+                rows.AddRange(slsRows);
             else
                 foreach (var a in sls)
                     foreach (var id in new[] { "crack_width_long", "crack_width_short" })
-                        rows.Add(new CheckRow(id, Titles[id], a.Id, a.Id + " · нормативное", "not_evaluated", null,
+                        rows.Add(new CheckRow(id, Titles[id], a.Id, a.Id, "not_evaluated", null,
                             "skipped_uls_fail", "", null));
         }
         rows.Add(new CheckRow("anchorage", Titles["anchorage"], "", "", "not_evaluated", null, "anchorage_stage_deferred", "", null));
@@ -125,15 +154,15 @@ public static class Engine
         var verdict = scored.Any(r => r.IsFailure) ? Verdict.Failed
             : scored.Any(r => r.IsReview) ? Verdict.Review
             : scored.Any(r => r.Status == "passed" || r.Status.StartsWith("preliminary")) ? Verdict.Passed : Verdict.Incomplete;
-        return new CheckResult(project, layout, rows, eax, eay, verdict, governing, Notes(project, rows));
+        return new CheckResult(project, layout, rows, eax, eay, verdict, governing, Notes(project, rows), cases, service);
     }
 
-    static List<CheckRow> Run(SectionProject p, List<UlsLoad> uls, List<SlsAction> sls, MaterialSet materials, double share)
+    static (List<CheckRow> Rows, JsonNode Raw) Run(SectionProject p, List<UlsLoad> uls, List<SlsAction> sls, MaterialSet materials, double share)
     {
         var request = RequestBuilder.Build(p, uls, sls, materials, share);
-        var raw = JsonNode.Parse(Program.Execute("", request.ToJsonString()))!;
-        var report = raw["cases"]![0]!["connection_report"] ?? throw new InvalidOperationException("Ядро не вернуло отчёт проверок");
-        return report["checks"]!.AsArray().Select(node =>
+        var raw = JsonNode.Parse(Program.Execute("", request.ToJsonString()))!["cases"]![0]!;
+        var report = raw["connection_report"] ?? throw new InvalidOperationException("Ядро не вернуло отчёт проверок");
+        var rows = report["checks"]!.AsArray().Select(node =>
         {
             string id = (string)node!["check_id"]!, caseId = (string?)node["case_id"] ?? "";
             double? u = node["utilization"] is JsonValue v && v.TryGetValue<double>(out var d) && double.IsFinite(d) ? d : null;
@@ -141,6 +170,7 @@ public static class Engine
             return new CheckRow(id, Titles.GetValueOrDefault(id, id), caseId, caseId, (string)node["status"]!, u,
                 (string?)node["reason"] ?? "", (string?)node["engine_method"] ?? "", details);
         }).Where(r => p.Conditions.ShearCheck || !ShearChecks.Contains(r.CheckId)).ToList();
+        return (rows, raw);
     }
 
     /// <summary>Normative actions of the combinations that take part in the crack checks.</summary>
@@ -154,25 +184,12 @@ public static class Engine
         }).ToList();
     }
 
-    static string Combination(string caseId, LoadRow row, CombinationKind kind)
-    {
-        string label = Branch(caseId);
-        var tags = new List<string>();
-        if (kind.Seismic) tags.Add("сейсмика");
-        if (kind.Special) tags.Add("особое");
-        if (kind.ShortTerm && !kind.Special) tags.Add("кратковр.");
-        return tags.Count > 0 ? $"{label} · {string.Join(", ", tags)}" : label;
-    }
+    /// <summary>Combination name with its kind: "3 · сейсм.". The sign of ea is not shown: the worst one governs.</summary>
+    internal static string Combination(string source, CombinationKind kind) =>
+        KindTag(kind) is { Length: > 0 } tag ? $"{source} · {tag}" : source;
 
-    /// <summary>"Name [ea +1,-1]" (engine branch of the accidental eccentricity signs) → "Name (ea: +x, −y)".</summary>
-    internal static string Branch(string caseId)
-    {
-        int i = caseId.IndexOf(" [ea ", StringComparison.Ordinal);
-        if (i < 0 || !caseId.EndsWith(']')) return caseId;
-        var signs = caseId[(i + 5)..^1].Split(',');
-        string Sign(string s) => s.Trim().StartsWith('-') ? "−" : "+";
-        return signs.Length == 2 ? $"{caseId[..i]} (ea: {Sign(signs[0])}x, {Sign(signs[1])}y)" : caseId;
-    }
+    public static string KindTag(CombinationKind kind) =>
+        kind.Seismic ? "сейсмическое" : kind.Special ? "особое" : kind.ShortTerm ? "кратковременное" : "";
 
     /// <summary>N / Ncr of CScore's eta diagnostics, shown with the stability row.</summary>
     static CheckRow WithNcr(CheckRow r, Dictionary<string, double> n)
@@ -247,23 +264,24 @@ public static class Engine
 
     static List<string> Notes(SectionProject p, List<CheckRow> rows)
     {
+        var ru = System.Globalization.CultureInfo.GetCultureInfo("ru-RU");
+        string F(double v) => v.ToString("0.##", ru);
         var notes = new List<string>();
         var c = p.Conditions;
-        if (c.Eccentricity == EccentricityMode.InLoads) notes.Add("Случайный эксцентриситет принят включённым в заданные моменты.");
-        if (c.SecondOrder == SecondOrderMode.InLoads) notes.Add("Влияние прогиба принято учтённым в заданных усилиях.");
-        if (c.SecondOrder == SecondOrderMode.SectionOnly) notes.Add("Проверено только сечение: влияние прогиба (η) не учитывалось.");
+        if (c.Eccentricity == EccentricityMode.InLoads) notes.Add("Случайный эксцентриситет учтён в заданных моментах.");
+        if (c.SecondOrder == SecondOrderMode.InLoads) notes.Add("Влияние прогиба учтено в заданных усилиях.");
+        if (c.SecondOrder == SecondOrderMode.SectionOnly) notes.Add("Влияние прогиба не учитывалось.");
         if (c.SecondOrder == SecondOrderMode.Cscore && p.Loads.Any(l => l.SustainedShare is < 0 or > 1))
-            notes.Add("Для η доля длительной нагрузки вне 0…1 ограничена этим диапазоном.");
-        if (!c.ShearCheck) notes.Add("Поперечная сила не проверялась.");
-        if (rows.Any(r => r.Reason == "skipped_uls_fail")) notes.Add("Трещины не проверялись: сечение не прошло проверку прочности.");
+            notes.Add("При определении η значения kдл вне диапазона 0…1 приняты равными ближайшей границе.");
+        if (!c.ShearCheck) notes.Add("Расчёт на действие поперечной силы не выполнялся.");
+        if (rows.Any(r => r.Reason == "skipped_uls_fail")) notes.Add("Трещиностойкость не проверялась: не обеспечена прочность.");
         if (p.Loads.Any(l => l.Seismic))
         {
-            notes.Add($"Сейсмические сочетания: к расчётным сопротивлениям введён m_tr = {p.Seismic.NormalSectionFactor:0.##} для нормальных сечений и {p.Seismic.InclinedSectionFactor:0.##} для наклонных (СП 14.13330 табл. 5.4).");
-            notes.Add("Снижение граничной высоты сжатой зоны ξR (СП 14.13330 п. 6.7.2) в нелинейной деформационной модели не применяется: прочность определяется предельными деформациями.");
-            if (!p.Seismic.CheckCracks) notes.Add("Трещиностойкость при сейсмических сочетаниях не проверялась (СП 14.13330 п. 5.18).");
+            notes.Add($"Сейсмические сочетания — по СП 14.13330: m_tr = {F(p.Seismic.NormalSectionFactor)} для нормальных и {F(p.Seismic.InclinedSectionFactor)} для наклонных сечений (табл. 5.4). Ограничение ξR (п. 6.7.2) при расчёте по деформационной модели не применяется.");
+            if (!p.Seismic.CheckCracks) notes.Add("Трещиностойкость при сейсмических сочетаниях не проверялась (п. 5.18 СП 14.13330).");
         }
         if (p.Loads.Any(l => l.Special && !l.Seismic))
-            notes.Add($"Особые сочетания (СП 296.1325800): {(p.Special.NormativeProperties ? "нормативные" : "расчётные")} характеристики материалов, коэффициенты задаются пользователем, γn = 1, трещины не проверяются.");
+            notes.Add($"Особые сочетания — по СП 296.1325800: {(p.Special.NormativeProperties ? "нормативные" : "расчётные")} характеристики материалов, γn = 1; трещиностойкость не проверяется.");
         return notes;
     }
 }

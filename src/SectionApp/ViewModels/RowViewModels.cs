@@ -65,6 +65,22 @@ public partial class LoadRowViewModel : ObservableObject
     static string S(double v) => v.ToString("0.###", Ru);
 }
 
+/// <summary>One combination in the results table: worst K per check type; values above 1 are highlighted.</summary>
+public sealed class CombinationRowViewModel(CombinationLine line)
+{
+    public string Name => line.Name;
+    public string C0 => line.Cells[0];
+    public string C1 => line.Cells[1];
+    public string C2 => line.Cells[2];
+    public string C3 => line.Cells[3];
+    public string C4 => line.Cells[4];
+    public bool B0 => line.Exceeded[0];
+    public bool B1 => line.Exceeded[1];
+    public bool B2 => line.Exceeded[2];
+    public bool B3 => line.Exceeded[3];
+    public bool B4 => line.Exceeded[4];
+}
+
 /// <summary>One result line: readable title, combination, K and a colour tone.</summary>
 public sealed class CheckRowViewModel
 {
@@ -104,7 +120,7 @@ public partial class SelectionRowViewModel(SelectionOutcome outcome, bool isBest
     public string Governing => outcome.Error ?? outcome.Governing?.Title ?? "—";
     public string KText => ReportWriter.Utilization(outcome.Governing?.Utilization);
     public bool IsBest => isBest;
-    public string Result => outcome.Error is not null ? "ошибка" : isBest ? "лучший вариант" : outcome.Verdict switch
+    public string Result => outcome.Error is not null ? "ошибка" : isBest ? "минимальный" : outcome.Verdict switch
     {
         Verdict.Passed => "проходит", Verdict.Failed => "не проходит", Verdict.Review => "на границе", _ => "неполный",
     };

@@ -45,7 +45,7 @@ public class AppTests
         Snapshot(window, "01-pile-start");
         await vm.CheckCommand.ExecuteAsync(null);
         Assert.True(vm.HasResult, vm.InputErrors);
-        Assert.NotEmpty(vm.DetailRows);
+        Assert.Equal(2, vm.CombinationRows.Count);
         Assert.NotEmpty(vm.SummaryRows);
         Assert.Contains(vm.VerdictTone, new[] { "ok", "bad", "warn" });
         Snapshot(window, "02-pile-checked");
@@ -87,7 +87,7 @@ public class AppTests
         vm.InputTab = 4;
         await vm.CheckCommand.ExecuteAsync(null);
         Assert.True(vm.HasResult, vm.InputErrors);
-        Assert.Contains(vm.DetailRows, r => r.Combination.Contains("сейсмика"));
+        Assert.Contains(vm.CombinationRows, r => r.Name == "С1 · сейсмическое");
         Snapshot(window, "06-seismic");
         vm.SwapPlaneCommand.Execute(null);
         Assert.Equal("210,5", row.My);
