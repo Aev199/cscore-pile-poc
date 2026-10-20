@@ -191,7 +191,8 @@ public static class ReportWriter
             }),
             ("Коэффициент надёжности по ответственности", $"γn = {F(c.ReliabilityUls)} (прочность), {F(c.ReliabilitySls)} (трещиностойкость)"),
             ("Трещиностойкость", c.CrackCategory == CrackCategory.NoCracks ? "трещины не допускаются"
-                : $"{(c.PermeabilityLimits ? "ограничение проницаемости" : "сохранность арматуры")}: acrc,ult = {F(c.CrackLimitLongMm)} мм (продолжительное), {F(c.CrackLimitShortMm)} мм (непродолжительное)"),
+                : $"{(c.PermeabilityLimits ? "ограничение проницаемости" : "сохранность арматуры")}: acrc,ult = {F(c.CrackLimitLongMm)} мм (продолжительное), {F(c.CrackLimitShortMm)} мм (непродолжительное); "
+                  + (c.CrackMethod == CrackMethod.Refined ? "ψs уточнённый (σs,crc по сечению с трещиной)" : "ψs консервативный (σs,crc по сечению без трещин)")),
         };
         if (c.ShearCheck)
             rows.Add(("Поперечное армирование", p.Kind == SectionKind.Pile
@@ -588,7 +589,11 @@ public static class ReportWriter
         else if (Num(state, "psi_s") is double pn && sigma is double s2)
         {
             psi = pn;
-            yield return Calc($"σs = {F1(s2)} МПа;  ψs = {F3(pn)}.");
+            yield return Calc($"σs = {F1(s2)} МПа — напряжение в арматуре в сечении с трещиной от {(split ? "полных" : "")} нормативных усилий;");
+            if (Num(state, "sigma_rebar_at_crack_kpa") is double sc && Close(1 - 0.8 * sc / 1000 / s2, pn, 2e-3))
+                yield return Calc($"σs,crc = {F1(sc / 1000)} МПа — то же при M = Mcrc по сечению с трещиной;  ψs = 1 − 0,8·σs,crc/σs = 1 − 0,8·{F1(sc / 1000)}/{F1(s2)} = {F3(pn)};");
+            else
+                yield return Calc($"ψs = {F3(pn)};");
         }
         if (ls is double l) yield return Calc($"ls = {F(l, "0")} мм — базовое расстояние между трещинами (п. 8.2.17);  Es = {F(es, "0")} МПа.");
         if (psi is double ps && sigma is double sg && ls is double l2 && aTotal is double at)
@@ -629,7 +634,8 @@ public static class ReportWriter
         var p = r.Project;
         if (p.Kind == SectionKind.Pile && p.Conditions.ShearCheck)
             yield return "Расчёт круглого сечения на действие поперечной силы выполнен по приведённому прямоугольному сечению (b = 0,885D), один виток спирали учитывается как две ветви. Методика не регламентирована СП 63.";
-        if (r.Service.Any(s => s.Crack is { } e && e.TryGetProperty("cracked", out var cr) && cr.ValueKind == JsonValueKind.True))
+        if (p.Conditions.CrackMethod == CrackMethod.Conservative
+            && r.Service.Any(s => s.Crack is { } e && e.TryGetProperty("cracked", out var cr) && cr.ValueKind == JsonValueKind.True))
             yield return "При определении ψs напряжение σs,crc принято по сечению без трещин при M = Mcrc, что идёт в запас.";
         yield return "Не проверялись: анкеровка и стыки арматуры, конструктивные требования раздела 10 СП 63.";
     }

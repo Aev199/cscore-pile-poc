@@ -3,6 +3,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using SectionApp;
+using SectionCalc;
 using SectionApp.ViewModels;
 using SectionApp.Views;
 using Xunit;
@@ -108,6 +109,8 @@ public class AppTests
         var p = vm.TryBuild(out var errors);
         Assert.True(p is not null, string.Join("\n", errors));
         Assert.True(p!.Conditions.PermeabilityLimits);
+        vm.CrackMethodIndex = 1;
+        Assert.Equal(CrackMethod.Refined, vm.TryBuild(out _)!.Conditions.CrackMethod);
     }
 
     [AvaloniaFact]

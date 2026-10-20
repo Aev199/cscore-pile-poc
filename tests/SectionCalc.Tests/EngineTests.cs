@@ -53,6 +53,37 @@ public class EngineTests
         Assert.True(r.Rows.Where(x => x.CheckId == "normal_member_strength").Max(x => x.Utilization ?? 0) > 0.8697 * 1.05);
     }
 
+    // Refined ψs = the engine's own cracked-section σs,crc: the "native" column of the ARBAT comparison.
+    [Fact]
+    public void RefinedCrackMethodGivesNativeWidths()
+    {
+        var p = Arbat400x600();
+        p.Conditions.CrackMethod = CrackMethod.Refined;
+        var r = Engine.Check(p);
+        double Max(string id) => r.Rows.Where(x => x.CheckId == id).Max(x => x.Utilization ?? 0);
+        Assert.Equal(1.2771, Max("crack_width_long"), 3);
+        Assert.Equal(0.9578, Max("crack_width_short"), 3);
+        Assert.Equal(0.8697, Max("normal_member_strength"), 4);
+    }
+
+    [Fact]
+    public void RefinedCrackMethodKeepsSp63SplitForPartlySustainedLoad()
+    {
+        var p = Arbat400x600();
+        p.Loads = [new LoadRow { Name = "T10", N = -250, Mx = 140, My = 80, SustainedShare = 0.5 }];
+        var conservative = Engine.Check(p);
+        p.Conditions.CrackMethod = CrackMethod.Refined;
+        var refined = Engine.Check(p);
+        var crack = refined.Service.Single().Crack!.Value;
+        double a1 = crack.GetProperty("a_crc_1_mm").GetDouble(), a2 = crack.GetProperty("a_crc_2_mm").GetDouble(), a3 = crack.GetProperty("a_crc_3_mm").GetDouble();
+        double Width(CheckResult r, string id) => r.Rows.Single(x => x.CheckId == id).Details!.Value.GetProperty("width_mm").GetDouble();
+        Assert.Equal(a1, Width(refined, "crack_width_long"), 9);
+        Assert.Equal(a1 + a2 - a3, Width(refined, "crack_width_short"), 9);
+        Assert.Equal(a1 / 1.4, a3, 9);
+        Assert.True(Width(refined, "crack_width_long") < Width(conservative, "crack_width_long"));
+        Assert.True(Width(refined, "crack_width_short") < Width(conservative, "crack_width_short"));
+    }
+
     [Fact]
     public void ShortTermAndSeismicRaiseResistances()
     {

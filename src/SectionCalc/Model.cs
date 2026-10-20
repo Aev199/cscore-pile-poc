@@ -14,6 +14,13 @@ public enum EccentricityMode { InLoads, Sp63 }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CrackCategory { LimitedWidth, NoCracks }
 
+/// <summary>
+/// ψs of SP 63 8.2.15: Conservative — σs,crc by the uncracked section at M = Mcrc (agreed with ARBAT, on the safe side);
+/// Refined — σs,crc and σs by the cracked section, as the engine computes them.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CrackMethod { Conservative, Refined }
+
 /// <summary>Bored pile (БНС): circular section with a ring of equal bars inside a spiral.</summary>
 public sealed class PileGeometry
 {
@@ -131,6 +138,7 @@ public sealed class Conditions
     public bool PermeabilityLimits { get; set; }
     public double CrackLimitLongMm { get; set; } = 0.3;
     public double CrackLimitShortMm { get; set; } = 0.4;
+    public CrackMethod CrackMethod { get; set; } = CrackMethod.Conservative;
 
     public bool ShearCheck { get; set; }
     /// <summary>Wall: stirrup pitch; pile: full pitch of the spiral turn.</summary>

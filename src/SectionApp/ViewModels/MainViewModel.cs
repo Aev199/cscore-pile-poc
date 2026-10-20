@@ -37,6 +37,7 @@ public partial class MainViewModel : ObservableObject
         ["Учитывать (п. 8.1.15)", "Учтено в усилиях", "Не учитывать"];
     public IReadOnlyList<string> CrackCategoryOptions { get; } = ["Ограниченное раскрытие трещин", "Трещины не допускаются"];
     public IReadOnlyList<string> CrackRequirementOptions { get; } = ["Сохранность арматуры", "Ограничение проницаемости"];
+    public IReadOnlyList<string> CrackMethodOptions { get; } = ["Консервативный", "Уточнённый"];
 
     /// <summary>Set by the window: clipboard text for "paste from Excel".</summary>
     public Func<Task<string?>>? ClipboardText { get; set; }
@@ -74,6 +75,7 @@ public partial class MainViewModel : ObservableObject
     public bool LimitedWidth => CrackCategoryIndex == 0;
     [ObservableProperty] int crackRequirementIndex;
     [ObservableProperty] string crackLimitLong = "", crackLimitShort = "";
+    [ObservableProperty] int crackMethodIndex;
 
     /// <summary>SP 63 8.2.6: 0.3 / 0.4 mm for reinforcement preservation, 0.2 / 0.3 mm for limited permeability.</summary>
     partial void OnCrackRequirementIndexChanged(int value)
@@ -186,6 +188,7 @@ public partial class MainViewModel : ObservableObject
             ReliabilityUls = S(c.ReliabilityUls); ReliabilitySls = S(c.ReliabilitySls);
             CrackCategoryIndex = c.CrackCategory == CrackCategory.NoCracks ? 1 : 0; CrackRequirementIndex = c.PermeabilityLimits ? 1 : 0;
             CrackLimitLong = S(c.CrackLimitLongMm); CrackLimitShort = S(c.CrackLimitShortMm);
+            CrackMethodIndex = c.CrackMethod == CrackMethod.Refined ? 1 : 0;
             SeismicNormal = S(p.Seismic.NormalSectionFactor); SeismicInclined = S(p.Seismic.InclinedSectionFactor); SeismicCracks = p.Seismic.CheckCracks;
             var sp = p.Special;
             SpecialNormative = sp.NormativeProperties; SpecialGb = S(sp.ConcreteFactor); SpecialGs = S(sp.LongitudinalFactor);
@@ -268,6 +271,7 @@ public partial class MainViewModel : ObservableObject
         c.PermeabilityLimits = CrackRequirementIndex == 1;
         c.CrackLimitLongMm = D(CrackLimitLong, "Предел продолжительного раскрытия");
         c.CrackLimitShortMm = D(CrackLimitShort, "Предел непродолжительного раскрытия");
+        c.CrackMethod = CrackMethodIndex == 1 ? CrackMethod.Refined : CrackMethod.Conservative;
         c.ShearCheck = ShearCheck; c.ShearModelConfirmed = ShearConfirmed; c.InclinedMoment = ShearCheck && InclinedMoment;
         if (ShearCheck)
         {

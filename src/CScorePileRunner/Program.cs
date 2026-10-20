@@ -525,7 +525,7 @@ internal static class Program
                                 "short_only_supplement_failed_convergence_or_psi_identity");
 
                         double nativeShortWidth = full.Acrc2;
-                        double screeningShortWidth = probe.PreliminaryMethod == "native_refined"
+                        double screeningShortWidth = NativeRefined(probe.PreliminaryMethod)
                             ? nativeShortWidth
                             : Math.Max(nativeShortWidth, nativeShortWidth / full.PsiS2);
                         if (!double.IsFinite(screeningShortWidth)
@@ -778,7 +778,7 @@ internal static class Program
                             primaryShortWidth = 0.0;
                             primaryBasis = "uncracked_checked_both_long_and_total_thresholds";
                         }
-                        else if (probe.PreliminaryMethod == "native_refined")
+                        else if (NativeRefined(probe.PreliminaryMethod))
                         {
                             primaryWidth = r.AcrcLong;
                             primaryShortWidth = r.AcrcShort;
@@ -948,6 +948,11 @@ internal static class Program
             }).ToArray();
         }
     }
+
+    // CScore's own crack widths. "native_refined_split" differs only for a partly
+    // sustained action: it takes the SP63 8.2.6 split below (each state native)
+    // instead of CrackWidthSolver's single-axial-force long/short computation.
+    static bool NativeRefined(string method) => method is "native_refined" or "native_refined_split";
 
     // SP63 8.2.6 / 8.2.15 for a partly sustained action: crack formation is
     // checked under the total action; acrc1 and acrc3 use the sustained N_l, M_l,
@@ -1318,7 +1323,7 @@ internal static class Program
                 || !double.IsFinite(probe.Phi2) || probe.Phi2 <= 0
                 || !double.IsFinite(probe.AcrcUltLongMm) || probe.AcrcUltLongMm <= 0
                 || !double.IsFinite(probe.AcrcUltShortMm) || probe.AcrcUltShortMm <= 0
-                || probe.PreliminaryMethod is not ("native_refined" or "arbat_conservative")
+                || probe.PreliminaryMethod is not ("native_refined" or "native_refined_split" or "arbat_conservative")
                 || !double.IsFinite(probe.ReviewBand) || probe.ReviewBand <= 0
                 || probe.ReviewBand >= 0.25)
                 throw new ArgumentException("Explicit service characteristics, loads and limits required");

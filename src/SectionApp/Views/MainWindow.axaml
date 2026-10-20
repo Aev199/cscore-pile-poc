@@ -166,6 +166,9 @@
                     <StackPanel><TextBlock Classes="hint" Text="непродолжительное" /><TextBox Text="{Binding CrackLimitShort}" /></StackPanel>
                     <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="продолжительное" /><TextBox Text="{Binding CrackLimitLong}" /></StackPanel>
                   </Grid>
+                  <TextBlock Classes="label" Text="Расчёт ψs (п. 8.2.15)" Margin="0,6,0,0" />
+                  <ComboBox ItemsSource="{Binding CrackMethodOptions}" SelectedIndex="{Binding CrackMethodIndex}"
+                            ToolTip.Tip="Консервативный: σs,crc по сечению без трещин, в запас (сверено с Арбатом). Уточнённый: σs,crc по сечению с трещиной." />
                 </StackPanel>
               </StackPanel>
             </ScrollViewer>

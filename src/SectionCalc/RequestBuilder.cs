@@ -167,7 +167,7 @@ public static class RequestBuilder
             {
                 ["short_materials"] = ToJson(service), ["long_materials"] = ToJson(service),
                 ["phi2"] = 0.5, ["acrc_ult_long_mm"] = c.CrackLimitLongMm, ["acrc_ult_short_mm"] = c.CrackLimitShortMm,
-                ["preliminary_method"] = "arbat_conservative", ["review_band"] = 0.03,
+                ["preliminary_method"] = c.CrackMethod == CrackMethod.Refined ? "native_refined_split" : "arbat_conservative", ["review_band"] = 0.03,
             };
             probe["loads"] = new JsonArray(sls.Select(l =>
             {

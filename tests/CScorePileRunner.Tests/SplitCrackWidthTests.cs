@@ -83,4 +83,31 @@ public class SplitCrackWidthTests
         Assert.Equal("indeterminate", row.GetProperty("status").GetString());
         Assert.EndsWith("native_refined_requires_single_axial_force", row.GetProperty("error").GetString());
     }
+
+    [Fact]
+    public void NativeRefinedSplitUsesSp63SplitWithNativeStates()
+    {
+        const string load = """{"id":"S","n_kn":-250,"n_long_kn":-125,"mx_total_knm":160,"my_total_knm":0,"mx_long_knm":80,"my_long_knm":0}""";
+        var refined = Probe(load, "native_refined_split");
+        var conservative = Probe(load);
+        Assert.Equal("research_calculated", refined.GetProperty("status").GetString());
+        Assert.StartsWith("sp63_8_2_6_", refined.GetProperty("preliminary_basis").GetString());
+        double a1 = Number(refined, "a_crc_1_mm"), a2 = Number(refined, "a_crc_2_mm"), a3 = Number(refined, "a_crc_3_mm");
+        Assert.Equal(a1, Number(refined, "preliminary_width_long_mm"), 12);
+        Assert.Equal(a1 + a2 - a3, Number(refined, "preliminary_width_short_mm"), 12);
+        // The total state is CScore's own width: acrc2 = native total width / 1.4.
+        var total = refined.GetProperty("total_state");
+        Assert.Equal(Number(total, "width_long_mm") / 1.4, a2, 12);
+        Assert.True(Number(refined, "preliminary_width_short_mm") <= Number(conservative, "preliminary_width_short_mm"));
+    }
+
+    [Fact]
+    public void NativeRefinedSplitMatchesNativeRefinedWhenFullySustained()
+    {
+        const string load = """{"id":"S","n_kn":-250,"mx_total_knm":160,"my_total_knm":0,"mx_long_knm":160,"my_long_knm":0}""";
+        var split = Probe(load, "native_refined_split");
+        var native = Probe(load, "native_refined");
+        Assert.Equal(Number(native, "preliminary_width_long_mm"), Number(split, "preliminary_width_long_mm"), 12);
+        Assert.Equal(Number(native, "preliminary_width_short_mm"), Number(split, "preliminary_width_short_mm"), 12);
+    }
 }
