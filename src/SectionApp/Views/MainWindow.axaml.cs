@@ -15,6 +15,7 @@ public partial class MainWindow : Window
         {
             if (DataContext is not MainViewModel vm) return;
             vm.Storage = () => StorageProvider;
+            vm.Profile.Storage = () => StorageProvider;
             vm.ClipboardText = async () => Clipboard is { } c ? await c.TryGetTextAsync() : null;
         };
         // Outside cell editing: Ctrl+V pastes rows from Excel, Delete removes the selected row.

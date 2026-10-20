@@ -155,6 +155,16 @@ public sealed class Conditions
     public double SupportDistanceDownM { get; set; } = 3;
     public double SupportDistanceUpM { get; set; } = 3;
 
+    /// <summary>
+    /// Bending only in the plane of Mx (a strip of a wall from a plane-strain model): no accidental eccentricity,
+    /// no η and no slenderness check out of that plane.
+    /// </summary>
+    public bool OnePlane { get; set; }
+
+    /// <summary>Coarser section mesh for the reinforcement search; the result is verified with the normal mesh.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool CoarseMesh { get; set; }
+
     public double L0xM => MuX * ElementLengthM;
     public double L0yM => MuY * ElementLengthM;
 }

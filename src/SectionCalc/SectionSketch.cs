@@ -76,7 +76,7 @@ public static class SectionSketch
     }
 
     /// <summary>First installed family of the design code that has Cyrillic glyphs.</summary>
-    static SKTypeface Typeface()
+    internal static SKTypeface Typeface()
     {
         foreach (var family in new[] { "Roboto", "Segoe UI", "Arial", "Liberation Sans", "DejaVu Sans" })
         {
@@ -86,7 +86,7 @@ public static class SectionSketch
         return SKFontManager.Default.MatchCharacter('г') ?? SKTypeface.Default;
     }
 
-    static void Label(SKCanvas canvas, string label, float x, float y, SKTextAlign align, SKFont font, SKPaint paint)
+    internal static void Label(SKCanvas canvas, string label, float x, float y, SKTextAlign align, SKFont font, SKPaint paint)
     {
         using var measure = new SKPaint { Typeface = font.Typeface, TextSize = font.Size };
         float shift = align == SKTextAlign.Center ? measure.MeasureText(label) / 2 : 0;

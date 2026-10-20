@@ -18,7 +18,8 @@ public partial class MainViewModel : ObservableObject
         nameof(ResultIsStale), nameof(VerdictText), nameof(VerdictTone), nameof(GoverningText), nameof(InputErrors),
         nameof(HasInputErrors), nameof(SelectionSummary), nameof(HasSelection), nameof(SteelText), nameof(SelectedTab),
         nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(KindTitle), nameof(EtaByCscore),
-        nameof(SelectedLoad), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders), nameof(LimitedWidth), nameof(InputTab), nameof(SeismicUsed), nameof(SpecialUsed), nameof(SpecialDesign),
+        nameof(SelectedLoad), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders),
+        nameof(ProfileMode), nameof(IsSectionMode), nameof(IsProfileMode), nameof(LimitedWidth), nameof(InputTab), nameof(SeismicUsed), nameof(SpecialUsed), nameof(SpecialDesign),
     ];
 
     CancellationTokenSource? cancel;
@@ -26,7 +27,22 @@ public partial class MainViewModel : ObservableObject
     SelectionResult? lastSelection;
     bool loading;
 
-    public MainViewModel() => Load(SectionProject.Example(SectionKind.Pile));
+    public MainViewModel()
+    {
+        Profile = new ProfileViewModel(this);
+        Load(SectionProject.Example(SectionKind.Pile));
+    }
+
+    /// <summary>Module «Эпюры (PLAXIS)»; it takes the section from this view model.</summary>
+    public ProfileViewModel Profile { get; }
+
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsSectionMode), nameof(IsProfileMode))] bool profileMode;
+    public bool IsSectionMode => !ProfileMode;
+    public bool IsProfileMode => ProfileMode;
+    partial void OnProfileModeChanged(bool value) { if (value) Profile.RefreshForces(); }
+
+    [RelayCommand] void ShowSection() => ProfileMode = false;
+    [RelayCommand] void ShowProfile() => ProfileMode = true;
 
     /// <summary>Set by the window: file dialogs need the top-level storage provider.</summary>
     public Func<IStorageProvider?>? Storage { get; set; }

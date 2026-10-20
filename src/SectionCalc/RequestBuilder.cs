@@ -121,6 +121,7 @@ public static class RequestBuilder
     {
         var layout = Layout(p);
         var c = p.Conditions;
+        int MeshResolution = c.CoarseMesh ? 21 : RequestBuilder.MeshResolution, PolygonSides = c.CoarseMesh ? 48 : RequestBuilder.PolygonSides;
         var req = new JsonObject { ["schema_version"] = 1 };
         if (p.Kind == SectionKind.Pile)
         {

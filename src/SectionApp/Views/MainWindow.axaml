@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SectionApp.ViewModels"
+        xmlns:views="using:SectionApp.Views"
         x:Class="SectionApp.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="Сечения БНС и СВГ"
@@ -13,13 +14,19 @@
       <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
         <TextBlock Text="Сечения БНС и СВГ" Foreground="#F4F7F8" FontSize="15" FontWeight="Bold" />
         <Border Grid.Column="1" Width="1" Height="17" Background="#62727B" Margin="11,0" />
-        <TextBlock Grid.Column="2" Foreground="#C3CDD1" FontSize="11" VerticalAlignment="Center">
-          <Run Text="{Binding KindTitle}" /><Run Text=" · " /><Run Text="{Binding Title}" />
-        </TextBlock>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+          <Button Classes="mode" Classes.active="{Binding IsSectionMode}" Content="Сечение" Command="{Binding ShowSectionCommand}" />
+          <Button Classes="mode" Classes.active="{Binding IsProfileMode}" Content="Эпюры PLAXIS" Command="{Binding ShowProfileCommand}" />
+        </StackPanel>
         <TextBlock Grid.Column="4" Text="СП 63.13330.2018" Foreground="#AEBBC0" FontSize="10.5" VerticalAlignment="Center" />
       </Grid>
     </Border>
 
+    <Panel>
+    <Panel IsVisible="{Binding IsProfileMode}">
+      <views:ProfileView DataContext="{Binding Profile}" />
+    </Panel>
+    <DockPanel IsVisible="{Binding IsSectionMode}">
     <!-- Command panel (.command-panel) -->
     <Border DockPanel.Dock="Top" Classes="card" Margin="12,12,12,0" Padding="16,10">
       <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto">
@@ -382,5 +389,7 @@
         </StackPanel>
       </ScrollViewer>
     </Grid>
+    </DockPanel>
+    </Panel>
   </DockPanel>
 </Window>

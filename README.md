@@ -65,6 +65,10 @@ C#-адаптер готовят исходные данные, вызывают
 Инструкция: [docs/section-app.md](docs/section-app.md). Windows-архив — артефакт
 `section-app-windows` workflow «CScore pile PoC Windows» (ещё не запускался).
 
+Режим «Эпюры PLAXIS»: усилия сваи/стены из PLAXIS 2D Output (V22, Python из поставки PLAXIS),
+РСУ по сечениям, требуемая As по граням и Asw/sw по длине, выгрузка эпюры в JSON для Revit —
+[docs/profile-module.md](docs/profile-module.md), формат — [docs/reinforcement-profile-json.md](docs/reinforcement-profile-json.md).
+
 ## Сверка с АРБАТ (кратко)
 
 - Нормальное сечение, элемент 400×600 длиной 1/10/12/15 м при ea=20 мм, как в

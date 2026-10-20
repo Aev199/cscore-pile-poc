@@ -230,7 +230,7 @@ public static class Engine
             double k = l0 * 1000 / i / c.SlendernessLimit;
             return new CheckRow(id, Titles[id], "", "", k <= 1 ? "passed" : "failed", k, "", "geometry_l0_over_i", null);
         }
-        return [Row("slenderness_x", c.L0xM, ix), Row("slenderness_y", c.L0yM, iy)];
+        return c.OnePlane ? [Row("slenderness_x", c.L0xM, ix)] : [Row("slenderness_x", c.L0xM, ix), Row("slenderness_y", c.L0yM, iy)];
     }
 
     /// <summary>ULS actions after the optional SP 63 accidental eccentricity prepared by CScore.</summary>
@@ -256,9 +256,12 @@ public static class Engine
         var prepared = result["loads"]!.AsArray().Select(r =>
         {
             var src = byId[(string)r!["source_id"]!];
+            // One plane: the out-of-plane eccentricity is dropped, its sign branches become duplicates.
             return new UlsLoad((string)r["id"]!, src.SourceName, (double)r["n_kn"]!, (double)r["mx_total_knm"]!,
-                (double)r["my_total_knm"]!, src.Q, src.Mx, src.My);
+                c.OnePlane ? src.My : (double)r["my_total_knm"]!, src.Q, src.Mx, src.My);
         }).ToList();
+        if (c.OnePlane)
+            prepared = prepared.GroupBy(l => (l.SourceName, l.N, l.Mx, l.My)).Select(g => g.First()).ToList();
         return (prepared, (double)result["ea_x_mm"]!, (double)result["ea_y_mm"]!);
     }
 

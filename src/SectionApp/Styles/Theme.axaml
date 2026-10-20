@@ -232,6 +232,28 @@
     <Setter Property="Foreground" Value="White" />
   </Style>
 
+  <!-- Module switch in the title bar -->
+  <Style Selector="Button.mode">
+    <Setter Property="Height" Value="28" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="#AEBBC0" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="Button.mode:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#34474F" />
+    <Setter Property="Foreground" Value="#F4F7F8" />
+  </Style>
+  <Style Selector="Button.mode.active">
+    <Setter Property="Background" Value="#3B505A" />
+    <Setter Property="Foreground" Value="#F4F7F8" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="TextBlock.td.bad">
+    <Setter Property="Foreground" Value="{StaticResource GbError}" />
+  </Style>
+
   <!-- Notices (.notice.*) -->
   <Style Selector="Border.notice">
     <Setter Property="BorderThickness" Value="1" />

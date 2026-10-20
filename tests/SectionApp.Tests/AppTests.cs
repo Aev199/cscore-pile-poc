@@ -113,6 +113,72 @@ public class AppTests
         Assert.Equal(CrackMethod.Refined, vm.TryBuild(out _)!.Conditions.CrackMethod);
     }
 
+    /// <summary>Synthetic PLAXIS 2D Output of a 15 m wall (kN, m), three phases.</summary>
+    static SectionCalc.Profile.PlaxisExport DemoExport()
+    {
+        var e = new SectionCalc.Profile.PlaxisExport
+        {
+            Info = new() { UnitForce = "kN", UnitLength = "m", Version = "22.01", Title = "Демо" },
+            Objects = [new() { Id = 0, Kind = "Plate", Name = "Plate_1" }],
+            Phases = [new() { Id = 1, Name = "Phase_1", Title = "Выемка 1" }, new() { Id = 2, Name = "Phase_2", Title = "Выемка 2" }, new() { Id = 3, Name = "Phase_3", Title = "Дно" }],
+            Columns = ["x", "y", "n", "m", "q"],
+        };
+        foreach (var ph in e.Phases)
+        {
+            double k = ph.Id / 3.0, w = 1.3 * Math.PI / 15;
+            var nodes = new List<double[]>();
+            for (double z = 0; z <= 15 + 1e-9; z += 0.25)
+                nodes.Add([5, -z, -25 * z * (0.5 + 0.5 * k), k * 280 * Math.Sin(w * z), k * 280 * w * Math.Cos(w * z)]);
+            e.Data.Add(new() { Object = 0, Phase = ph.Id, Nodes = nodes });
+        }
+        return e;
+    }
+
+    [AvaloniaFact]
+    public async Task ProfileModuleBuildsReinforcementDiagram()
+    {
+        var (window, vm) = Open(pile: false);
+        vm.ShowProfileCommand.Execute(null);
+        Assert.True(vm.IsProfileMode);
+        var p = vm.Profile;
+        p.UseExport(DemoExport());
+        Assert.True(p.HasPhases);
+        Assert.NotNull(p.Chart);
+        p.StationStep = "3";
+        await p.CalculateCommand.ExecuteAsync(null);
+        Assert.Contains("Сверьте", p.Errors);
+        p.Confirmed = true;
+        Snapshot(window, "10-profile-forces");
+        await p.CalculateCommand.ExecuteAsync(null);
+        Assert.True(p.HasResult, p.Errors);
+        Assert.Equal(6, p.Stations.Count);
+        Assert.Contains("правая", p.Summary);
+        Snapshot(window, "11-profile-result");
+        var json = System.Text.Json.Nodes.JsonNode.Parse(SectionCalc.Profile.RevitExport.Json(p.Result!))!;
+        Assert.Equal("wall", (string)json["element"]!["type"]!);
+        if (Environment.GetEnvironmentVariable("SECTION_APP_EXAMPLES") is { Length: > 0 } dir)
+        {
+            // Exactly the layout of plaxis_export.py output.
+            var d = DemoExport();
+            var o = new System.Text.Json.Nodes.JsonObject
+            {
+                ["info"] = new System.Text.Json.Nodes.JsonObject { ["UnitForce"] = d.Info.UnitForce, ["UnitLength"] = d.Info.UnitLength, ["Version"] = d.Info.Version, ["Title"] = d.Info.Title },
+                ["objects"] = new System.Text.Json.Nodes.JsonArray(d.Objects.Select(x => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject { ["id"] = x.Id, ["kind"] = x.Kind, ["name"] = x.Name }).ToArray()),
+                ["phases"] = new System.Text.Json.Nodes.JsonArray(d.Phases.Select(x => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject { ["id"] = x.Id, ["name"] = x.Name, ["title"] = x.Title }).ToArray()),
+                ["columns"] = new System.Text.Json.Nodes.JsonArray("x", "y", "n", "m", "q"),
+                ["data"] = new System.Text.Json.Nodes.JsonArray(d.Data.Select(x => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
+                {
+                    ["object"] = x.Object, ["phase"] = x.Phase,
+                    ["nodes"] = new System.Text.Json.Nodes.JsonArray(x.Nodes.Select(n => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonArray(n.Select(v => (System.Text.Json.Nodes.JsonNode)Math.Round(v, 4)).ToArray())).ToArray()),
+                }).ToArray()),
+            };
+            File.WriteAllText(Path.Combine(dir, "svg-demo.plaxis.json"), o.ToJsonString());
+            File.WriteAllText(Path.Combine(dir, "svg-demo.reinforcement.json"), SectionCalc.Profile.RevitExport.Json(p.Result!));
+        }
+        p.PileSpacing = "abc";
+        Assert.True(p.ResultIsStale || p.HasErrors);
+    }
+
     [AvaloniaFact]
     public async Task InvalidNumberIsReportedNotCalculated()
     {
