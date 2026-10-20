@@ -216,13 +216,32 @@ public class ProfileTests(ITestOutputHelper output)
             var e = await PlaxisBridge.FromInput(python, 10000, "secret");
             Assert.Equal(["Plate_1"], e.Selection);
             Assert.Equal(2, e.Objects.Count);
+            Assert.True(e.IsEnvelope);
             Assert.Equal(["Phase_1"], e.Phases.Select(p => p.Name));
+            Assert.Equal(["InitialPhase", "Phase_1"], e.Phases[0].Covers);
             Assert.Equal("Safety", e.ExcludedPhases.Single().CalcType);
             var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Wall) };
             p.UseSource(e);
             var f = ForceProfile.Build(p);
+            Assert.True(f.IsEnvelope);
             Assert.Equal(0, f.TopLevel, 9);
             Assert.Equal(-10, f.BottomLevel, 9);
+            // Envelope at −10 m: M from 500 to 1000 kN·m/m, N from −220 to −110 kN/m (wall b = 1 m).
+            var bottom = f.Envelope.Last();
+            Assert.Equal(1000, bottom.MMax, 6); Assert.Equal(500, bottom.MMin, 6);
+            Assert.Equal(-220, bottom.NMin, 6); Assert.Equal(-110, bottom.NMax, 6);
+            p.Settings.StationStepM = 5;
+            var rsu = f.Stations(p)[^1].Rsu;
+            Assert.Equal(4, rsu.Count);
+            Assert.Contains(rsu, r => r.Mx == 1000 && r.N == -220);
+            // Extremes over the whole interval −7,5…−10 m: Nmax = −85 at −7,5 m.
+            Assert.Contains(rsu, r => r.Mx == 1000 && Math.Abs(r.N + 85) < 1e-9);
+            Assert.All(rsu, r => Assert.Equal(100, r.Q, 6));
+            p.Settings.Confirmed = true;
+            var reinforcement = RequiredReinforcement.Run(p);
+            Assert.All(reinforcement.Stations, st => Assert.Contains(st.Status, new[] { "ok", "minimum", "exceeded" }));
+            Assert.Contains("огибающая", reinforcement.Stations[^1].Combination);
+            Assert.Equal("envelope", (string)System.Text.Json.Nodes.JsonNode.Parse(RevitExport.Json(reinforcement))!["source"]!["forces"]!);
             var wrong = await Assert.ThrowsAsync<InvalidOperationException>(() => PlaxisBridge.FromInput(python, 10000, "wrong"));
             Assert.Contains("Input", wrong.Message);
         }

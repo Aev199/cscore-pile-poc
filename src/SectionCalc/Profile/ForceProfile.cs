@@ -1,7 +1,10 @@
 namespace SectionCalc.Profile;
 
-/// <summary>Design forces of one phase at one node, per element (wall: per section width b; pile: per pile).</summary>
-public sealed record ForceSample(int Phase, double Level, double N, double M, double Q);
+/// <summary>
+/// Design forces of one phase at one node, per element (wall: per section width b; pile: per pile).
+/// Envelope route: one sample per corner of the envelope (Corner 1…4), Q is the largest |Q|.
+/// </summary>
+public sealed record ForceSample(int Phase, double Level, double N, double M, double Q, int Corner = 0);
 
 /// <summary>Envelope of all included phases at one elevation.</summary>
 public sealed record EnvelopePoint(double Level, double NMin, double NMax, double MMin, double MMax, double QAbsMax);
@@ -18,6 +21,8 @@ public sealed class ForceProfile
     public required double BottomLevel { get; init; }
     public required double X { get; init; }
     public required string ElementKind { get; init; }
+    /// <summary>Forces are Output envelopes (no simultaneous N, M, Q): РСУ are the envelope corners.</summary>
+    public bool IsEnvelope { get; init; }
     /// <summary>Factor from PLAXIS forces per metre to forces per element.</summary>
     public required double ForceScale { get; init; }
     public double Length => TopLevel - BottomLevel;
@@ -46,7 +51,18 @@ public sealed class ForceProfile
             {
                 xs.Add(n[0] * l);
                 // N, Q in F/L per metre; M in F·L/L per metre.
-                samples.Add(new ForceSample(series.Phase, n[1] * l, n[2] * f / l * width, n[3] * f * width, n[4] * f / l * width));
+                double level = n[1] * l, nf = f / l * width, mf = f * width;
+                if (!src.IsEnvelope)
+                {
+                    samples.Add(new ForceSample(series.Phase, level, n[2] * nf, n[3] * mf, n[4] * nf));
+                    continue;
+                }
+                // n_min, n_max, m_min, m_max, q_min, q_max: Mmax/Mmin each with Nmin and Nmax.
+                double q = Math.Max(Math.Abs(n[6]), Math.Abs(n[7])) * nf;
+                samples.Add(new ForceSample(series.Phase, level, n[2] * nf, n[5] * mf, q, 1));
+                samples.Add(new ForceSample(series.Phase, level, n[3] * nf, n[5] * mf, q, 2));
+                samples.Add(new ForceSample(series.Phase, level, n[2] * nf, n[4] * mf, q, 3));
+                samples.Add(new ForceSample(series.Phase, level, n[3] * nf, n[4] * mf, q, 4));
             }
         if (samples.Count == 0) throw new InvalidOperationException("В выгрузке нет результатов выбранных фаз");
         if (xs.Max() - xs.Min() > 0.01) throw new InvalidOperationException("Выбранные элементы не лежат на одной вертикали (разброс X более 10 мм)");
@@ -57,7 +73,7 @@ public sealed class ForceProfile
         return new ForceProfile
         {
             Samples = samples, Envelope = envelope, TopLevel = samples.Max(x => x.Level), BottomLevel = samples.Min(x => x.Level),
-            X = xs.Average(), ElementKind = kind, ForceScale = f * width,
+            X = xs.Average(), ElementKind = kind, ForceScale = f * width, IsEnvelope = src.IsEnvelope,
         };
     }
 
@@ -72,18 +88,24 @@ public sealed class ForceProfile
         if (!(step > 0)) throw new InvalidOperationException("Шаг сечений должен быть больше 0");
         int count = Math.Max(1, (int)Math.Ceiling(Length / step - 1e-9));
         var phases = p.Phases.ToDictionary(ph => ph.Id);
-        var byPhase = Samples.GroupBy(x => x.Phase).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Level).ToList());
+        // Envelope corners are separate curves: interpolate each one on its own.
+        var byPhase = Samples.GroupBy(x => (x.Phase, x.Corner)).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Level).ToList());
         var stations = new List<Station>();
         for (int i = 0; i <= count; i++)
         {
             double level = Math.Max(BottomLevel, TopLevel - i * step);
             double top = Math.Min(TopLevel, level + step / 2), bottom = Math.Max(BottomLevel, level - step / 2);
             var rows = new List<LoadRow>();
-            foreach (var group in byPhase.Where(kv => phases.ContainsKey(kv.Key))
-                         .GroupBy(kv => CombinationKind.Of(Row(phases[kv.Key]))))
+            foreach (var group in byPhase.Where(kv => phases.ContainsKey(kv.Key.Phase))
+                         .GroupBy(kv => CombinationKind.Of(Row(phases[kv.Key.Phase]))))
             {
                 var candidates = group.SelectMany(kv => Window(kv.Value, top, bottom)).ToList();
                 if (candidates.Count == 0) continue;
+                if (IsEnvelope)
+                {
+                    rows.AddRange(EnvelopeRows(p, candidates, phases));
+                    continue;
+                }
                 var picked = new List<(string Label, ForceSample S)>
                 {
                     ("Mmax", candidates.MaxBy(x => x.M)!), ("Mmin", candidates.MinBy(x => x.M)!),
@@ -108,6 +130,28 @@ public sealed class ForceProfile
         return stations;
     }
 
+    /// <summary>
+    /// РСУ from envelopes: N and M are not simultaneous, so the extreme moments are taken with both extreme
+    /// axial forces of the interval (on the safe side); Q is the largest |Q|.
+    /// </summary>
+    static IEnumerable<LoadRow> EnvelopeRows(ProfileProject p, List<ForceSample> c, Dictionary<int, PhaseSetting> phases)
+    {
+        double mMax = c.Max(x => x.M), mMin = c.Min(x => x.M), nMax = c.Max(x => x.N), nMin = c.Min(x => x.N), q = c.Max(x => Math.Abs(x.Q));
+        var ph = phases[c[0].Phase];
+        string source = string.Join(", ", c.Select(x => phases[x.Phase].Name).Distinct());
+        var seen = new HashSet<(double, double)>();
+        foreach (var (label, n, m) in new[] { ("Mmax, Nmin", nMin, mMax), ("Mmax, Nmax", nMax, mMax), ("Mmin, Nmin", nMin, mMin), ("Mmin, Nmax", nMax, mMin) })
+        {
+            if (!seen.Add((n, m))) continue;
+            var row = Row(ph);
+            row.Name = $"огибающая {source}: {label}";
+            row.N = n; row.Q = q;
+            row.Mx = p.Section.Kind == SectionKind.Wall ? p.Settings.MomentSign * m : Math.Abs(m);
+            row.LoadFactor = p.Settings.ServiceDivisor; row.SustainedShare = p.Settings.SustainedShare;
+            yield return row;
+        }
+    }
+
     static LoadRow Row(PhaseSetting ph) => new() { ShortTerm = ph.ShortTerm, Seismic = ph.Seismic, Special = ph.Special && !ph.Seismic };
 
     /// <summary>Samples of one phase inside [bottom, top] plus the values interpolated at both ends.</summary>
@@ -121,7 +165,7 @@ public sealed class ForceProfile
                 var a = nodes[i]; var b = nodes[i + 1];
                 if (a.Level - b.Level < 1e-9 || level > a.Level || level < b.Level) continue;
                 double t = (a.Level - level) / (a.Level - b.Level);
-                yield return new ForceSample(a.Phase, level, a.N + t * (b.N - a.N), a.M + t * (b.M - a.M), a.Q + t * (b.Q - a.Q));
+                yield return new ForceSample(a.Phase, level, a.N + t * (b.N - a.N), a.M + t * (b.M - a.M), a.Q + t * (b.Q - a.Q), a.Corner);
             }
     }
 }

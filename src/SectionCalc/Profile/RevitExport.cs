@@ -53,6 +53,7 @@ public static class RevitExport
         var phases = new JsonArray(p.Phases.Where(ph => ph.Include).Select(ph => (JsonNode)new JsonObject
         {
             ["name"] = ph.Name, ["title"] = src.Phases.FirstOrDefault(x => x.Id == ph.Id)?.Title,
+            ["covers"] = new JsonArray((src.Phases.FirstOrDefault(x => x.Id == ph.Id)?.Covers ?? []).Select(c => (JsonNode)JsonValue.Create(c)!).ToArray()),
             ["kind"] = ph.Seismic ? "seismic" : ph.Special ? "special" : "main", ["short_term"] = ph.ShortTerm,
         }).ToArray());
         var c = s.Conditions;
@@ -91,6 +92,7 @@ public static class RevitExport
             ["source"] = new JsonObject
             {
                 ["program"] = "PLAXIS 2D", ["version"] = src.Info.Version, ["project"] = src.Info.Title,
+                ["forces"] = src.IsEnvelope ? "envelope" : "phases",
                 ["objects"] = new JsonArray(src.Objects.Select(o => (JsonNode)JsonValue.Create(o.Name)!).ToArray()),
                 ["phases"] = phases,
             },

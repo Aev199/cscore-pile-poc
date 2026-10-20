@@ -170,5 +170,80 @@ class InputTests(unittest.TestCase):
         self.assertIn('разных типов', result['error'])
 
 
+class FakeOutputEnvelope(FakeOutputSplit):
+    """Output with envelope result types of plates."""
+
+    def __init__(self):
+        super().__init__()
+        names = dict(X='X', Y='Y', Nx2D='Nx2D', M2D='M2D', Q2D='Q2D')
+        for base in ('Nx2D', 'M2D', 'Q2D'):
+            for bound in ('Max', 'Min'):
+                names[f'{base}_Envelope{bound}'] = f'{base}_Envelope{bound}'
+        self.ResultTypes = SimpleNamespace(Plate=SimpleNamespace(**names), EmbeddedBeamRow=SimpleNamespace(**names))
+
+    def getresults(self, obj, phase, rtype, location):
+        self.requested.append((obj.Name.value, phase.Name.value, rtype))
+        if 'Envelope' not in rtype and rtype not in ('X', 'Y'):
+            raise AssertionError('per-phase result requested in the envelope route')
+        y = [0.0, -1.0, -2.0] if obj is self.plate else [-2.0, -3.0, -4.0]
+        sign = 1 if rtype.endswith('Max') else -1
+        return {'X': [5.0] * 3, 'Y': y}.get(rtype, [sign * 10.0, sign * 20.0, sign * 30.0])
+
+
+def tree_input(selection):
+    """Phases: Initial → Phase_1 → Phase_2 → Safety_A; Phase_1 → Phase_3 (second branch)."""
+    g_i = FakeInput(selection)
+    initial = SimpleNamespace(Name=value('InitialPhase'), Identification=value('Начальная'), DeformCalcType=value('K0 procedure'), PreviousPhase=None)
+    p1 = SimpleNamespace(Name=value('Phase_1'), Identification=value('Выемка'), DeformCalcType=value('Plastic'), PreviousPhase=initial)
+    p2 = SimpleNamespace(Name=value('Phase_2'), Identification=value('Дно'), DeformCalcType=value('Plastic'), PreviousPhase=p1)
+    fs = SimpleNamespace(Name=value('Phase_3'), Identification=value('Запас'), DeformCalcType=value('Safety'), PreviousPhase=p2)
+    p4 = SimpleNamespace(Name=value('Phase_4'), Identification=value('Сейсмика'), DeformCalcType=value('Dynamic'), PreviousPhase=p1)
+    g_i.Phases = [initial, p1, p2, fs, p4]
+    return g_i
+
+
+class EnvelopeTests(unittest.TestCase):
+    def run_tree(self, output, g_i):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = plaxis_export.main(['input', '--port', '10000'], connector=lambda port, program='Output': {10000: g_i, 10002: output}[port])
+        return code, json.loads(out.getvalue())
+
+    def test_envelope_per_branch_without_safety(self):
+        output = FakeOutputEnvelope()
+        output.Phases.append(SimpleNamespace(Name=value('Phase_4'), Identification=value('Phase_4')))
+        g_i = tree_input([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')])
+        code, result = self.run_tree(output, g_i)
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result['mode'], 'envelope')
+        self.assertEqual(result['columns'], plaxis_export.ENVELOPE_COLUMNS)
+        # Two branches: Phase_2 (Safety is its child, not part of it) and Phase_4.
+        self.assertEqual([p['name'] for p in result['phases']], ['Phase_2', 'Phase_4'])
+        self.assertEqual(result['phases'][0]['covers'], ['InitialPhase', 'Phase_1', 'Phase_2'])
+        self.assertEqual(result['phases'][1]['covers'], ['InitialPhase', 'Phase_1', 'Phase_4'])
+        self.assertEqual(result['result_types']['m_max'], 'M2D_EnvelopeMax')
+        self.assertEqual(result['data'][0]['nodes'][1], [5.0, -1.0, -20.0, 20.0, -20.0, 20.0, -20.0, 20.0])
+        # Only the leaves are read: 2 branches × 2 segments.
+        self.assertEqual(len(result['data']), 4)
+        self.assertNotIn('Phase_3', {r[1] for r in output.requested})
+        self.assertNotIn('Phase_1', {r[1] for r in output.requested})
+
+    def test_safety_inside_a_branch_falls_back_to_phases(self):
+        output = FakeOutputEnvelope()
+        g_i = tree_input([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')])
+        # A plastic phase continues after the Safety phase: its envelope would include the Safety results.
+        g_i.Phases[4].PreviousPhase = g_i.Phases[3]
+        output.getresults = FakeOutputSplit.getresults.__get__(output)
+        code, result = self.run_tree(output, g_i)
+        self.assertEqual(code, 0, result)
+        self.assertNotIn('mode', result)
+        self.assertEqual(result['columns'], ['x', 'y', 'n', 'm', 'q'])
+
+    def test_no_envelope_types_falls_back_to_phases(self):
+        code, result, _ = run_input([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')], FakeOutputSplit())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result['columns'], ['x', 'y', 'n', 'm', 'q'])
+
+
 if __name__ == '__main__':
     unittest.main()

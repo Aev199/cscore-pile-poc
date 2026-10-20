@@ -27,6 +27,8 @@ public sealed class PlaxisPhase
     public string? Title { get; set; }
     /// <summary>Calculation type from Input (Plastic, Consolidation, Safety…), when read through Input.</summary>
     [JsonPropertyName("calc_type")] public string? CalcType { get; set; }
+    /// <summary>Envelope route: the phases of the branch this envelope covers.</summary>
+    public List<string> Covers { get; set; } = [];
     public string Label => string.IsNullOrWhiteSpace(Title) || Title == Name ? Name : $"{Name} — {Title}";
 }
 
@@ -52,6 +54,11 @@ public sealed class PlaxisExport
     public List<PlaxisObject> Objects { get; set; } = [];
     public List<PlaxisPhase> Phases { get; set; } = [];
     public List<string> Columns { get; set; } = [];
+    /// <summary>"envelope": rows are envelopes computed by Output per branch; otherwise one row set per phase.</summary>
+    public string? Mode { get; set; }
+    public bool IsEnvelope => Mode == "envelope";
+    public static readonly string[] PhaseColumns = ["x", "y", "n", "m", "q"];
+    public static readonly string[] EnvelopeColumns = ["x", "y", "n_min", "n_max", "m_min", "m_max", "q_min", "q_max"];
     public List<PlaxisSeries> Data { get; set; } = [];
     /// <summary>Names selected in Input (when read through Input).</summary>
     public List<string> Selection { get; set; } = [];
@@ -115,9 +122,10 @@ public static class PlaxisBridge
     public static PlaxisExport Parse(string json)
     {
         var export = JsonSerializer.Deserialize<PlaxisExport>(json, Json) ?? throw new InvalidDataException("Пустая выгрузка PLAXIS");
-        if (!export.Columns.SequenceEqual(["x", "y", "n", "m", "q"]))
-            throw new InvalidDataException("Выгрузка PLAXIS: ожидаются столбцы x, y, n, m, q");
-        if (export.Data.Any(s => s.Nodes.Any(n => n.Length != 5 || n.Any(v => !double.IsFinite(v)))))
+        var columns = export.IsEnvelope ? PlaxisExport.EnvelopeColumns : PlaxisExport.PhaseColumns;
+        if (!export.Columns.SequenceEqual(columns))
+            throw new InvalidDataException("Выгрузка PLAXIS: ожидаются столбцы " + string.Join(", ", columns));
+        if (export.Data.Any(s => s.Nodes.Any(n => n.Length != columns.Length || n.Any(v => !double.IsFinite(v)))))
             throw new InvalidDataException("Выгрузка PLAXIS содержит неполные или нечисловые строки");
         return export;
     }

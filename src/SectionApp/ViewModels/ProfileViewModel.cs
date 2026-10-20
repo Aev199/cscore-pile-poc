@@ -332,10 +332,15 @@ public partial class ProfileViewModel : ObservableObject
         IsEmbedded = s.Objects.Any(o => o.Kind != "Plate");
         Phases.Clear();
         foreach (var ph in project.Phases)
-            Phases.Add(new PhaseRowViewModel(ph, s.Phases.FirstOrDefault(x => x.Id == ph.Id)?.Label ?? ph.Name, Changed));
+        {
+            var src = s.Phases.FirstOrDefault(x => x.Id == ph.Id);
+            string label = src?.Label ?? ph.Name;
+            if (src is { Covers.Count: > 1 }) label += $" · огибающая {src.Covers[0]} … {src.Covers[^1]}";
+            Phases.Add(new PhaseRowViewModel(ph, label, Changed));
+        }
         HasPhases = Phases.Count > 0;
         string selected = s.Selection.Count > 0 ? $"{string.Join(", ", s.Selection)} ({s.Objects.Count} уч.)" : string.Join(", ", s.Objects.Select(o => o.Name));
-        SourceText = $"{selected} · фаз {s.Phases.Count} · PLAXIS {s.Info.Version} · {s.Info.UnitForce}, {s.Info.UnitLength}"
+        SourceText = $"{selected} · " + (s.IsEnvelope ? $"огибающие Output, веток {s.Phases.Count}" : $"фаз {s.Phases.Count}") + $" · PLAXIS {s.Info.Version} · {s.Info.UnitForce}, {s.Info.UnitLength}"
             + (s.ExcludedPhases.Count > 0 ? $"\nИсключены (Safety): {string.Join(", ", s.ExcludedPhases.Select(p => p.Name))}" : "")
             + (s.InactivePhases.Count > 0 ? $"\nЭлемент не активен: {string.Join(", ", s.InactivePhases)}" : "");
     }

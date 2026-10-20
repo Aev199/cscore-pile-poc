@@ -91,6 +91,46 @@ def feature_of(obj):
     return None
 
 
+ENVELOPE_COLUMNS = ['x', 'y', 'n_min', 'n_max', 'm_min', 'm_max', 'q_min', 'q_max']
+
+
+def envelope_types(group):
+    """Envelope result types of a structure group: {'n_min': (type, name), ...}, or None if Output has none."""
+    try:
+        listed = [n for n in dir(group) if 'envelope' in n.lower()]
+    except Exception:
+        listed = []
+    found = {}
+    for key in ('n', 'm', 'q'):
+        for bound in ('Max', 'Min'):
+            hit = None
+            for base in RESULTS[key]:
+                guesses = [n for n in listed if n.lower().startswith(base.lower()) and bound.lower() in n.lower()]
+                guesses += [f'{base}_Envelope{bound}', f'{base}Envelope{bound}', f'{base}_{bound}Envelope', f'{base}{bound}Envelope']
+                for name in guesses:
+                    rtype, _ = first(group, [name])
+                    if rtype is not None:
+                        hit = (rtype, name)
+                        break
+                if hit:
+                    break
+            if hit is None:
+                return None
+            found[f'{key}_{bound.lower()}'] = hit
+    return found
+
+
+def previous(phase):
+    for key in ('PreviousPhase', 'Previous'):
+        try:
+            prev = getattr(phase, key)
+        except Exception:
+            continue
+        if prev is not None and prev is not phase:
+            return prev
+    return None
+
+
 def matches(output_name, input_name):
     # Output splits a structure by the mesh: Plate_1 becomes Plate_1_1, Plate_1_2, ...
     return output_name == input_name or output_name.startswith(input_name + '_')
@@ -196,6 +236,9 @@ def from_input(g_i, connector, output_port=None):
             raise ExportError(f'Input не открыл Output ({exc}). Проект должен быть рассчитан и сохранён; '
                               'либо откройте Output вручную и укажите его порт.')
     output = Output(connector(output_port))
+    envelope = envelope_from_input(output, phases, used, selected)
+    if envelope is not None:
+        return envelope
     names = [name for _, name in selected]
     object_ids = [i for i, (kind, obj, _) in enumerate(output.objects)
                   if kind == selected[0][0] and any(matches(name_of(obj), n) for n in names)]
@@ -216,6 +259,83 @@ def from_input(g_i, connector, output_port=None):
     if not result['data']:
         raise ExportError('Выбранные элементы не активны ни в одной рассчитанной фазе')
     return result
+
+
+def envelope_from_input(output, phases, used, selected):
+    """
+    Envelopes computed by Output: one per branch, read at its last non-Safety phase. An envelope covers the phase
+    and all phases before it in its branch, so a branch with a Safety phase inside falls back to reading phases.
+    Returns None for the per-phase route.
+    """
+    kind = selected[0][0]
+    group, _ = first(output.g.ResultTypes, dict(KINDS_BY_NAME)[kind])
+    types = envelope_types(group) if group is not None else None
+    if types is None:
+        return None
+    by_name = {name_of(p): p for p in phases}
+    used_names = {name_of(p) for p in used}
+    parents = {name_of(previous(p)) for p in used if previous(p) is not None}
+    leaves = [p for p in used if name_of(p) not in parents]
+    branches = []
+    for leaf in leaves:
+        chain, cur = [], leaf
+        while cur is not None:
+            chain.append(cur)
+            cur = previous(cur)
+            if cur is not None and name_of(cur) not in by_name:
+                break
+        if any(is_safety(p) for p in chain):
+            return None
+        branches.append((leaf, [name_of(p) for p in reversed(chain) if name_of(p) in used_names]))
+    names = [name for _, name in selected]
+    objects = [(i, obj, t) for i, (k, obj, t) in enumerate(output.objects) if k == kind and any(matches(name_of(obj), n) for n in names)]
+    if not objects:
+        raise ExportError('В Output не найдены выбранные элементы: ' + ', '.join(names))
+    out_phases = {name_of(p): (i, p) for i, p in enumerate(output.phases)}
+    data, phase_rows, inactive = [], [], []
+    for leaf, covered in branches:
+        if name_of(leaf) not in out_phases:
+            continue
+        pi, phase = out_phases[name_of(leaf)]
+        got = False
+        for oi, obj, t in objects:
+            try:
+                arrays = {'x': output.g.getresults(obj, phase, t['x'], 'node'), 'y': output.g.getresults(obj, phase, t['y'], 'node')}
+                for key, (rtype, _) in types.items():
+                    arrays[key] = output.g.getresults(obj, phase, rtype, 'node')
+            except Exception:
+                continue
+            arrays = {k: [float(v) for v in a] for k, a in arrays.items()}
+            if len({len(a) for a in arrays.values()}) != 1 or not arrays['x']:
+                raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул огибающие разной длины')
+            nodes = [[arrays[c][i] for c in ENVELOPE_COLUMNS] for i in range(len(arrays['x']))]
+            if not all(math.isfinite(v) for row in nodes for v in row):
+                raise ExportError(f'{name_of(obj)}, {name_of(phase)}: неконечные значения огибающей')
+            data.append({'object': oi, 'phase': pi, 'nodes': nodes})
+            got = True
+        if got:
+            phase_rows.append({'id': pi, 'name': name_of(phase), 'title': text(phase, 'Identification'),
+                               'calc_type': calc_type(by_name[name_of(leaf)]), 'covers': covered})
+        else:
+            inactive.append(name_of(phase))
+    if not data:
+        raise ExportError('Выбранные элементы не активны в конечных фазах расчёта')
+    return {
+        'info': output.info(),
+        'mode': 'envelope',
+        'objects': [{'id': i, 'kind': kind, 'name': name_of(obj)} for i, obj, _ in objects],
+        'phases': phase_rows,
+        'columns': ENVELOPE_COLUMNS,
+        'data': data,
+        'selection': names,
+        'result_types': {k: n for k, (_, n) in types.items()},
+        'excluded_phases': [{'name': name_of(p), 'title': text(p, 'Identification'), 'calc_type': calc_type(p)}
+                            for p in phases if is_safety(p)],
+        'inactive_phases': inactive,
+    }
+
+
+KINDS_BY_NAME = [(kind, groups) for kind, _, groups in KINDS]
 
 
 def connect(port, program='Output'):

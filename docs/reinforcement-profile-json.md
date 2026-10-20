@@ -32,8 +32,10 @@
   "faces": { "right": "грань со стороны большего X модели PLAXIS", "left": "…меньшего X…" },  // null для сваи
   "source": {
     "program": "PLAXIS 2D", "version": "22.01", "project": "Котлован",
+    "forces": "envelope",               // envelope — огибающие Output по веткам; phases — по каждой фазе
     "objects": ["Plate_1"],
-    "phases": [ { "name": "Phase_3", "title": "Дно", "kind": "main", "short_term": false } ]   // kind: main | seismic | special
+    "phases": [ { "name": "Phase_3", "title": "Дно", "kind": "main", "short_term": false,
+                  "covers": ["InitialPhase", "Phase_1", "Phase_2", "Phase_3"] } ]   // kind: main | seismic | special; covers — фазы ветки огибающей
   },
   "design": {
     "code": "СП 63.13330.2018", "forces": "design",
