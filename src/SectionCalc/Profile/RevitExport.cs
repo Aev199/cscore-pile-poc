@@ -22,6 +22,9 @@ public static class RevitExport
 
     static double R(double v, int digits = 3) => Math.Round(v, digits);
 
+    /// <summary>bar — to the longitudinal bar surface, transverse — to the spiral/stirrup, axis — to the bar axis.</summary>
+    static string Reference(CoverReference r) => r switch { CoverReference.Bar => "bar", CoverReference.Axis => "axis", _ => "transverse" };
+
     public static JsonObject Build(ReinforcementProfile r, DateTime? created = null)
     {
         var p = r.Project; var s = p.Section; var set = p.Settings; var f = r.Forces;
@@ -35,13 +38,15 @@ public static class RevitExport
             element["wall"] = new JsonObject
             {
                 ["width_mm"] = s.Wall.WidthMm, ["thickness_mm"] = s.Wall.ThicknessMm, ["cover_mm"] = s.Wall.CoverMm,
+                ["cover_reference"] = Reference(s.Wall.CoverReference),
                 ["stirrup_diameter_mm"] = s.Wall.StirrupDiameterMm,
                 ["right_face_bars"] = s.Wall.PositiveFace.BarCount, ["left_face_bars"] = s.Wall.NegativeFace.BarCount,
             };
         else
             element["pile"] = new JsonObject
             {
-                ["diameter_mm"] = s.Pile.DiameterMm, ["cover_mm"] = s.Pile.CoverMm, ["spiral_diameter_mm"] = s.Pile.SpiralDiameterMm,
+                ["diameter_mm"] = s.Pile.DiameterMm, ["cover_mm"] = s.Pile.CoverMm, ["cover_reference"] = Reference(s.Pile.CoverReference),
+                ["spiral_diameter_mm"] = s.Pile.SpiralDiameterMm,
                 ["bar_count"] = s.Pile.BarCount, ["spacing_m"] = set.PileSpacingM,
             };
         var src = p.Source!;
@@ -69,7 +74,7 @@ public static class RevitExport
             o["note"] = st.Note;
             return (JsonNode)o;
         }).ToArray());
-        double h0 = s.Wall.ThicknessMm - s.Wall.CoverMm - s.Wall.StirrupDiameterMm - 10;
+        double h0 = s.Wall.ThicknessMm - s.Wall.AxisDistanceMm(s.Wall.PositiveFace);
         double minArea = wall ? set.MinPercent / 100 * s.Wall.WidthMm * h0 : set.MinPercent / 100 * Math.PI * s.Pile.DiameterMm * s.Pile.DiameterMm / 4;
         return new JsonObject
         {

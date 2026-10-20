@@ -126,7 +126,7 @@ public static class ReportWriter
             rows.Add(("Диаметр D", $"{F(g.DiameterMm)} мм"));
             rows.Add(("Продольная арматура", $"{g.BarCount} Ø{F(g.BarDiameterMm)} {p.RebarClass}, As = {F(r.Layout.SteelAreaMm2, "0")} мм², μs = {F(r.Layout.SteelAreaMm2 / area * 100, "0.00")} %"));
             rows.Add(("Спираль", $"Ø{F(g.SpiralDiameterMm)} {p.TransverseClass}"));
-            rows.Add(("Защитный слой до спирали", $"{F(g.CoverMm)} мм"));
+            rows.Add(("Защитный слой", $"{F(g.CoverMm)} мм {CoverText(g.CoverReference, "спирали")}; до оси стержней {F(g.AxisDistanceMm, "0.#")} мм"));
         }
         else
         {
@@ -137,10 +137,17 @@ public static class ReportWriter
             rows.Add(("Арматура грани «−» (y < 0)", $"{g.NegativeFace.BarCount} Ø{F(g.NegativeFace.BarDiameterMm)} {p.RebarClass}"));
             rows.Add(("Площадь арматуры", $"As = {F(r.Layout.SteelAreaMm2, "0")} мм², μs = {F(r.Layout.SteelAreaMm2 / (g.WidthMm * g.ThicknessMm) * 100, "0.00")} %"));
             rows.Add(("Хомуты", $"Ø{F(g.StirrupDiameterMm)} {p.TransverseClass}"));
-            rows.Add(("Защитный слой до хомута", $"{F(g.CoverMm)} мм"));
+            rows.Add(("Защитный слой", $"{F(g.CoverMm)} мм {CoverText(g.CoverReference, "хомута")}; до оси стержней {F(g.AxisDistanceMm(g.PositiveFace), "0.#")} мм (грань «+»), {F(g.AxisDistanceMm(g.NegativeFace), "0.#")} мм (грань «−»)"));
         }
         return rows;
     }
+
+    static string CoverText(CoverReference r, string transverse) => r switch
+    {
+        CoverReference.Bar => "до продольных стержней в свету",
+        CoverReference.Axis => "до оси продольных стержней",
+        _ => "до " + transverse,
+    };
 
     static Table MaterialsTable(SectionProject p)
     {

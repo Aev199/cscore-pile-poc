@@ -18,7 +18,7 @@ public partial class MainViewModel : ObservableObject
         nameof(ResultIsStale), nameof(VerdictText), nameof(VerdictTone), nameof(GoverningText), nameof(InputErrors),
         nameof(HasInputErrors), nameof(SelectionSummary), nameof(HasSelection), nameof(SteelText), nameof(SelectedTab),
         nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(KindTitle), nameof(EtaByCscore),
-        nameof(SelectedLoad), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders),
+        nameof(SelectedLoad), nameof(AxisText), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders),
         nameof(ProfileMode), nameof(IsSectionMode), nameof(IsProfileMode), nameof(LimitedWidth), nameof(InputTab), nameof(SeismicUsed), nameof(SpecialUsed), nameof(SpecialDesign),
     ];
 
@@ -67,6 +67,12 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] string wallWidth = "", wallThickness = "", wallCover = "", wallStirrup = "";
     [ObservableProperty] string positiveCount = "", positiveDiameter = "", negativeCount = "", negativeDiameter = "";
     [ObservableProperty] string minClearSpacing = "";
+    public IReadOnlyList<string> CoverReferenceOptions { get; } = ["до продольных стержней (в свету)", "до спирали / хомута", "до оси продольных стержней"];
+    [ObservableProperty] int coverReferenceIndex;
+    [ObservableProperty] string axisText = "";
+
+    static CoverReference CoverOf(int index) => index switch { 1 => CoverReference.Transverse, 2 => CoverReference.Axis, _ => CoverReference.Bar };
+    static int IndexOf(CoverReference r) => r switch { CoverReference.Transverse => 1, CoverReference.Axis => 2, _ => 0 };
 
     // ---- materials ----
     [ObservableProperty] string concreteClass = "B30", rebarClass = "A500", transverseClass = "A240";
@@ -174,6 +180,9 @@ public partial class MainViewModel : ObservableObject
         if (p is null) return;
         var layout = RequestBuilder.Layout(p);
         SteelText = $"As = {layout.SteelAreaMm2.ToString("0", Ru)} мм²" + (layout.Problem is string problem ? $" · {problem}" : "");
+        AxisText = p.Kind == SectionKind.Pile
+            ? $"От грани до оси стержней {p.Pile.AxisDistanceMm.ToString("0.#", Ru)} мм, до спирали {p.Pile.SpiralCoverMm.ToString("0.#", Ru)} мм"
+            : $"От грани до оси стержней {p.Wall.AxisDistanceMm(p.Wall.PositiveFace).ToString("0.#", Ru)} мм («+»), {p.Wall.AxisDistanceMm(p.Wall.NegativeFace).ToString("0.#", Ru)} мм («−»)";
         using var stream = new MemoryStream(SectionSketch.Png(p, 600, 500, 26));
         Sketch = new Bitmap(stream);
     }
@@ -192,6 +201,7 @@ public partial class MainViewModel : ObservableObject
             PositiveCount = S(p.Wall.PositiveFace.BarCount); PositiveDiameter = S(p.Wall.PositiveFace.BarDiameterMm);
             NegativeCount = S(p.Wall.NegativeFace.BarCount); NegativeDiameter = S(p.Wall.NegativeFace.BarDiameterMm);
             MinClearSpacing = S(IsPile ? p.Pile.MinClearSpacingMm : p.Wall.MinClearSpacingMm);
+            CoverReferenceIndex = IndexOf(IsPile ? p.Pile.CoverReference : p.Wall.CoverReference);
             ConcreteClass = p.ConcreteClass; RebarClass = p.RebarClass; TransverseClass = p.TransverseClass;
             var f = p.Concrete;
             Gb1 = S(f.Gb1); Gb2 = S(f.Gb2); Gb3 = S(f.Gb3); Gb5 = S(f.Gb5); Hardening = S(f.HardeningFactor);
@@ -264,13 +274,15 @@ public partial class MainViewModel : ObservableObject
         if (IsPile)
             p.Pile = new PileGeometry
             {
-                DiameterMm = D(PileDiameter, "Диаметр D"), CoverMm = D(PileCover, "Защитный слой"), SpiralDiameterMm = D(PileSpiral, "Ø навивки"),
+                DiameterMm = D(PileDiameter, "Диаметр D"), CoverMm = D(PileCover, "Защитный слой"), CoverReference = CoverOf(CoverReferenceIndex),
+                SpiralDiameterMm = D(PileSpiral, "Ø навивки"),
                 BarCount = I(PileBarCount, "Число стержней"), BarDiameterMm = D(PileBarDiameter, "Ø стержней"), MinClearSpacingMm = clear,
             };
         else
             p.Wall = new WallGeometry
             {
                 WidthMm = D(WallWidth, "Ширина b"), ThicknessMm = D(WallThickness, "Толщина h"), CoverMm = D(WallCover, "Защитный слой"),
+                CoverReference = CoverOf(CoverReferenceIndex),
                 StirrupDiameterMm = D(WallStirrup, "Ø хомута"), MinClearSpacingMm = clear,
                 PositiveFace = new WallFace { BarCount = I(PositiveCount, "Стержней на грани «+»"), BarDiameterMm = D(PositiveDiameter, "Ø на грани «+»") },
                 NegativeFace = new WallFace { BarCount = I(NegativeCount, "Стержней на грани «−»"), BarDiameterMm = D(NegativeDiameter, "Ø на грани «−»") },

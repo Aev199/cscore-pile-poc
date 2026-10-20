@@ -11,6 +11,18 @@ public enum SecondOrderMode { SectionOnly, InLoads, Cscore }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum EccentricityMode { InLoads, Sp63 }
 
+/// <summary>What the concrete cover is measured to from the concrete face.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CoverReference
+{
+    /// <summary>Outer surface of the spiral or stirrup (earlier files).</summary>
+    Transverse,
+    /// <summary>Surface of the longitudinal bar, clear distance (as a1 in ARBAT).</summary>
+    Bar,
+    /// <summary>Axis of the longitudinal bar.</summary>
+    Axis,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CrackCategory { LimitedWidth, NoCracks }
 
@@ -25,12 +37,17 @@ public enum CrackMethod { Conservative, Refined }
 public sealed class PileGeometry
 {
     public double DiameterMm { get; set; } = 800;
-    /// <summary>Concrete cover to the outer surface of the spiral.</summary>
     public double CoverMm { get; set; } = 50;
+    public CoverReference CoverReference { get; set; } = CoverReference.Transverse;
     public double SpiralDiameterMm { get; set; } = 10;
     public int BarCount { get; set; } = 12;
     public double BarDiameterMm { get; set; } = 25;
     public double MinClearSpacingMm { get; set; } = 25;
+
+    /// <summary>Cover to the outer surface of the spiral, whatever reference the input uses.</summary>
+    public double SpiralCoverMm => Geometry.TransverseCover(CoverMm, CoverReference, SpiralDiameterMm, BarDiameterMm);
+    /// <summary>Distance from the concrete face to the bar axis.</summary>
+    public double AxisDistanceMm => SpiralCoverMm + SpiralDiameterMm + BarDiameterMm / 2;
 }
 
 /// <summary>One face of a diaphragm-wall section.</summary>
@@ -47,14 +64,30 @@ public sealed class WallGeometry
     public double WidthMm { get; set; } = 1000;
     /// <summary>Wall thickness, h (direction of the main moment Mx).</summary>
     public double ThicknessMm { get; set; } = 600;
-    /// <summary>Concrete cover to the outer surface of the stirrups.</summary>
     public double CoverMm { get; set; } = 50;
+    public CoverReference CoverReference { get; set; } = CoverReference.Transverse;
     public double StirrupDiameterMm { get; set; } = 10;
     /// <summary>Face tensioned by a positive Mx.</summary>
     public WallFace PositiveFace { get; set; } = new();
     /// <summary>Face tensioned by a negative Mx.</summary>
     public WallFace NegativeFace { get; set; } = new();
     public double MinClearSpacingMm { get; set; } = 25;
+
+    /// <summary>Cover to the outer surface of the stirrup at a face with the given bar diameter.</summary>
+    public double StirrupCoverMm(double barDiameterMm) => Geometry.TransverseCover(CoverMm, CoverReference, StirrupDiameterMm, barDiameterMm);
+    /// <summary>Distance from the face to the bar axis of the face.</summary>
+    public double AxisDistanceMm(WallFace face) => StirrupCoverMm(face.BarDiameterMm) + StirrupDiameterMm + face.BarDiameterMm / 2;
+}
+
+public static class Geometry
+{
+    /// <summary>Cover to the transverse bar surface from a cover measured to the given reference.</summary>
+    public static double TransverseCover(double cover, CoverReference reference, double transverse, double bar) => reference switch
+    {
+        CoverReference.Bar => cover - transverse,
+        CoverReference.Axis => cover - transverse - bar / 2,
+        _ => cover,
+    };
 }
 
 /// <summary>
@@ -205,6 +238,9 @@ public sealed class SectionProject
     public static SectionProject Example(SectionKind kind)
     {
         var p = new SectionProject { Kind = kind, Title = kind == SectionKind.Pile ? "БНС Ø800" : "СВГ 600 мм" };
+        // New sections: cover to the longitudinal bars, as in ARBAT (50 mm to the spiral + Ø10 = 60 mm).
+        p.Pile.CoverReference = CoverReference.Bar; p.Pile.CoverMm = 60;
+        p.Wall.CoverReference = CoverReference.Bar; p.Wall.CoverMm = 60;
         p.Loads.Add(new LoadRow { Name = "1", N = -1500, Mx = 250, Q = 120, LoadFactor = 1.15, SustainedShare = 0.8 });
         p.Loads.Add(new LoadRow { Name = "2", N = -900, Mx = -180, Q = 90, LoadFactor = 1.15, SustainedShare = 0.8 });
         return p;

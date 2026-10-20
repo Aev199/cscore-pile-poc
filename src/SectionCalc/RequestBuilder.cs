@@ -23,7 +23,7 @@ public static class RequestBuilder
 
     public static BarLayout PileLayout(PileGeometry g)
     {
-        double axis = g.DiameterMm / 2 - g.CoverMm - g.SpiralDiameterMm - g.BarDiameterMm / 2;
+        double axis = g.DiameterMm / 2 - g.AxisDistanceMm;
         // Chord between neighbouring bar axes minus one diameter (pile_rebar.make_candidates).
         double clear = 2 * axis * Math.Sin(Math.PI / g.BarCount) - g.BarDiameterMm;
         var bars = Enumerable.Range(0, g.BarCount).Select(i =>
@@ -40,12 +40,13 @@ public static class RequestBuilder
     public static BarLayout WallLayout(WallGeometry g)
     {
         // One cage across the checked width; end cover equals the face cover (wall_rebar.make_candidates).
-        double cage = g.WidthMm - 2 * g.CoverMm;
+        double end = Math.Min(g.StirrupCoverMm(g.NegativeFace.BarDiameterMm), g.StirrupCoverMm(g.PositiveFace.BarDiameterMm));
+        double cage = g.WidthMm - 2 * end;
         var bars = new List<BarPoint>(); var clear = new List<double>(); string? problem = null;
         foreach (var (face, sign) in new[] { (g.NegativeFace, -1), (g.PositiveFace, 1) })
         {
             double inset = g.StirrupDiameterMm + face.BarDiameterMm / 2;
-            double depth = g.ThicknessMm / 2 - g.CoverMm - inset;
+            double depth = g.ThicknessMm / 2 - g.AxisDistanceMm(face);
             if (face.BarCount < 2) { problem ??= "На каждой грани нужно не менее 2 стержней"; continue; }
             double pitch = (cage - 2 * inset) / (face.BarCount - 1);
             clear.Add(pitch - face.BarDiameterMm);
@@ -54,8 +55,8 @@ public static class RequestBuilder
             for (int i = 0; i < face.BarCount; i++)
                 bars.Add(new BarPoint(-cage / 2 + inset + i * pitch, sign * depth, face.BarDiameterMm));
         }
-        double through = g.ThicknessMm - 2 * g.CoverMm - 2 * g.StirrupDiameterMm
-            - g.PositiveFace.BarDiameterMm - g.NegativeFace.BarDiameterMm;
+        double through = g.ThicknessMm - g.AxisDistanceMm(g.PositiveFace) - g.AxisDistanceMm(g.NegativeFace)
+            - g.PositiveFace.BarDiameterMm / 2 - g.NegativeFace.BarDiameterMm / 2;
         clear.Add(through);
         if (through < g.MinClearSpacingMm) problem ??= "Недостаточный просвет между гранями";
         double area = bars.Sum(b => Math.PI * b.DiameterMm * b.DiameterMm / 4);
@@ -71,12 +72,16 @@ public static class RequestBuilder
             var g = p.Pile;
             if (g.DiameterMm <= 0 || g.CoverMm < 0 || g.SpiralDiameterMm <= 0 || g.BarDiameterMm <= 0)
                 e.Add("Размеры сечения и диаметры должны быть положительными");
+            else if (g.SpiralCoverMm < 0)
+                e.Add("Защитный слой меньше, чем помещается спираль снаружи стержней");
         }
         else
         {
             var g = p.Wall;
             if (g.WidthMm <= 0 || g.ThicknessMm <= 0 || g.CoverMm < 0 || g.StirrupDiameterMm <= 0)
                 e.Add("Размеры сечения и диаметры должны быть положительными");
+            else if (Math.Min(g.StirrupCoverMm(g.PositiveFace.BarDiameterMm), g.StirrupCoverMm(g.NegativeFace.BarDiameterMm)) < 0)
+                e.Add("Защитный слой меньше, чем помещается хомут снаружи стержней");
         }
         if (e.Count == 0 && Layout(p).Problem is string layout) e.Add(layout);
         if (p.Loads.Count == 0) e.Add("Добавьте хотя бы одно сочетание усилий");
@@ -130,7 +135,7 @@ public static class RequestBuilder
             req["candidates"] = new JsonArray(new JsonObject
             {
                 ["id"] = $"{g.BarCount}x{g.BarDiameterMm:0.##}", ["bar_count"] = g.BarCount, ["bar_diameter_mm"] = g.BarDiameterMm,
-                ["rotation_deg"] = 0, ["bar_axis_radius_mm"] = g.DiameterMm / 2 - g.CoverMm - g.SpiralDiameterMm - g.BarDiameterMm / 2,
+                ["rotation_deg"] = 0, ["bar_axis_radius_mm"] = g.DiameterMm / 2 - g.AxisDistanceMm,
                 ["steel_area_mm2"] = layout.SteelAreaMm2, ["clearance_mm"] = layout.MinClearanceMm,
             });
         }

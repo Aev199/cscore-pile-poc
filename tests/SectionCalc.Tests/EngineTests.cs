@@ -176,4 +176,26 @@ public class EngineTests
         Assert.Equal(ProjectStore.Serialize(p), ProjectStore.Serialize(copy));
         Assert.Contains("\"Kind\": \"Wall\"", ProjectStore.Serialize(p));
     }
+
+    [Fact]
+    public void CoverReferencesDescribeTheSameBars()
+    {
+        var a = new PileGeometry { DiameterMm = 880, CoverMm = 50, CoverReference = CoverReference.Transverse, SpiralDiameterMm = 12, BarDiameterMm = 32, BarCount = 16 };
+        var b = new PileGeometry { DiameterMm = 880, CoverMm = 62, CoverReference = CoverReference.Bar, SpiralDiameterMm = 12, BarDiameterMm = 32, BarCount = 16 };
+        var c = new PileGeometry { DiameterMm = 880, CoverMm = 78, CoverReference = CoverReference.Axis, SpiralDiameterMm = 12, BarDiameterMm = 32, BarCount = 16 };
+        Assert.Equal(78, a.AxisDistanceMm, 9);
+        Assert.Equal(78, b.AxisDistanceMm, 9);
+        Assert.Equal(78, c.AxisDistanceMm, 9);
+        Assert.Equal(RequestBuilder.PileLayout(a).Bars[3].XMm, RequestBuilder.PileLayout(b).Bars[3].XMm, 9);
+
+        // ARBAT a1 = 50 mm is the clear cover to the bars: the 400×600 comparison used 42 mm to an Ø8 stirrup.
+        var w = Arbat400x600().Wall;
+        var arbat = new WallGeometry { WidthMm = 400, ThicknessMm = 600, CoverMm = 50, CoverReference = CoverReference.Bar, StirrupDiameterMm = 8,
+            MinClearSpacingMm = 20, PositiveFace = w.PositiveFace, NegativeFace = w.NegativeFace };
+        Assert.Equal(RequestBuilder.WallLayout(w).Bars.Select(x => (x.XMm, x.YMm)), RequestBuilder.WallLayout(arbat).Bars.Select(x => (x.XMm, x.YMm)));
+
+        var p = Arbat400x600();
+        p.Pile.CoverReference = CoverReference.Bar; p.Pile.CoverMm = 5; p.Pile.SpiralDiameterMm = 10; p.Kind = SectionKind.Pile;
+        Assert.Contains(RequestBuilder.Validate(p), m => m.Contains("спираль"));
+    }
 }

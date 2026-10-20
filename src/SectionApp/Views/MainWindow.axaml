@@ -66,7 +66,7 @@
               <StackPanel Spacing="12" Margin="4,10,4,14">
                 <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto" IsVisible="{Binding IsPile}">
                   <StackPanel><TextBlock Classes="label" Text="Диаметр D, мм" /><TextBox Text="{Binding PileDiameter}" /></StackPanel>
-                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding PileCover}" ToolTip.Tip="До наружной поверхности навивки" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding PileCover}" /></StackPanel>
                   <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Число стержней" /><TextBox Text="{Binding PileBarCount}" /></StackPanel>
                   <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø стержней, мм" /><TextBox Text="{Binding PileBarDiameter}" /></StackPanel>
                   <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Ø навивки, мм" /><TextBox Text="{Binding PileSpiral}" /></StackPanel>
@@ -75,7 +75,7 @@
                 <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsVisible="{Binding IsWall}">
                   <StackPanel><TextBlock Classes="label" Text="Ширина b, мм" /><TextBox Text="{Binding WallWidth}" /></StackPanel>
                   <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Толщина h, мм" /><TextBox Text="{Binding WallThickness}" /></StackPanel>
-                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding WallCover}" ToolTip.Tip="До наружной поверхности хомута" /></StackPanel>
+                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding WallCover}" /></StackPanel>
                   <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø хомута, мм" /><TextBox Text="{Binding WallStirrup}" /></StackPanel>
                   <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Грань «+»: стержней" /><TextBox Text="{Binding PositiveCount}" /></StackPanel>
                   <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Грань «+»: Ø, мм" /><TextBox Text="{Binding PositiveDiameter}" /></StackPanel>
@@ -84,13 +84,18 @@
                   <StackPanel Grid.Row="8"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
                   <TextBlock Grid.Row="8" Grid.Column="2" Classes="hint" VerticalAlignment="Bottom" Text="Грань «+» растянута при Mx &gt; 0." />
                 </Grid>
+                <StackPanel>
+                  <TextBlock Classes="label" Text="Защитный слой отсчитывается" />
+                  <ComboBox ItemsSource="{Binding CoverReferenceOptions}" SelectedIndex="{Binding CoverReferenceIndex}" />
+                  <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding AxisText}" />
+                </StackPanel>
                 <Border Classes="divider" />
                 <CheckBox IsChecked="{Binding ShearCheck}" FontWeight="Medium" Content="Проверять поперечную силу Q" />
                 <StackPanel Spacing="8" IsVisible="{Binding ShearCheck}">
                   <Grid ColumnDefinitions="*,12,*">
                     <StackPanel><TextBlock Classes="label" Text="Шаг, мм" /><TextBox Text="{Binding ShearPitch}" ToolTip.Tip="Шаг хомутов или полный шаг витка навивки" /></StackPanel>
                     <StackPanel Grid.Column="2" IsVisible="{Binding IsWall}"><TextBlock Classes="label" Text="Рабочих ветвей" /><TextBox Text="{Binding StirrupLegs}" /></StackPanel>
-                    <StackPanel Grid.Column="2" IsVisible="{Binding IsPile}"><TextBlock Classes="label" Text="a для h0, мм" /><TextBox Text="{Binding PileShearA}" ToolTip.Tip="b = 0,885D, h0 = b − a" /></StackPanel>
+                    <StackPanel Grid.Column="2" IsVisible="{Binding IsPile}"><TextBlock Classes="label" Text="a для h0, мм" /><TextBox Text="{Binding PileShearA}" ToolTip.Tip="От грани приведённого сечения до центра растянутых стержней: b = 0,885D, h0 = b − a. Не шаг спирали." /></StackPanel>
                   </Grid>
                   <CheckBox IsChecked="{Binding ShearConfirmed}" Content="Конструктивные требования выполнены" />
                   <CheckBox IsChecked="{Binding InclinedMoment}" Content="Момент в наклонном сечении (8.63)" />

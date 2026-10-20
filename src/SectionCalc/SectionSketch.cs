@@ -44,7 +44,7 @@ public static class SectionSketch
             float r = (float)(g.DiameterMm / 2) * scale;
             canvas.DrawCircle(cx, cy, r, fill);
             canvas.DrawCircle(cx, cy, r, stroke);
-            float rt = (float)(g.DiameterMm / 2 - g.CoverMm - g.SpiralDiameterMm / 2) * scale;
+            float rt = (float)(g.DiameterMm / 2 - g.SpiralCoverMm - g.SpiralDiameterMm / 2) * scale;
             canvas.DrawCircle(cx, cy, rt, tie);
             Dimension(canvas, P(-w / 2, -h / 2 - 0), P(w / 2, -h / 2), 26, $"D = {g.DiameterMm:0}", font, text);
         }
@@ -54,7 +54,7 @@ public static class SectionSketch
             var rect = new SKRect(P(-w / 2, h / 2).X, P(-w / 2, h / 2).Y, P(w / 2, -h / 2).X, P(w / 2, -h / 2).Y);
             canvas.DrawRect(rect, fill);
             canvas.DrawRect(rect, stroke);
-            double t = g.CoverMm + g.StirrupDiameterMm / 2;
+            double t = Math.Min(g.StirrupCoverMm(g.PositiveFace.BarDiameterMm), g.StirrupCoverMm(g.NegativeFace.BarDiameterMm)) + g.StirrupDiameterMm / 2;
             canvas.DrawRect(new SKRect(P(-w / 2 + t, h / 2 - t).X, P(-w / 2 + t, h / 2 - t).Y, P(w / 2 - t, -h / 2 + t).X, P(w / 2 - t, -h / 2 + t).Y), tie);
             Dimension(canvas, P(-w / 2, -h / 2), P(w / 2, -h / 2), 26, $"b = {g.WidthMm:0}", font, text);
             Dimension(canvas, P(w / 2, -h / 2), P(w / 2, h / 2), 30, $"h = {g.ThicknessMm:0}", font, text, vertical: true);

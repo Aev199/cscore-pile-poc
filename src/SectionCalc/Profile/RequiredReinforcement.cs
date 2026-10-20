@@ -58,7 +58,7 @@ public static class RequiredReinforcement
             return [new Face(0, g.BarCount, pct * Math.PI * g.DiameterMm * g.DiameterMm / 4, Area(g.BarCount, MaxDiameter(s, 0, settings.MaxBarDiameterMm)))];
         }
         var w = s.Wall;
-        double h0 = w.ThicknessMm - w.CoverMm - w.StirrupDiameterMm - 10;
+        double h0 = w.ThicknessMm - w.AxisDistanceMm(w.PositiveFace);
         return [new Face(0, w.PositiveFace.BarCount, pct * w.WidthMm * h0, Area(w.PositiveFace.BarCount, MaxDiameter(s, 0, settings.MaxBarDiameterMm))),
                 new Face(1, w.NegativeFace.BarCount, pct * w.WidthMm * h0, Area(w.NegativeFace.BarCount, MaxDiameter(s, 1, settings.MaxBarDiameterMm)))];
     }
