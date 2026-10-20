@@ -10,10 +10,10 @@ public class EngineTests
         var p = new SectionProject { Kind = SectionKind.Wall };
         p.Wall = new WallGeometry { WidthMm = 400, ThicknessMm = 600, CoverMm = 42, StirrupDiameterMm = 8, MinClearSpacingMm = 20,
             PositiveFace = new WallFace { BarCount = 3, BarDiameterMm = 20 }, NegativeFace = new WallFace { BarCount = 3, BarDiameterMm = 20 } };
-        p.Loads = [new LoadRow { Name = "T2", N = 0, Mx = 180 }, new LoadRow { Name = "T2 SLS", Basis = LoadBasis.Sls, N = 0, Mx = 180 }];
+        p.Loads = [new LoadRow { Name = "T2", N = 0, Mx = 180 }];
         var c = p.Conditions;
-        c.Eccentricity = EccentricityMode.Sp63; c.MemberLengthM = 3; c.StaticallyDeterminate = true;
-        c.SecondOrder = SecondOrderMode.Cscore; c.L0xM = 3; c.L0yM = 3; c.SustainedShare = 1;
+        c.Eccentricity = EccentricityMode.Sp63; c.ElementLengthM = 3; c.StaticallyDeterminate = true;
+        c.SecondOrder = SecondOrderMode.Cscore;
         return p;
     }
 
@@ -27,6 +27,77 @@ public class EngineTests
         Assert.Equal(1.3044, Max("crack_width_short"), 4);
         Assert.Equal(Verdict.Failed, r.Verdict);
         Assert.Equal("crack_width_long", r.Governing!.CheckId);
+    }
+
+    // Same report, T10: biaxial, compression, k = 0.5 (ARBAT My/Mz → our Mx/My).
+    [Fact]
+    public void ReproducesArbatSustainedShareAndNcr()
+    {
+        var p = Arbat400x600();
+        p.Loads = [new LoadRow { Name = "T10", N = -250, Mx = 140, My = 80, SustainedShare = 0.5 }];
+        var r = Engine.Check(p);
+        double Max(string id) => r.Rows.Where(x => x.CheckId == id).Max(x => x.Utilization ?? 0);
+        Assert.Equal(0.7141, Max("normal_member_strength"), 3);
+        Assert.Equal(1.0581, Max("crack_width_short"), 3);
+        Assert.Equal(0.7923, Max("crack_width_long"), 3);
+        Assert.Equal(0.0181, Max("member_stability"), 3);
+    }
+
+    [Fact]
+    public void LoadFactorGivesNormativeActionsForCracks()
+    {
+        var p = Arbat400x600();
+        p.Loads = [new LoadRow { Name = "T2", N = 0, Mx = 180 * 1.1, LoadFactor = 1.1 }];
+        var r = Engine.Check(p);
+        Assert.Equal(1.7392, r.Rows.Where(x => x.CheckId == "crack_width_long").Max(x => x.Utilization ?? 0), 4);
+        Assert.True(r.Rows.Where(x => x.CheckId == "normal_member_strength").Max(x => x.Utilization ?? 0) > 0.8697 * 1.05);
+    }
+
+    [Fact]
+    public void ShortTermAndSeismicRaiseResistances()
+    {
+        var p = Arbat400x600();
+        p.Loads = [new LoadRow { Name = "основное", Mx = 180 }, new LoadRow { Name = "кратк", Mx = 180, ShortTerm = true },
+                   new LoadRow { Name = "сейсм", Mx = 180, Seismic = true }, new LoadRow { Name = "особое", Mx = 180, Special = true }];
+        p.Conditions.ReliabilityUls = 1.1;
+        var r = Engine.Check(p);
+        double K(string name) => r.Rows.Where(x => x.CheckId == "normal_member_strength" && x.CaseId.StartsWith(name)).Max(x => x.Utilization ?? 0);
+        Assert.True(K("кратк") < K("основное"));
+        Assert.True(K("сейсм") < K("основное") / 1.1);
+        Assert.True(K("особое") < K("основное") / 1.1);
+        // Seismic (without the option) and special combinations do not take part in the crack checks.
+        Assert.DoesNotContain(r.Rows, x => x.CheckId.StartsWith("crack_width") && (x.CaseId.StartsWith("сейсм") || x.CaseId.StartsWith("особое")));
+        Assert.Contains(r.Rows, x => x.CheckId.StartsWith("crack_width") && x.CaseId == "кратк");
+        Assert.Contains(r.Rows, x => x.Combination.Contains("сейсмика"));
+        Assert.Contains(r.Notes, n => n.Contains("m_tr"));
+    }
+
+    [Fact]
+    public void SeismicMaterialsUseTheTrFactor()
+    {
+        var p = Arbat400x600();
+        var normal = MaterialTables.Uls(p, new CombinationKind(false, false, false));
+        var seismic = MaterialTables.Uls(p, new CombinationKind(false, true, false));
+        var inclined = MaterialTables.Uls(p, new CombinationKind(false, true, false), inclined: true);
+        Assert.Equal(normal.Rb * 1.2, seismic.Rb, 9);
+        Assert.Equal(normal.Rs * 1.2, seismic.Rs, 9);
+        Assert.Equal(normal.Rsw, inclined.Rsw, 9);
+        var special = MaterialTables.Uls(p, new CombinationKind(false, false, true));
+        Assert.Equal(MaterialTables.Concrete(p.ConcreteClass).RbSer, special.Rb, 9);
+    }
+
+    [Fact]
+    public void NoCracksCategoryAndSlenderness()
+    {
+        var p = Arbat400x600();
+        p.Loads = [new LoadRow { Name = "1", N = -100, Mx = 20 }];
+        p.Conditions.CrackCategory = CrackCategory.NoCracks;
+        p.Conditions.ElementLengthM = 40;
+        var r = Engine.Check(p);
+        Assert.Contains(r.Rows, x => x.CheckId == "no_cracks");
+        Assert.DoesNotContain(r.Rows, x => x.CheckId.StartsWith("crack_width"));
+        var slender = Assert.Single(r.Rows, x => x.CheckId == "slenderness_y");
+        Assert.Equal(40000 / (400 / Math.Sqrt(12)) / 200, slender.Utilization!.Value, 6);
     }
 
     [Fact]
@@ -47,7 +118,7 @@ public class EngineTests
         p.Loads.Clear();
         var problems = RequestBuilder.Validate(p);
         Assert.Contains(problems, m => m.Contains("не помещаются"));
-        Assert.Contains(problems, m => m.Contains("ULS"));
+        Assert.Contains(problems, m => m.Contains("сочетани", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -55,7 +126,7 @@ public class EngineTests
     {
         var p = new SectionProject { Kind = SectionKind.Pile };
         p.Pile.DiameterMm = 600; p.Pile.BarCount = 6; p.Pile.BarDiameterMm = 12;
-        p.Loads = [new LoadRow { Name = "U", N = -800, Mx = 120 }, new LoadRow { Name = "S", Basis = LoadBasis.Sls, N = -600, Mx = 80 }];
+        p.Loads = [new LoadRow { Name = "U", N = -800, Mx = 120, LoadFactor = 1.33 }];
         p.Conditions.SecondOrder = SecondOrderMode.SectionOnly; p.Conditions.Eccentricity = EccentricityMode.InLoads;
         p.Selection = new SelectionSettings { PileCountMin = 6, PileCountMax = 12, PileCountStep = 2, Diameters = [12, 16, 20] };
         var r = Selection.Run(p);

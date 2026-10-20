@@ -6,7 +6,7 @@ using SectionCalc;
 
 namespace SectionApp.ViewModels;
 
-/// <summary>One editable force combination; empty sustained fields mean "equal to the total".</summary>
+/// <summary>One editable force combination (a row of the forces grid, ARBAT "simple form").</summary>
 public partial class LoadRowViewModel : ObservableObject
 {
     static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
@@ -15,27 +15,28 @@ public partial class LoadRowViewModel : ObservableObject
 
     LoadRowViewModel(MainViewModel owner) => this.owner = owner;
 
-    public IReadOnlyList<string> BasisOptions { get; } = ["ULS", "SLS"];
     [ObservableProperty] string name = "";
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsSls), nameof(IsUls))] int basisIndex;
-    public bool IsSls => BasisIndex == 1;
-    public bool IsUls => !IsSls;
-    [ObservableProperty] string n = "0", mx = "0", my = "0", q = "0", nLong = "", mxLong = "", myLong = "";
+    [ObservableProperty] string n = "0", mx = "0", my = "0", q = "0", loadFactor = "1", sustainedShare = "1";
+    [ObservableProperty] bool shortTerm;
+    [ObservableProperty] bool seismic;
+    [ObservableProperty] bool special;
+
+    // A combination is either seismic or special (SP 14 / SP 296), never both.
+    partial void OnSeismicChanged(bool value) { if (value) Special = false; }
+    partial void OnSpecialChanged(bool value) { if (value) Seismic = false; }
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (!loading && e.PropertyName is not (nameof(IsSls) or nameof(IsUls))) owner.InputsChanged();
+        if (!loading) owner.InputsChanged();
     }
-
-    [RelayCommand] void Remove() => owner.RemoveLoad(this);
 
     public static LoadRowViewModel From(LoadRow l, MainViewModel owner)
     {
         var row = new LoadRowViewModel(owner) { loading = true };
-        row.Name = l.Name; row.BasisIndex = l.Basis == LoadBasis.Sls ? 1 : 0;
-        row.N = S(l.N); row.Mx = S(l.Mx); row.My = S(l.My); row.Q = S(l.Q);
-        row.NLong = l.NLong is double nl ? S(nl) : ""; row.MxLong = l.MxLong is double ml ? S(ml) : ""; row.MyLong = l.MyLong is double yl ? S(yl) : "";
+        row.Name = l.Name; row.N = S(l.N); row.Mx = S(l.Mx); row.My = S(l.My); row.Q = S(l.Q);
+        row.LoadFactor = S(l.LoadFactor); row.SustainedShare = S(l.SustainedShare);
+        row.ShortTerm = l.ShortTerm; row.Seismic = l.Seismic; row.Special = l.Special && !l.Seismic;
         row.loading = false;
         return row;
     }
@@ -45,16 +46,20 @@ public partial class LoadRowViewModel : ObservableObject
         string label = string.IsNullOrWhiteSpace(Name) ? "без названия" : Name.Trim();
         double D(string text, string field)
         {
-            if (double.TryParse(text.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v)) return v;
+            if (MainViewModel.TryNumber(text, out var v)) return v;
             errors.Add($"Сочетание «{label}», {field}: введите число"); return 0;
         }
-        double? Optional(string text, string field) => string.IsNullOrWhiteSpace(text) ? null : D(text, field);
         return new LoadRow
         {
-            Name = Name.Trim(), Basis = IsSls ? LoadBasis.Sls : LoadBasis.Uls,
-            N = D(N, "N"), Mx = D(Mx, "Mx"), My = D(My, "My"), Q = IsUls ? D(Q, "Q") : 0,
-            NLong = IsSls ? Optional(NLong, "Nдл") : null, MxLong = IsSls ? Optional(MxLong, "Mx,дл") : null, MyLong = IsSls ? Optional(MyLong, "My,дл") : null,
+            Name = Name.Trim(), N = D(N, "N"), Mx = D(Mx, "Mx"), My = D(My, "My"), Q = D(Q, "Q"),
+            LoadFactor = D(LoadFactor, "γf"), SustainedShare = D(SustainedShare, "kдл"),
+            ShortTerm = ShortTerm, Seismic = Seismic, Special = Special,
         };
+    }
+
+    internal void SwapPlane()
+    {
+        (Mx, My) = (My, Mx);
     }
 
     static string S(double v) => v.ToString("0.###", Ru);

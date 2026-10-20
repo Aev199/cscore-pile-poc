@@ -278,6 +278,68 @@
     <Setter Property="Background" Value="{StaticResource GbAccent}" />
   </Style>
 
+  <!-- Compact input tabs -->
+  <Style Selector="TabControl.inputs TabItem">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="MinHeight" Value="34" />
+  </Style>
+  <Style Selector="Border.divider">
+    <Setter Property="Height" Value="1" />
+    <Setter Property="Background" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="Margin" Value="0,2" />
+  </Style>
+
+  <!-- Forces grid -->
+  <Style Selector="DataGrid.loads">
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="RowHeight" Value="28" />
+    <Setter Property="ColumnHeaderHeight" Value="30" />
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="VerticalGridLinesBrush" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="Background" Value="White" />
+  </Style>
+  <Style Selector="DataGrid.loads DataGridColumnHeader">
+    <Setter Property="Background" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="Foreground" Value="{StaticResource GbMuted}" />
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <!-- Sorting is off: let the text use the reserved sort-icon column. -->
+    <Setter Property="Padding" Value="8,0,-28,0" />
+    <Setter Property="MinHeight" Value="30" />
+  </Style>
+  <Style Selector="DataGrid.loads DataGridCell">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="MinHeight" Value="28" />
+  </Style>
+  <Style Selector="DataGrid.loads DataGridCell.num">
+    <Setter Property="HorizontalContentAlignment" Value="Right" />
+  </Style>
+  <Style Selector="DataGrid.loads DataGridCell.num TextBlock">
+    <Setter Property="TextAlignment" Value="Right" />
+  </Style>
+  <Style Selector="DataGrid.loads DataGridRow:selected /template/ Rectangle#BackgroundRectangle">
+    <Setter Property="Fill" Value="{StaticResource GbAccentSoft}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="DataGrid.loads DataGridCell TextBox">
+    <Setter Property="Height" Value="NaN" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="6,2" />
+    <Setter Property="FontSize" Value="11.5" />
+  </Style>
+  <Style Selector="CheckBox.cell">
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+
   <Style Selector="ProgressBar">
     <Setter Property="Foreground" Value="{StaticResource GbAccent}" />
     <Setter Property="Background" Value="{StaticResource GbSectionBg}" />

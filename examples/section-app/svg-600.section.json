@@ -1,5 +1,5 @@
 {
-  "Version": 1,
+  "Version": 2,
   "Title": "СВГ 600 мм",
   "Kind": "Wall",
   "Pile": {
@@ -28,50 +28,79 @@
   "ConcreteClass": "B30",
   "RebarClass": "A500",
   "TransverseClass": "A240",
-  "SustainedLoadFactor": true,
+  "Concrete": {
+    "Gb1": 0.9,
+    "Gb2": 1,
+    "Gb3": 0.85,
+    "Gb5": 1,
+    "HardeningFactor": 1
+  },
+  "LongitudinalFactor": 1,
+  "TransverseFactor": 1,
   "Loads": [
     {
-      "Name": "Расчётное 1",
-      "Basis": "Uls",
+      "Name": "1",
       "N": -1500,
       "Mx": 250,
       "My": 0,
       "Q": 120,
-      "NLong": null,
-      "MxLong": null,
-      "MyLong": null
+      "LoadFactor": 1.15,
+      "SustainedShare": 0.8,
+      "ShortTerm": false,
+      "Seismic": false,
+      "Special": false
     },
     {
-      "Name": "Расчётное 2",
-      "Basis": "Uls",
+      "Name": "2",
       "N": -900,
       "Mx": -180,
       "My": 0,
       "Q": 90,
-      "NLong": null,
-      "MxLong": null,
-      "MyLong": null
+      "LoadFactor": 1.15,
+      "SustainedShare": 0.8,
+      "ShortTerm": false,
+      "Seismic": false,
+      "Special": false
     },
     {
-      "Name": "Нормативное",
-      "Basis": "Sls",
-      "N": -1200,
-      "Mx": 190,
+      "Name": "3",
+      "N": -700,
+      "Mx": 300,
       "My": 0,
-      "Q": 0,
-      "NLong": null,
-      "MxLong": 150,
-      "MyLong": null
+      "Q": 150,
+      "LoadFactor": 1,
+      "SustainedShare": 0.5,
+      "ShortTerm": true,
+      "Seismic": false,
+      "Special": false
+    },
+    {
+      "Name": "4",
+      "N": -1000,
+      "Mx": 380,
+      "My": 0,
+      "Q": 170,
+      "LoadFactor": 1,
+      "SustainedShare": 0.6,
+      "ShortTerm": false,
+      "Seismic": false,
+      "Special": true
     }
   ],
   "Conditions": {
-    "Eccentricity": "Sp63",
-    "MemberLengthM": 6,
+    "ElementLengthM": 6,
+    "MuX": 1,
+    "MuY": 1,
+    "SlendernessLimit": 200,
     "StaticallyDeterminate": false,
+    "Eccentricity": "Sp63",
+    "EaXMm": 0,
+    "EaYMm": 0,
     "SecondOrder": "Cscore",
-    "L0xM": 6,
-    "L0yM": 6,
-    "SustainedShare": 1,
+    "ReliabilityUls": 1.1,
+    "ReliabilitySls": 1.1,
+    "CrackCategory": "LimitedWidth",
+    "PermeabilityLimits": false,
     "CrackLimitLongMm": 0.3,
     "CrackLimitShortMm": 0.4,
     "ShearCheck": true,
@@ -82,7 +111,21 @@
     "InclinedMoment": false,
     "AnchorageFactor": 1,
     "SupportDistanceDownM": 3,
-    "SupportDistanceUpM": 3
+    "SupportDistanceUpM": 3,
+    "L0xM": 6,
+    "L0yM": 6
+  },
+  "Seismic": {
+    "NormalSectionFactor": 1.2,
+    "InclinedSectionFactor": 1,
+    "CheckCracks": false
+  },
+  "Special": {
+    "NormativeProperties": true,
+    "ConcreteFactor": 1,
+    "LongitudinalFactor": 1,
+    "TransverseFactor": 1,
+    "AdditionalFactor": 1
   },
   "Selection": {
     "PileCountMin": 8,

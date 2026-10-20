@@ -34,7 +34,7 @@ public static class ReportWriter
         body.Append(Para("Эскиз сечения: точки — продольная арматура, пунктир — ось поперечной арматуры. Положительный Mx растягивает верхнюю грань (y > 0).", "Note"));
 
         body.Append(Para("2. Усилия", "Heading1"));
-        body.Append(Para("Знак N: сжатие — минус. Расчётные (ULS) — для прочности, нормативные (SLS) — для трещин.", "Note"));
+        body.Append(Para("Расчётные усилия; знак N: сжатие — минус. Нормативные = расчётные / γf, длительные = kдл × нормативные (для трещин и η).", "Note"));
         body.Append(LoadsTable(p));
 
         body.Append(Para("3. Результаты проверок", "Heading1"));
@@ -96,9 +96,8 @@ public static class ReportWriter
 
     static List<(string, string)> Inputs(CheckResult r)
     {
-        var p = r.Project; var c = p.Conditions;
+        var p = r.Project; var c = p.Conditions; var f = p.Concrete;
         var concrete = MaterialTables.Concrete(p.ConcreteClass); var rebar = MaterialTables.Rebar(p.RebarClass);
-        double gb1 = p.SustainedLoadFactor ? 0.9 : 1;
         var rows = new List<(string, string)>();
         if (p.Kind == SectionKind.Pile)
         {
@@ -116,35 +115,60 @@ public static class ReportWriter
             rows.Add(("Площадь арматуры", $"As = {F(r.Layout.SteelAreaMm2, "0")} мм²"));
             rows.Add(("Защитный слой до хомута / Ø хомута", $"{F(g.CoverMm)} мм / Ø{F(g.StirrupDiameterMm)} {p.TransverseClass}"));
         }
-        rows.Add(("Бетон", $"{p.ConcreteClass}: Rb = {F(concrete.Rb * gb1, "0.##")} МПа, Rbt = {F(concrete.Rbt * gb1, "0.###")} МПа{(p.SustainedLoadFactor ? " (с γb1 = 0,9)" : "")}; Rb,ser = {F(concrete.RbSer)} МПа, Rbt,ser = {F(concrete.RbtSer)} МПа; Eb = {F(concrete.Eb, "0")} МПа"));
-        rows.Add(("Арматура", $"{p.RebarClass}: Rs = {F(rebar.Rs)} МПа, Rs,ser = {F(rebar.RsSer)} МПа, Es = {F(rebar.Es, "0")} МПа"));
+        rows.Add(("Бетон (тяжёлый)", $"{p.ConcreteClass}: Rb = {F(concrete.Rb)} МПа, Rbt = {F(concrete.Rbt)} МПа, Rb,ser = {F(concrete.RbSer)} МПа, Rbt,ser = {F(concrete.RbtSer)} МПа, Eb = {F(concrete.Eb, "0")} МПа"));
+        rows.Add(("Коэффициенты условий работы бетона", $"γb1 = {F(f.Gb1)} (кратковременные сочетания — 1), γb2 = {F(f.Gb2)}, γb3 = {F(f.Gb3)}, γb5 = {F(f.Gb5)}; к Eb — коэффициент упрочнения {F(f.HardeningFactor)}"));
+        rows.Add(("Продольная арматура", $"{p.RebarClass}: Rs = {F(rebar.Rs)} МПа, Rs,ser = {F(rebar.RsSer)} МПа, Es = {F(rebar.Es, "0")} МПа; γs = {F(p.LongitudinalFactor)}"));
+        rows.Add(("Поперечная арматура", $"{p.TransverseClass}: Rsw = {F(MaterialTables.Rebar(p.TransverseClass).Rsw)} МПа; γs = {F(p.TransverseFactor)}"));
+        var kinds = p.Loads.Select(CombinationKind.Of).Distinct().ToList();
+        foreach (var kind in kinds)
+        {
+            var m = MaterialTables.Uls(p, kind);
+            // Seismic: Rsw works only in inclined sections, which take their own m_tr.
+            double rsw = kind.Seismic ? MaterialTables.Uls(p, kind, inclined: true).Rsw : m.Rsw;
+            rows.Add(($"Расчётные сопротивления: {m.Label}", $"Rb = {F(m.Rb, "0.##")} МПа, Rbt = {F(m.Rbt, "0.###")} МПа, Rs = {F(m.Rs, "0.#")} МПа, Rsw = {F(rsw, "0.#")} МПа"));
+        }
+        rows.Add(("Коэффициент надёжности γn", $"по прочности {F(c.ReliabilityUls)}, по трещиностойкости {F(c.ReliabilitySls)}"));
+        rows.Add(("Элемент", $"L = {F(c.ElementLengthM)} м; μ в плоскости Mx {F(c.MuX)}, в плоскости My {F(c.MuY)}: l₀x = {F(c.L0xM)} м, l₀y = {F(c.L0yM)} м; предельная гибкость {F(c.SlendernessLimit)}"));
         rows.Add(("Случайный эксцентриситет", c.Eccentricity == EccentricityMode.Sp63
-            ? $"по СП 63 (CScore): L = {F(c.MemberLengthM)} м, схема {(c.StaticallyDeterminate ? "статически определимая" : "статически неопределимая")}; ea,x = {F(r.EaXMm ?? 0, "0.#")} мм, ea,y = {F(r.EaYMm ?? 0, "0.#")} мм"
+            ? $"{(c.EaXMm > 0 || c.EaYMm > 0 ? "задан" : "по СП 63")}, схема {(c.StaticallyDeterminate ? "статически определимая" : "статически неопределимая")}; ea,x = {F(r.EaXMm ?? 0, "0.#")} мм, ea,y = {F(r.EaYMm ?? 0, "0.#")} мм"
             : "включён в заданные моменты"));
         rows.Add(("Влияние прогиба (η)", c.SecondOrder switch
         {
-            SecondOrderMode.Cscore => $"рассчитывается CScore: l₀x = {F(c.L0xM)} м, l₀y = {F(c.L0yM)} м, доля длительной нагрузки {F(c.SustainedShare, "0.##")}",
+            SecondOrderMode.Cscore => "рассчитывается CScore по l₀ и доле длительной нагрузки kдл каждого сочетания",
             SecondOrderMode.InLoads => "учтено в заданных усилиях",
             _ => "не учитывается (проверка сечения)",
         }));
-        rows.Add(("Трещины", $"предельная ширина: продолжительное {F(c.CrackLimitLongMm)} мм, непродолжительное {F(c.CrackLimitShortMm)} мм"));
+        rows.Add(("Трещиностойкость", c.CrackCategory == CrackCategory.NoCracks ? "трещины не допускаются"
+            : $"требование: {(c.PermeabilityLimits ? "ограничение проницаемости" : "сохранность арматуры")}; предельная ширина: продолжительное {F(c.CrackLimitLongMm)} мм, непродолжительное {F(c.CrackLimitShortMm)} мм"));
         rows.Add(("Поперечная сила", !c.ShearCheck ? "не проверяется"
             : p.Kind == SectionKind.Pile ? $"навивка шагом {F(c.ShearPitchMm)} мм, приведённое сечение b = 0,885D, h0 = b − a, a = {F(c.PileShearAMm)} мм; виток — две ветви"
             : $"хомуты Ø{F(p.Wall.StirrupDiameterMm)} шагом {F(c.ShearPitchMm)} мм, рабочих ветвей {c.StirrupLegs}"));
         if (c.ShearCheck && c.InclinedMoment)
             rows.Add(("Момент в наклонном сечении", $"k = {F(c.AnchorageFactor)}, до опор {F(c.SupportDistanceDownM)} м вниз и {F(c.SupportDistanceUpM)} м вверх"));
+        if (p.Loads.Any(l => l.Seismic))
+            rows.Add(("Сейсмика (СП 14.13330)", $"m_tr: нормальные сечения {F(p.Seismic.NormalSectionFactor)}, наклонные {F(p.Seismic.InclinedSectionFactor)}; трещины {(p.Seismic.CheckCracks ? "проверяются" : "не проверяются")}"));
+        if (p.Loads.Any(l => l.Special && !l.Seismic))
+        {
+            var sp = p.Special;
+            rows.Add(("Особые сочетания (СП 296.1325800)", $"{(sp.NormativeProperties ? "нормативные" : "расчётные")} характеристики; γb = {F(sp.ConcreteFactor)}, γs = {F(sp.LongitudinalFactor)}, γsw = {F(sp.TransverseFactor)}, дополнительный понижающий {F(sp.AdditionalFactor)}"));
+        }
         return rows;
+    }
+
+    static string Flags(LoadRow l)
+    {
+        var tags = new List<string>();
+        if (l.ShortTerm) tags.Add("кратковр.");
+        if (l.Seismic) tags.Add("сейсмика");
+        if (l.Special && !l.Seismic) tags.Add("особое");
+        return tags.Count > 0 ? string.Join(", ", tags) : "основное";
     }
 
     static Table LoadsTable(SectionProject p)
     {
-        var t = NewTable(["Сочетание", "Тип", "N, кН", "Mx, кН·м", "My, кН·м", "Q, кН", "Nдл, кН", "Mx,дл", "My,дл"], [22, 9, 10, 11, 11, 9, 10, 9, 9]);
+        var t = NewTable(["Сочетание", "N, кН", "Mx, кН·м", "My, кН·м", "Q, кН", "γf", "kдл", "Вид"], [16, 11, 11, 11, 10, 8, 8, 25]);
         foreach (var l in p.Loads)
-        {
-            bool sls = l.Basis == LoadBasis.Sls;
-            t.Append(Row([l.Name, sls ? "SLS" : "ULS", F(l.N, "0.#"), F(l.Mx, "0.#"), F(l.My, "0.#"), sls ? "—" : F(l.Q, "0.#"),
-                sls ? F(l.NLong ?? l.N, "0.#") : "—", sls ? F(l.MxLong ?? l.Mx, "0.#") : "—", sls ? F(l.MyLong ?? l.My, "0.#") : "—"]));
-        }
+            t.Append(Row([l.Name, F(l.N, "0.#"), F(l.Mx, "0.#"), F(l.My, "0.#"), F(l.Q, "0.#"), F(l.LoadFactor, "0.###"), F(l.SustainedShare, "0.###"), Flags(l)]));
         return t;
     }
 

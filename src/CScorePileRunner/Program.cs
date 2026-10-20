@@ -190,8 +190,14 @@ internal static class Program
             "statically_determinate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyDeterminate,
             "statically_indeterminate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyIndeterminate,
             _ => throw new ArgumentException("Missing structural scheme") };
-        double eax = CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightXM);
-        double eay = CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightYM);
+        // A user-given accidental eccentricity replaces the SP 63 one; as in ARBAT
+        // it is taken not less than 10 mm. It still enters CScore's EffectiveEccentricity.
+        if (new[] { input.EaXMm, input.EaYMm }.Any(e => e is double v && (!double.IsFinite(v) || v < 0)))
+            throw new ArgumentException("Invalid given accidental eccentricity");
+        double eax = input.EaXMm is double gx && gx > 0 ? Math.Max(0.01, gx / 1000)
+            : CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightXM);
+        double eay = input.EaYMm is double gy && gy > 0 ? Math.Max(0.01, gy / 1000)
+            : CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightYM);
         var prepared = new List<object>();
         foreach (var load in input.Loads)
         {
@@ -1495,6 +1501,9 @@ internal sealed class MemberPreparationInput
     [JsonPropertyName("height_x_m")] public double HeightXM { get; init; }
     [JsonPropertyName("height_y_m")] public double HeightYM { get; init; }
     [JsonPropertyName("structural_scheme")] public string StructuralScheme { get; init; } = "";
+    // Optional given accidental eccentricities, mm; null or 0 means "by SP 63".
+    [JsonPropertyName("ea_x_mm")] public double? EaXMm { get; init; }
+    [JsonPropertyName("ea_y_mm")] public double? EaYMm { get; init; }
     [JsonPropertyName("loads")] public List<MemberPreparationLoad> Loads { get; init; } = [];
 }
 

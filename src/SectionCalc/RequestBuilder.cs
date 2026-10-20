@@ -79,17 +79,26 @@ public static class RequestBuilder
                 e.Add("Размеры сечения и диаметры должны быть положительными");
         }
         if (e.Count == 0 && Layout(p).Problem is string layout) e.Add(layout);
-        var uls = p.Loads.Where(l => l.Basis == LoadBasis.Uls).ToList();
-        if (uls.Count == 0) e.Add("Добавьте хотя бы одно расчётное сочетание (ULS)");
+        if (p.Loads.Count == 0) e.Add("Добавьте хотя бы одно сочетание усилий");
         var names = p.Loads.Select(l => l.Name.Trim()).ToList();
-        if (names.Any(string.IsNullOrEmpty)) e.Add("У каждого сочетания должно быть название");
+        if (names.Any(string.IsNullOrEmpty)) e.Add("У каждого сочетания должно быть название (номер)");
         else if (names.Distinct().Count() != names.Count) e.Add("Названия сочетаний повторяются");
-        if (p.Loads.Any(l => new[] { l.N, l.Mx, l.My, l.Q, l.NLong ?? 0, l.MxLong ?? 0, l.MyLong ?? 0 }.Any(v => !double.IsFinite(v))))
-            e.Add("Усилия должны быть числами");
-        var c = p.Conditions;
-        if (c.Eccentricity == EccentricityMode.Sp63 && c.MemberLengthM <= 0) e.Add("Для случайного эксцентриситета задайте длину элемента");
-        if (c.SecondOrder == SecondOrderMode.Cscore && (c.L0xM <= 0 || c.L0yM <= 0)) e.Add("Для расчёта η задайте расчётные длины l₀x и l₀y");
-        if (c.SustainedShare is < 0 or > 1) e.Add("Доля длительной нагрузки для η должна быть от 0 до 1");
+        if (p.Loads.Any(l => new[] { l.N, l.Mx, l.My, l.Q, l.LoadFactor, l.SustainedShare }.Any(v => !double.IsFinite(v))))
+            e.Add("Усилия и коэффициенты сочетаний должны быть числами");
+        if (p.Loads.Any(l => l.LoadFactor <= 0)) e.Add("Коэффициент надёжности по нагрузке γf должен быть больше 0");
+        var c = p.Conditions; var f = p.Concrete;
+        if (c.ElementLengthM <= 0) e.Add("Задайте длину элемента");
+        if (c.MuX <= 0 || c.MuY <= 0) e.Add("Коэффициенты расчётной длины должны быть больше 0");
+        if (c.SlendernessLimit <= 0) e.Add("Предельная гибкость должна быть больше 0");
+        if (c.EaXMm < 0 || c.EaYMm < 0) e.Add("Случайный эксцентриситет не может быть отрицательным");
+        if (c.ReliabilityUls <= 0 || c.ReliabilitySls <= 0) e.Add("Коэффициенты надёжности по ответственности должны быть больше 0");
+        if (new[] { f.Gb1, f.Gb2, f.Gb3, f.Gb5, f.HardeningFactor, p.LongitudinalFactor, p.TransverseFactor }.Any(v => !(v > 0)))
+            e.Add("Коэффициенты условий работы должны быть больше 0");
+        if (p.Loads.Any(l => l.Seismic) && !(p.Seismic.NormalSectionFactor > 0 && p.Seismic.InclinedSectionFactor > 0))
+            e.Add("Коэффициенты m_tr для сейсмики должны быть больше 0");
+        if (p.Loads.Any(l => l.Special && !l.Seismic) && new[] { p.Special.ConcreteFactor, p.Special.LongitudinalFactor,
+                p.Special.TransverseFactor, p.Special.AdditionalFactor }.Any(v => !(v > 0)))
+            e.Add("Коэффициенты для особых сочетаний должны быть больше 0");
         if (c.CrackLimitLongMm <= 0 || c.CrackLimitShortMm <= 0) e.Add("Предельная ширина раскрытия трещин должна быть положительной");
         if (c.ShearCheck)
         {
@@ -103,8 +112,12 @@ public static class RequestBuilder
         return e;
     }
 
-    /// <summary>Request for one section; ULS loads are those after the optional eccentricity preparation.</summary>
-    internal static JsonObject Build(SectionProject p, IReadOnlyList<UlsLoad> uls)
+    /// <summary>
+    /// Request for one section and one material set; ULS loads are those after the optional
+    /// eccentricity preparation, <paramref name="sustainedShare"/> is the η share of these loads.
+    /// </summary>
+    internal static JsonObject Build(SectionProject p, IReadOnlyList<UlsLoad> uls, IReadOnlyList<SlsAction> sls,
+        MaterialSet materials, double sustainedShare)
     {
         var layout = Layout(p);
         var c = p.Conditions;
@@ -139,7 +152,7 @@ public static class RequestBuilder
                 ["steel_area_mm2"] = layout.SteelAreaMm2, ["clearance_mm"] = layout.MinClearanceMm,
             });
         }
-        req["materials"] = ToJson(MaterialTables.UlsMaterials(p));
+        req["materials"] = ToJson(materials.Engine());
         req["loads"] = new JsonArray(uls.Select(l =>
         {
             var o = new JsonObject { ["id"] = l.Id, ["n_kn"] = l.N, ["mx_knm"] = l.Mx, ["my_knm"] = l.My };
@@ -147,12 +160,12 @@ public static class RequestBuilder
             if (l.SourceMx is double sx) { o["source_mx_knm"] = sx; o["source_my_knm"] = l.SourceMy ?? 0; }
             return (JsonNode)o;
         }).ToArray());
-        var sls = p.Loads.Where(l => l.Basis == LoadBasis.Sls).ToList();
         if (sls.Count > 0)
         {
+            var service = MaterialTables.Sls(p).Engine();
             var probe = new JsonObject
             {
-                ["short_materials"] = ToJson(MaterialTables.SlsMaterials(p)), ["long_materials"] = ToJson(MaterialTables.SlsMaterials(p)),
+                ["short_materials"] = ToJson(service), ["long_materials"] = ToJson(service),
                 ["phi2"] = 0.5, ["acrc_ult_long_mm"] = c.CrackLimitLongMm, ["acrc_ult_short_mm"] = c.CrackLimitShortMm,
                 ["preliminary_method"] = "arbat_conservative", ["review_band"] = 0.03,
             };
@@ -160,10 +173,10 @@ public static class RequestBuilder
             {
                 var o = new JsonObject
                 {
-                    ["id"] = l.Name.Trim(), ["n_kn"] = l.N, ["mx_total_knm"] = l.Mx, ["my_total_knm"] = l.My,
-                    ["mx_long_knm"] = l.MxLong ?? l.Mx, ["my_long_knm"] = l.MyLong ?? l.My,
+                    ["id"] = l.Id, ["n_kn"] = l.N, ["mx_total_knm"] = l.Mx, ["my_total_knm"] = l.My,
+                    ["mx_long_knm"] = l.MxLong, ["my_long_knm"] = l.MyLong,
                 };
-                if (l.NLong is double nl) o["n_long_kn"] = nl;
+                if (Math.Abs(l.NLong - l.N) > 1e-12) o["n_long_kn"] = l.NLong;
                 return (JsonNode)o;
             }).ToArray());
             req["sls_probe"] = probe;
@@ -171,21 +184,20 @@ public static class RequestBuilder
         req["sls_execution_policy"] = "uls_pass_only";
         if (c.ShearCheck)
         {
-            var t = MaterialTables.Rebar(p.TransverseClass);
             req["shear_screening"] = new JsonObject
             {
                 ["enabled"] = true,
                 ["diameter_mm"] = p.Kind == SectionKind.Pile ? p.Pile.SpiralDiameterMm : p.Wall.StirrupDiameterMm,
                 ["spacing_mm"] = c.ShearPitchMm,
                 ["effective_legs_per_cage"] = p.Kind == SectionKind.Pile ? 2 : c.StirrupLegs,
-                ["cage_count"] = 1, ["rsw_kpa"] = t.Rsw * 1000, ["constructive_confirmed"] = c.ShearModelConfirmed,
+                ["cage_count"] = 1, ["rsw_kpa"] = materials.Rsw * 1000, ["constructive_confirmed"] = c.ShearModelConfirmed,
             };
         }
-        req["connection_context"] = Context(p, uls.Any(l => l.SourceMx is not null));
+        req["connection_context"] = Context(p, uls.Any(l => l.SourceMx is not null), sustainedShare);
         return req;
     }
 
-    static JsonObject Context(SectionProject p, bool eccentricityPrepared)
+    static JsonObject Context(SectionProject p, bool eccentricityPrepared, double sustainedShare)
     {
         var c = p.Conditions;
         var o = new JsonObject
@@ -196,7 +208,7 @@ public static class RequestBuilder
             },
             ["l0_x_m"] = c.SecondOrder == SecondOrderMode.Cscore ? c.L0xM : null,
             ["l0_y_m"] = c.SecondOrder == SecondOrderMode.Cscore ? c.L0yM : null,
-            ["psi"] = c.SecondOrder == SecondOrderMode.Cscore ? c.SustainedShare : 1.0,
+            ["psi"] = c.SecondOrder == SecondOrderMode.Cscore ? Math.Clamp(sustainedShare, 0, 1) : 1.0,
             ["inclined_moment_requested"] = c.ShearCheck && c.InclinedMoment,
             ["anchorage_confirmed"] = c.ShearCheck && c.InclinedMoment,
             ["anchorage_factor"] = c.ShearCheck && c.InclinedMoment ? c.AnchorageFactor : null,
@@ -221,3 +233,6 @@ public static class RequestBuilder
 
 /// <summary>A ULS action passed to the engine; Source* are the external moments before eccentricity.</summary>
 internal sealed record UlsLoad(string Id, string SourceName, double N, double Mx, double My, double Q, double? SourceMx = null, double? SourceMy = null);
+
+/// <summary>Normative total and sustained actions of one combination for the crack checks.</summary>
+internal sealed record SlsAction(string Id, double N, double NLong, double Mx, double MxLong, double My, double MyLong);

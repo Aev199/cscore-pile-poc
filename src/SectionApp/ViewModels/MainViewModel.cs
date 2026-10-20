@@ -18,6 +18,7 @@ public partial class MainViewModel : ObservableObject
         nameof(ResultIsStale), nameof(VerdictText), nameof(VerdictTone), nameof(GoverningText), nameof(InputErrors),
         nameof(HasInputErrors), nameof(SelectionSummary), nameof(HasSelection), nameof(SteelText), nameof(SelectedTab),
         nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(KindTitle), nameof(EtaByCscore),
+        nameof(SelectedLoad), nameof(L0Text), nameof(LimitedWidth), nameof(InputTab), nameof(SeismicUsed), nameof(SpecialUsed), nameof(SpecialDesign),
     ];
 
     CancellationTokenSource? cancel;
@@ -34,6 +35,11 @@ public partial class MainViewModel : ObservableObject
     public IReadOnlyList<string> RebarClasses { get; } = MaterialTables.Rebars.Select(r => r.Name).ToList();
     public IReadOnlyList<string> SecondOrderOptions { get; } =
         ["Рассчитать η в CScore", "Уже учтено в усилиях", "Не учитывать (только сечение)"];
+    public IReadOnlyList<string> CrackCategoryOptions { get; } = ["Ограниченное раскрытие трещин", "Трещины не допускаются"];
+    public IReadOnlyList<string> CrackRequirementOptions { get; } = ["Сохранность арматуры", "Ограничение проницаемости"];
+
+    /// <summary>Set by the window: clipboard text for "paste from Excel".</summary>
+    public Func<Task<string?>>? ClipboardText { get; set; }
 
     // ---- section ----
     [ObservableProperty, NotifyPropertyChangedFor(nameof(IsWall), nameof(KindTitle))] bool isPile = true;
@@ -47,16 +53,44 @@ public partial class MainViewModel : ObservableObject
 
     // ---- materials ----
     [ObservableProperty] string concreteClass = "B30", rebarClass = "A500", transverseClass = "A240";
-    [ObservableProperty] bool sustainedFactor = true;
+    [ObservableProperty] string gb1 = "", gb2 = "", gb3 = "", gb5 = "", hardening = "", gammaS = "", gammaSw = "";
 
-    // ---- conditions ----
-    [ObservableProperty] bool eccentricitySp63 = true;
-    [ObservableProperty] string memberLength = "";
+    // ---- element and design conditions ----
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(L0Text))] string elementLength = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(L0Text))] string muX = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(L0Text))] string muY = "";
+    public string L0Text => TryNumber(ElementLength, out var l) && TryNumber(MuX, out var mx) && TryNumber(MuY, out var my)
+        ? $"l₀ в плоскости Mx = {S(l * mx)} м, в плоскости My = {S(l * my)} м" : "l₀ = μ · L";
+    [ObservableProperty] string slendernessLimit = "";
     [ObservableProperty] bool staticallyDeterminate;
+    [ObservableProperty] bool eccentricitySp63 = true;
+    [ObservableProperty] string eaX = "", eaY = "";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(EtaByCscore))] int secondOrderIndex;
     public bool EtaByCscore => SecondOrderIndex == 0;
-    [ObservableProperty] string l0x = "", l0y = "", sustainedShare = "";
+    [ObservableProperty] string reliabilityUls = "", reliabilitySls = "";
+
+    // ---- cracks ----
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(LimitedWidth))] int crackCategoryIndex;
+    public bool LimitedWidth => CrackCategoryIndex == 0;
+    [ObservableProperty] int crackRequirementIndex;
     [ObservableProperty] string crackLimitLong = "", crackLimitShort = "";
+
+    /// <summary>SP 63 8.2.6: 0.3 / 0.4 mm for reinforcement preservation, 0.2 / 0.3 mm for limited permeability.</summary>
+    partial void OnCrackRequirementIndexChanged(int value)
+    {
+        if (loading) return;
+        CrackLimitLong = value == 1 ? "0,2" : "0,3";
+        CrackLimitShort = value == 1 ? "0,3" : "0,4";
+    }
+
+    // ---- seismic and special combinations ----
+    [ObservableProperty] string seismicNormal = "", seismicInclined = "";
+    [ObservableProperty] bool seismicCracks;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(SpecialDesign))] bool specialNormative = true;
+    public bool SpecialDesign => !SpecialNormative;
+    [ObservableProperty] string specialGb = "", specialGs = "", specialGsw = "", specialAdditional = "";
+    public bool SeismicUsed => Loads.Any(l => l.Seismic);
+    public bool SpecialUsed => Loads.Any(l => l.Special);
     [ObservableProperty] bool shearCheck;
     [ObservableProperty] string shearPitch = "", stirrupLegs = "", pileShearA = "";
     [ObservableProperty] bool shearConfirmed;
@@ -96,6 +130,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] string selectionSummary = "";
     [ObservableProperty] bool hasSelection;
     [ObservableProperty] int selectedTab;
+    [ObservableProperty] int inputTab;
+    [ObservableProperty] LoadRowViewModel? selectedLoad;
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
@@ -107,6 +143,7 @@ public partial class MainViewModel : ObservableObject
     {
         if (loading) return;
         if (HasResult) ResultIsStale = true;
+        OnPropertyChanged(nameof(SeismicUsed)); OnPropertyChanged(nameof(SpecialUsed));
         RefreshSketch();
     }
 
@@ -135,12 +172,22 @@ public partial class MainViewModel : ObservableObject
             PositiveCount = S(p.Wall.PositiveFace.BarCount); PositiveDiameter = S(p.Wall.PositiveFace.BarDiameterMm);
             NegativeCount = S(p.Wall.NegativeFace.BarCount); NegativeDiameter = S(p.Wall.NegativeFace.BarDiameterMm);
             MinClearSpacing = S(IsPile ? p.Pile.MinClearSpacingMm : p.Wall.MinClearSpacingMm);
-            ConcreteClass = p.ConcreteClass; RebarClass = p.RebarClass; TransverseClass = p.TransverseClass; SustainedFactor = p.SustainedLoadFactor;
+            ConcreteClass = p.ConcreteClass; RebarClass = p.RebarClass; TransverseClass = p.TransverseClass;
+            var f = p.Concrete;
+            Gb1 = S(f.Gb1); Gb2 = S(f.Gb2); Gb3 = S(f.Gb3); Gb5 = S(f.Gb5); Hardening = S(f.HardeningFactor);
+            GammaS = S(p.LongitudinalFactor); GammaSw = S(p.TransverseFactor);
             var c = p.Conditions;
-            EccentricitySp63 = c.Eccentricity == EccentricityMode.Sp63; MemberLength = S(c.MemberLengthM); StaticallyDeterminate = c.StaticallyDeterminate;
+            ElementLength = S(c.ElementLengthM); MuX = S(c.MuX); MuY = S(c.MuY); SlendernessLimit = S(c.SlendernessLimit);
+            StaticallyDeterminate = c.StaticallyDeterminate;
+            EccentricitySp63 = c.Eccentricity == EccentricityMode.Sp63; EaX = S(c.EaXMm); EaY = S(c.EaYMm);
             SecondOrderIndex = c.SecondOrder switch { SecondOrderMode.Cscore => 0, SecondOrderMode.InLoads => 1, _ => 2 };
-            L0x = S(c.L0xM); L0y = S(c.L0yM); SustainedShare = S(c.SustainedShare);
+            ReliabilityUls = S(c.ReliabilityUls); ReliabilitySls = S(c.ReliabilitySls);
+            CrackCategoryIndex = c.CrackCategory == CrackCategory.NoCracks ? 1 : 0; CrackRequirementIndex = c.PermeabilityLimits ? 1 : 0;
             CrackLimitLong = S(c.CrackLimitLongMm); CrackLimitShort = S(c.CrackLimitShortMm);
+            SeismicNormal = S(p.Seismic.NormalSectionFactor); SeismicInclined = S(p.Seismic.InclinedSectionFactor); SeismicCracks = p.Seismic.CheckCracks;
+            var sp = p.Special;
+            SpecialNormative = sp.NormativeProperties; SpecialGb = S(sp.ConcreteFactor); SpecialGs = S(sp.LongitudinalFactor);
+            SpecialGsw = S(sp.TransverseFactor); SpecialAdditional = S(sp.AdditionalFactor);
             ShearCheck = c.ShearCheck; ShearPitch = S(c.ShearPitchMm); StirrupLegs = S(c.StirrupLegs); PileShearA = S(c.PileShearAMm);
             ShearConfirmed = c.ShearModelConfirmed; InclinedMoment = c.InclinedMoment;
             AnchorageFactor = S(c.AnchorageFactor); SupportDown = S(c.SupportDistanceDownM); SupportUp = S(c.SupportDistanceUpM);
@@ -150,8 +197,10 @@ public partial class MainViewModel : ObservableObject
             SelectionDiameters = string.Join(", ", s.Diameters.Select(d => S(d)));
             Loads.Clear();
             foreach (var l in p.Loads) Loads.Add(LoadRowViewModel.From(l, this));
+            SelectedLoad = Loads.FirstOrDefault();
         }
         finally { loading = false; }
+        OnPropertyChanged(nameof(SeismicUsed)); OnPropertyChanged(nameof(SpecialUsed));
         ClearResults();
         RefreshSketch();
     }
@@ -162,7 +211,7 @@ public partial class MainViewModel : ObservableObject
         var e = new List<string>();
         double D(string text, string label)
         {
-            if (double.TryParse(text.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v)) return v;
+            if (TryNumber(text, out var v)) return v;
             e.Add($"«{label}»: введите число"); return 0;
         }
         int I(string text, string label)
@@ -173,7 +222,22 @@ public partial class MainViewModel : ObservableObject
         var p = new SectionProject
         {
             Kind = IsPile ? SectionKind.Pile : SectionKind.Wall, Title = string.IsNullOrWhiteSpace(Title) ? KindTitle : Title.Trim(),
-            ConcreteClass = ConcreteClass, RebarClass = RebarClass, TransverseClass = TransverseClass, SustainedLoadFactor = SustainedFactor,
+            ConcreteClass = ConcreteClass, RebarClass = RebarClass, TransverseClass = TransverseClass,
+            Concrete = new ConcreteFactors
+            {
+                Gb1 = D(Gb1, "γb1"), Gb2 = D(Gb2, "γb2"), Gb3 = D(Gb3, "γb3"), Gb5 = D(Gb5, "γb5"), HardeningFactor = D(Hardening, "Коэффициент упрочнения"),
+            },
+            LongitudinalFactor = D(GammaS, "γs продольной"), TransverseFactor = D(GammaSw, "γs поперечной"),
+            Seismic = new SeismicSettings
+            {
+                NormalSectionFactor = D(SeismicNormal, "m_tr нормальных сечений"), InclinedSectionFactor = D(SeismicInclined, "m_tr наклонных сечений"),
+                CheckCracks = SeismicCracks,
+            },
+            Special = new SpecialSettings
+            {
+                NormativeProperties = SpecialNormative, ConcreteFactor = D(SpecialGb, "Особое: γb"), LongitudinalFactor = D(SpecialGs, "Особое: γs"),
+                TransverseFactor = D(SpecialGsw, "Особое: γsw"), AdditionalFactor = D(SpecialAdditional, "Особое: понижающий коэффициент"),
+            },
         };
         double clear = D(MinClearSpacing, "Мин. просвет");
         if (IsPile)
@@ -191,11 +255,15 @@ public partial class MainViewModel : ObservableObject
                 NegativeFace = new WallFace { BarCount = I(NegativeCount, "Стержней на грани «−»"), BarDiameterMm = D(NegativeDiameter, "Ø на грани «−»") },
             };
         var c = p.Conditions;
-        c.Eccentricity = EccentricitySp63 ? EccentricityMode.Sp63 : EccentricityMode.InLoads;
-        c.MemberLengthM = EccentricitySp63 ? D(MemberLength, "Длина элемента") : 1;
+        c.ElementLengthM = D(ElementLength, "Длина элемента"); c.MuX = D(MuX, "μ в плоскости Mx"); c.MuY = D(MuY, "μ в плоскости My");
+        c.SlendernessLimit = D(SlendernessLimit, "Предельная гибкость");
         c.StaticallyDeterminate = StaticallyDeterminate;
+        c.Eccentricity = EccentricitySp63 ? EccentricityMode.Sp63 : EccentricityMode.InLoads;
+        if (EccentricitySp63) { c.EaXMm = D(EaX, "ea в плоскости Mx"); c.EaYMm = D(EaY, "ea в плоскости My"); }
         c.SecondOrder = SecondOrderIndex switch { 0 => SecondOrderMode.Cscore, 1 => SecondOrderMode.InLoads, _ => SecondOrderMode.SectionOnly };
-        if (EtaByCscore) { c.L0xM = D(L0x, "l₀x"); c.L0yM = D(L0y, "l₀y"); c.SustainedShare = D(SustainedShare, "Доля длительной нагрузки"); }
+        c.ReliabilityUls = D(ReliabilityUls, "γn по прочности"); c.ReliabilitySls = D(ReliabilitySls, "γn по трещиностойкости");
+        c.CrackCategory = LimitedWidth ? CrackCategory.LimitedWidth : CrackCategory.NoCracks;
+        c.PermeabilityLimits = CrackRequirementIndex == 1;
         c.CrackLimitLongMm = D(CrackLimitLong, "Предел продолжительного раскрытия");
         c.CrackLimitShortMm = D(CrackLimitShort, "Предел непродолжительного раскрытия");
         c.ShearCheck = ShearCheck; c.ShearModelConfirmed = ShearConfirmed; c.InclinedMoment = ShearCheck && InclinedMoment;
@@ -223,6 +291,15 @@ public partial class MainViewModel : ObservableObject
 
     static string S(double v) => v.ToString("0.###", Ru);
 
+    /// <summary>Number in Russian or invariant notation ("1,15" or "1.15"); spaces as thousand separators.</summary>
+    internal static bool TryNumber(string? text, out double value)
+    {
+        value = 0;
+        if (text is null) return false;
+        string t = text.Trim().Replace("\u00A0", "").Replace(" ", "").Replace(',', '.').Replace('−', '-');
+        return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
+    }
+
     // ---- commands ----
 
     [RelayCommand] void SetPile() => SwitchKind(true);
@@ -233,21 +310,114 @@ public partial class MainViewModel : ObservableObject
         if (IsPile == pile) return;
         var current = TryBuild(out _, quiet: true);
         var example = SectionProject.Example(pile ? SectionKind.Pile : SectionKind.Wall);
-        if (current is not null) { example.Loads = current.Loads; example.Conditions = current.Conditions; example.ConcreteClass = current.ConcreteClass; example.RebarClass = current.RebarClass; }
+        if (current is not null)
+        {
+            example.Loads = current.Loads; example.Conditions = current.Conditions; example.ConcreteClass = current.ConcreteClass;
+            example.RebarClass = current.RebarClass; example.TransverseClass = current.TransverseClass; example.Concrete = current.Concrete;
+            example.LongitudinalFactor = current.LongitudinalFactor; example.TransverseFactor = current.TransverseFactor;
+            example.Seismic = current.Seismic; example.Special = current.Special;
+        }
         Load(example);
     }
 
-    [RelayCommand] void AddUls() => AddLoad(LoadBasis.Uls);
-    [RelayCommand] void AddSls() => AddLoad(LoadBasis.Sls);
+    // ---- forces grid ----
 
-    void AddLoad(LoadBasis basis)
+    string NextName()
     {
-        int n = Loads.Count(l => l.IsSls == (basis == LoadBasis.Sls)) + 1;
-        Loads.Add(LoadRowViewModel.From(new LoadRow { Basis = basis, Name = (basis == LoadBasis.Uls ? "Расчётное " : "Нормативное ") + n }, this));
+        int n = Loads.Count + 1;
+        while (Loads.Any(l => l.Name.Trim() == n.ToString(CultureInfo.InvariantCulture))) n++;
+        return n.ToString(CultureInfo.InvariantCulture);
+    }
+
+    LoadRow Template() => SelectedLoad?.ToModel([]) ?? Loads.LastOrDefault()?.ToModel([]) ?? new LoadRow();
+
+    [RelayCommand]
+    void AddLoad()
+    {
+        // A new row takes γf, kдл and the flags of the selected one: combinations usually share them.
+        var t = Template();
+        var row = LoadRowViewModel.From(new LoadRow { Name = NextName(), LoadFactor = t.LoadFactor, SustainedShare = t.SustainedShare,
+            ShortTerm = t.ShortTerm, Seismic = t.Seismic, Special = t.Special }, this);
+        Loads.Add(row); SelectedLoad = row;
         InputsChanged();
     }
 
-    internal void RemoveLoad(LoadRowViewModel row) { Loads.Remove(row); InputsChanged(); }
+    [RelayCommand]
+    void DuplicateLoad()
+    {
+        if (SelectedLoad is null) return;
+        var copy = SelectedLoad.ToModel([]);
+        copy.Name = NextName();
+        var row = LoadRowViewModel.From(copy, this);
+        Loads.Insert(Loads.IndexOf(SelectedLoad) + 1, row); SelectedLoad = row;
+        InputsChanged();
+    }
+
+    [RelayCommand]
+    void RemoveLoad()
+    {
+        if (SelectedLoad is not { } row) return;
+        int i = Loads.IndexOf(row);
+        Loads.Remove(row);
+        SelectedLoad = Loads.Count == 0 ? null : Loads[Math.Min(i, Loads.Count - 1)];
+        InputsChanged();
+    }
+
+    [RelayCommand]
+    void ClearLoads() { Loads.Clear(); SelectedLoad = null; InputsChanged(); }
+
+    /// <summary>ARBAT "change the force plane": Mx ↔ My for every combination.</summary>
+    [RelayCommand]
+    void SwapPlane()
+    {
+        foreach (var row in Loads) row.SwapPlane();
+        StatusText = "Моменты Mx и My переставлены во всех сочетаниях";
+    }
+
+    [RelayCommand]
+    async Task PasteLoads()
+    {
+        string? text = ClipboardText is null ? null : await ClipboardText();
+        PasteText(text ?? "");
+    }
+
+    /// <summary>
+    /// Rows copied from Excel (tab, semicolon separated): [name] N Mx My Q [γf] [kдл]. Lines without
+    /// numbers (headers) are skipped; missing γf / kдл are taken from the selected row.
+    /// </summary>
+    internal int PasteText(string text)
+    {
+        var t = Template();
+        int added = 0, skipped = 0;
+        foreach (var line in text.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Trim().Length > 0))
+        {
+            var cells = line.Split(line.Contains('\t') ? '\t' : ';').Select(c => c.Trim()).ToList();
+            string? name = null;
+            if (cells.Count > 0 && !TryNumber(cells[0], out _)) { name = cells[0]; cells.RemoveAt(0); }
+            var values = new List<double>();
+            foreach (var cell in cells)
+            {
+                if (cell.Length == 0) { values.Add(double.NaN); continue; }
+                if (!TryNumber(cell, out var v)) break;
+                values.Add(v);
+            }
+            if (values.Count == 0 || values.All(double.IsNaN)) { skipped++; continue; }
+            double V(int i, double fallback) => i < values.Count && !double.IsNaN(values[i]) ? values[i] : fallback;
+            var row = new LoadRow
+            {
+                Name = string.IsNullOrWhiteSpace(name) ? NextName() : name!,
+                N = V(0, 0), Mx = V(1, 0), My = V(2, 0), Q = V(3, 0), LoadFactor = V(4, t.LoadFactor), SustainedShare = V(5, t.SustainedShare),
+                ShortTerm = t.ShortTerm, Seismic = t.Seismic, Special = t.Special,
+            };
+            if (Loads.Any(l => l.Name.Trim() == row.Name.Trim())) row.Name = NextName();
+            Loads.Add(LoadRowViewModel.From(row, this));
+            added++;
+        }
+        StatusText = added > 0 ? $"Вставлено сочетаний: {added}" + (skipped > 0 ? $", пропущено строк: {skipped}" : "")
+            : "В буфере обмена нет строк с числами (ожидается: название, N, Mx, My, Q, γf, kдл)";
+        if (added > 0) { SelectedLoad = Loads[^1]; InputsChanged(); }
+        return added;
+    }
 
     bool CanRun() => !IsBusy;
 
@@ -413,7 +583,7 @@ public partial class MainViewModel : ObservableObject
     static string Fingerprint(SectionProject p) => System.Text.Json.JsonSerializer.Serialize(new
     {
         p.Kind, Geometry = p.Kind == SectionKind.Pile ? (object)p.Pile : p.Wall, p.ConcreteClass, p.RebarClass, p.TransverseClass,
-        p.SustainedLoadFactor, p.Conditions, p.Loads,
+        p.Concrete, p.LongitudinalFactor, p.TransverseFactor, p.Seismic, p.Special, p.Conditions, p.Loads,
     });
 
     static string Safe(string name) => string.Concat(name.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));

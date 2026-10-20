@@ -70,6 +70,47 @@ public class AppTests
     }
 
     [AvaloniaFact]
+    public async Task PastedSeismicCombinationIsCheckedWithItsFactors()
+    {
+        var (window, vm) = Open();
+        int added = vm.PasteText("№\tN, кН\tMx\tMy\tQ\tγf\tkдл\r\nС1\t-1 200\t210,5\t0\t100\t1,2\t0,6\r\n");
+        Assert.Equal(1, added);
+        var row = vm.Loads[^1];
+        Assert.Equal("С1", row.Name);
+        Assert.Equal("1,2", row.LoadFactor);
+        row.Seismic = true;
+        row.Special = true;
+        Assert.False(row.Seismic);
+        row.Seismic = true;
+        Assert.False(row.Special);
+        Assert.True(vm.SeismicUsed);
+        vm.InputTab = 4;
+        await vm.CheckCommand.ExecuteAsync(null);
+        Assert.True(vm.HasResult, vm.InputErrors);
+        Assert.Contains(vm.DetailRows, r => r.Combination.Contains("сейсмика"));
+        Snapshot(window, "06-seismic");
+        vm.SwapPlaneCommand.Execute(null);
+        Assert.Equal("210,5", row.My);
+        Assert.True(vm.ResultIsStale);
+    }
+
+    [AvaloniaFact]
+    public void TabsShowAllSettings()
+    {
+        var (window, vm) = Open(pile: false);
+        vm.InputTab = 1; Snapshot(window, "07-materials");
+        vm.InputTab = 2; Snapshot(window, "08-design");
+        vm.InputTab = 3;
+        vm.CrackRequirementIndex = 1;
+        Assert.Equal("0,2", vm.CrackLimitLong);
+        Assert.Equal("0,3", vm.CrackLimitShort);
+        Snapshot(window, "09-cracks");
+        var p = vm.TryBuild(out var errors);
+        Assert.True(p is not null, string.Join("\n", errors));
+        Assert.True(p!.Conditions.PermeabilityLimits);
+    }
+
+    [AvaloniaFact]
     public async Task InvalidNumberIsReportedNotCalculated()
     {
         var (window, vm) = Open();
@@ -78,5 +119,6 @@ public class AppTests
         Assert.False(vm.HasResult);
         Assert.Contains("Диаметр D", vm.InputErrors);
         Snapshot(window, "05-input-error");
+        window.Close();
     }
 }

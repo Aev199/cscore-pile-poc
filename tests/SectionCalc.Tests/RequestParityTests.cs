@@ -9,8 +9,7 @@ public class RequestParityTests
     {
         var p = new SectionProject { Kind = SectionKind.Pile };
         p.Pile = new PileGeometry { DiameterMm = 900, CoverMm = 55, SpiralDiameterMm = 10, BarCount = 14, BarDiameterMm = 25 };
-        p.Loads = [new LoadRow { Name = "ULS:U #1", N = -2000, Mx = 320, My = 40, Q = 150 },
-                   new LoadRow { Name = "S #1", Basis = LoadBasis.Sls, N = -1500, NLong = -1100, Mx = 240, My = 30, MxLong = 180, MyLong = 20 }];
+        p.Loads = [new LoadRow { Name = "ULS:U #1", N = -2000, Mx = 320, My = 40, Q = 150 }];
         Common(p);
         p.Conditions.ShearPitchMm = 150; p.Conditions.PileShearAMm = 90;
         return p;
@@ -21,8 +20,7 @@ public class RequestParityTests
         var p = new SectionProject { Kind = SectionKind.Wall };
         p.Wall = new WallGeometry { WidthMm = 1000, ThicknessMm = 600, CoverMm = 50, StirrupDiameterMm = 10,
             NegativeFace = new WallFace { BarCount = 4, BarDiameterMm = 20 }, PositiveFace = new WallFace { BarCount = 5, BarDiameterMm = 25 } };
-        p.Loads = [new LoadRow { Name = "ULS:U #1", N = -800, Mx = -350, Q = 200 },
-                   new LoadRow { Name = "S #1", Basis = LoadBasis.Sls, N = -600, Mx = -260, MxLong = -200 }];
+        p.Loads = [new LoadRow { Name = "ULS:U #1", N = -800, Mx = -350, Q = 200 }];
         Common(p);
         p.Conditions.ShearPitchMm = 200; p.Conditions.StirrupLegs = 4;
         p.Conditions.InclinedMoment = true; p.Conditions.AnchorageFactor = 0.8;
@@ -33,8 +31,8 @@ public class RequestParityTests
     static void Common(SectionProject p)
     {
         var c = p.Conditions;
-        c.Eccentricity = EccentricityMode.Sp63; c.MemberLengthM = 7; c.StaticallyDeterminate = false;
-        c.SecondOrder = SecondOrderMode.Cscore; c.L0xM = 7; c.L0yM = 6.5; c.SustainedShare = 0.8;
+        c.Eccentricity = EccentricityMode.Sp63; c.ElementLengthM = 7; c.StaticallyDeterminate = false;
+        c.SecondOrder = SecondOrderMode.Cscore; c.MuX = 1; c.MuY = 6.5 / 7;
         c.ShearCheck = true; c.ShearModelConfirmed = true;
     }
 
@@ -44,8 +42,12 @@ public class RequestParityTests
     public void RequestMatchesVerifiedPythonPath(string name)
     {
         var p = name == "pile" ? Pile() : Wall();
-        var (uls, _, _) = Engine.PrepareUls(p);
-        var ours = JsonNode.Parse(RequestBuilder.Build(p, uls).ToJsonString())!;
+        var source = p.Loads.Select(l => new UlsLoad(l.Name, l.Name, l.N, l.Mx, l.My, l.Q)).ToList();
+        var (uls, _, _) = Engine.PrepareUls(p, source);
+        // The golden SLS actions were given directly as normative total / sustained values.
+        List<SlsAction> sls = name == "pile" ? [new("S #1", -1500, -1100, 240, 180, 30, 20)] : [new("S #1", -600, -600, -260, -200, 0, 0)];
+        var materials = MaterialTables.Uls(p, new CombinationKind(false, false, false));
+        var ours = JsonNode.Parse(RequestBuilder.Build(p, uls, sls, materials, 0.8).ToJsonString())!;
         var golden = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "golden", $"{name}_request.json")))!;
         // Candidate labels are cosmetic; Python prefixes engine ids with the basis.
         ours["candidates"]![0]!["id"] = golden["candidates"]![0]!["id"]!.GetValue<string>();

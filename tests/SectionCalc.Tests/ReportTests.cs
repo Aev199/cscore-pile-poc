@@ -28,4 +28,25 @@ public class ReportTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void ReportListsCoefficientsAndCombinationKinds()
+    {
+        foreach (var (p, expected) in new[] { (ExampleFiles.Pile(), new[] { "сейсмика", "m_tr", "kдл", "γf" }),
+                     (ExampleFiles.Wall(), new[] { "γb3 = 0,85", "особое", "кратковр.", "СП 296", "γn" }) })
+        {
+            var result = Engine.Check(p);
+            string path = Path.Combine(Path.GetTempPath(), $"section-report-{Guid.NewGuid():N}.docx");
+            try
+            {
+                ReportWriter.Write(path, result);
+                using var doc = WordprocessingDocument.Open(path, false);
+                var errors = new OpenXmlValidator().Validate(doc).Select(e => e.Description).Distinct().ToList();
+                Assert.True(errors.Count == 0, string.Join("\n", errors.Take(12)));
+                string text = doc.MainDocumentPart!.Document.Body!.InnerText;
+                foreach (var e in expected) Assert.Contains(e, text);
+            }
+            finally { File.Delete(path); }
+        }
+    }
 }

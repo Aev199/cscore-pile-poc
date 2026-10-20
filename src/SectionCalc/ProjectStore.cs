@@ -18,7 +18,10 @@ public static class ProjectStore
     public static SectionProject Deserialize(string json)
     {
         var p = JsonSerializer.Deserialize<SectionProject>(json, Options) ?? throw new InvalidDataException("Пустой файл проекта");
-        if (p.Version != 1) throw new InvalidDataException("Неподдерживаемая версия файла проекта");
+        if (p.Version != SectionProject.CurrentVersion)
+            throw new InvalidDataException(p.Version < SectionProject.CurrentVersion
+                ? $"Файл проекта версии {p.Version} создан предыдущей версией программы: усилия задавались в другом виде (ULS/SLS). Введите сечение заново."
+                : "Файл проекта создан более новой версией программы");
         return p;
     }
 

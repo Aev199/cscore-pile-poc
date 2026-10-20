@@ -53,147 +53,211 @@
       <TextBlock Text="{Binding InputErrors}" TextWrapping="Wrap" FontSize="11.5" />
     </Border>
 
-    <Grid ColumnDefinitions="340,*,330" Margin="12">
-      <!-- Inputs -->
-      <ScrollViewer Grid.Column="0" Margin="0,0,12,0" VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="12">
-          <Border Classes="card">
-            <StackPanel>
-              <TextBlock Classes="cardTitle" Text="Сечение" />
-              <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto" IsVisible="{Binding IsPile}">
-                <StackPanel><TextBlock Classes="label" Text="Диаметр D, мм" /><TextBox Text="{Binding PileDiameter}" /></StackPanel>
-                <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding PileCover}" ToolTip.Tip="До наружной поверхности навивки" /></StackPanel>
-                <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Число стержней" /><TextBox Text="{Binding PileBarCount}" /></StackPanel>
-                <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø стержней, мм" /><TextBox Text="{Binding PileBarDiameter}" /></StackPanel>
-                <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Ø навивки, мм" /><TextBox Text="{Binding PileSpiral}" /></StackPanel>
-                <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
-              </Grid>
-              <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsVisible="{Binding IsWall}">
-                <StackPanel><TextBlock Classes="label" Text="Ширина b, мм" /><TextBox Text="{Binding WallWidth}" /></StackPanel>
-                <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Толщина h, мм" /><TextBox Text="{Binding WallThickness}" /></StackPanel>
-                <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding WallCover}" ToolTip.Tip="До наружной поверхности хомута" /></StackPanel>
-                <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø хомута, мм" /><TextBox Text="{Binding WallStirrup}" /></StackPanel>
-                <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Грань «+»: стержней" /><TextBox Text="{Binding PositiveCount}" /></StackPanel>
-                <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Грань «+»: Ø, мм" /><TextBox Text="{Binding PositiveDiameter}" /></StackPanel>
-                <StackPanel Grid.Row="6"><TextBlock Classes="label" Text="Грань «−»: стержней" /><TextBox Text="{Binding NegativeCount}" /></StackPanel>
-                <StackPanel Grid.Row="6" Grid.Column="2"><TextBlock Classes="label" Text="Грань «−»: Ø, мм" /><TextBox Text="{Binding NegativeDiameter}" /></StackPanel>
-                <StackPanel Grid.Row="8"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
-                <TextBlock Grid.Row="8" Grid.Column="2" Classes="hint" VerticalAlignment="Bottom" Text="Грань «+» растянута при Mx &gt; 0." />
-              </Grid>
-            </StackPanel>
-          </Border>
-
-          <Border Classes="card">
-            <StackPanel>
-              <TextBlock Classes="cardTitle" Text="Материалы" />
-              <Grid ColumnDefinitions="*,12,*,12,*">
-                <StackPanel><TextBlock Classes="label" Text="Бетон" /><ComboBox ItemsSource="{Binding ConcreteClasses}" SelectedItem="{Binding ConcreteClass}" /></StackPanel>
-                <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Продольная" /><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding RebarClass}" /></StackPanel>
-                <StackPanel Grid.Column="4"><TextBlock Classes="label" Text="Поперечная" /><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding TransverseClass}" /></StackPanel>
-              </Grid>
-              <CheckBox Margin="0,8,0,0" IsChecked="{Binding SustainedFactor}" Content="γb1 = 0,9 (длительное действие нагрузки)" />
-              <TextBlock Classes="hint" Text="Характеристики — по таблицам СП 63.13330.2018." />
-            </StackPanel>
-          </Border>
-
-          <Border Classes="card">
-            <StackPanel Spacing="8">
-              <TextBlock Classes="cardTitle" Text="Условия расчёта" Margin="0,0,0,2" />
-              <TextBlock Classes="label" Text="Случайный эксцентриситет" />
-              <RadioButton GroupName="ea" IsChecked="{Binding EccentricitySp63}" Content="Добавить по СП 63 (готовит CScore)" />
-              <RadioButton GroupName="ea" IsChecked="{Binding !EccentricitySp63}" Content="Уже включён в заданные моменты" />
-              <Grid ColumnDefinitions="*,12,*" IsVisible="{Binding EccentricitySp63}">
-                <StackPanel><TextBlock Classes="label" Text="Длина элемента, м" /><TextBox Text="{Binding MemberLength}" /></StackPanel>
-                <CheckBox Grid.Column="2" VerticalAlignment="Bottom" IsChecked="{Binding StaticallyDeterminate}" Content="Статически определимая" />
-              </Grid>
-              <TextBlock Classes="label" Text="Влияние прогиба (η)" Margin="0,6,0,0" />
-              <ComboBox ItemsSource="{Binding SecondOrderOptions}" SelectedIndex="{Binding SecondOrderIndex}" />
-              <Grid ColumnDefinitions="*,8,*,8,*" IsVisible="{Binding EtaByCscore}">
-                <StackPanel><TextBlock Classes="label" Text="l₀x, м" /><TextBox Text="{Binding L0x}" /></StackPanel>
-                <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="l₀y, м" /><TextBox Text="{Binding L0y}" /></StackPanel>
-                <StackPanel Grid.Column="4"><TextBlock Classes="label" Text="Доля длит." /><TextBox Text="{Binding SustainedShare}" ToolTip.Tip="Доля длительного момента для η, 0…1" /></StackPanel>
-              </Grid>
-              <TextBlock Classes="label" Text="Предельная ширина раскрытия трещин, мм" Margin="0,6,0,0" />
-              <Grid ColumnDefinitions="*,12,*">
-                <StackPanel><TextBlock Classes="hint" Text="продолжительное" /><TextBox Text="{Binding CrackLimitLong}" /></StackPanel>
-                <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="непродолжительное" /><TextBox Text="{Binding CrackLimitShort}" /></StackPanel>
-              </Grid>
-            </StackPanel>
-          </Border>
-
-          <Border Classes="card">
-            <StackPanel Spacing="8">
-              <CheckBox IsChecked="{Binding ShearCheck}" FontWeight="Medium" Content="Проверять поперечную силу Q" />
-              <StackPanel Spacing="8" IsVisible="{Binding ShearCheck}">
-                <Grid ColumnDefinitions="*,12,*">
-                  <StackPanel><TextBlock Classes="label" Text="Шаг, мм" /><TextBox Text="{Binding ShearPitch}" ToolTip.Tip="Шаг хомутов или полный шаг витка навивки" /></StackPanel>
-                  <StackPanel Grid.Column="2" IsVisible="{Binding IsWall}"><TextBlock Classes="label" Text="Рабочих ветвей" /><TextBox Text="{Binding StirrupLegs}" /></StackPanel>
-                  <StackPanel Grid.Column="2" IsVisible="{Binding IsPile}"><TextBlock Classes="label" Text="a для h0, мм" /><TextBox Text="{Binding PileShearA}" ToolTip.Tip="Расстояние от грани до центра тяжести арматуры; b = 0,885D, h0 = b − a" /></StackPanel>
+    <Grid ColumnDefinitions="392,*,312" Margin="12">
+      <!-- Inputs: ARBAT-like tabs -->
+      <Border Grid.Column="0" Classes="card" Padding="0" Margin="0,0,12,0">
+        <TabControl Classes="inputs" SelectedIndex="{Binding InputTab}" Margin="10,2,10,0">
+          <TabItem Header="Сечение">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="12" Margin="4,10,4,14">
+                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto" IsVisible="{Binding IsPile}">
+                  <StackPanel><TextBlock Classes="label" Text="Диаметр D, мм" /><TextBox Text="{Binding PileDiameter}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding PileCover}" ToolTip.Tip="До наружной поверхности навивки" /></StackPanel>
+                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Число стержней" /><TextBox Text="{Binding PileBarCount}" /></StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø стержней, мм" /><TextBox Text="{Binding PileBarDiameter}" /></StackPanel>
+                  <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Ø навивки, мм" /><TextBox Text="{Binding PileSpiral}" /></StackPanel>
+                  <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
                 </Grid>
-                <TextBlock Classes="hint" IsVisible="{Binding IsPile}" Text="Круглое сечение приводится к квадрату b = 0,885D (ВНИИГС 1984); один виток навивки — две условные ветви. Это инженерное допущение." />
-                <CheckBox IsChecked="{Binding ShearConfirmed}" Content="Модель и конструктивные требования подтверждены" />
-                <CheckBox IsChecked="{Binding InclinedMoment}" Content="Момент в наклонном сечении (8.63)" />
-                <Grid ColumnDefinitions="*,8,*,8,*" IsVisible="{Binding InclinedMoment}">
-                  <StackPanel><TextBlock Classes="label" Text="k анкеровки" /><TextBox Text="{Binding AnchorageFactor}" /></StackPanel>
-                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="До опоры ↓, м" /><TextBox Text="{Binding SupportDown}" /></StackPanel>
-                  <StackPanel Grid.Column="4"><TextBlock Classes="label" Text="До опоры ↑, м" /><TextBox Text="{Binding SupportUp}" /></StackPanel>
+                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsVisible="{Binding IsWall}">
+                  <StackPanel><TextBlock Classes="label" Text="Ширина b, мм" /><TextBox Text="{Binding WallWidth}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Толщина h, мм" /><TextBox Text="{Binding WallThickness}" /></StackPanel>
+                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding WallCover}" ToolTip.Tip="До наружной поверхности хомута" /></StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø хомута, мм" /><TextBox Text="{Binding WallStirrup}" /></StackPanel>
+                  <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Грань «+»: стержней" /><TextBox Text="{Binding PositiveCount}" /></StackPanel>
+                  <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Грань «+»: Ø, мм" /><TextBox Text="{Binding PositiveDiameter}" /></StackPanel>
+                  <StackPanel Grid.Row="6"><TextBlock Classes="label" Text="Грань «−»: стержней" /><TextBox Text="{Binding NegativeCount}" /></StackPanel>
+                  <StackPanel Grid.Row="6" Grid.Column="2"><TextBlock Classes="label" Text="Грань «−»: Ø, мм" /><TextBox Text="{Binding NegativeDiameter}" /></StackPanel>
+                  <StackPanel Grid.Row="8"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
+                  <TextBlock Grid.Row="8" Grid.Column="2" Classes="hint" VerticalAlignment="Bottom" Text="Грань «+» растянута при Mx &gt; 0." />
+                </Grid>
+                <Border Classes="divider" />
+                <CheckBox IsChecked="{Binding ShearCheck}" FontWeight="Medium" Content="Проверять поперечную силу Q" />
+                <StackPanel Spacing="8" IsVisible="{Binding ShearCheck}">
+                  <Grid ColumnDefinitions="*,12,*">
+                    <StackPanel><TextBlock Classes="label" Text="Шаг, мм" /><TextBox Text="{Binding ShearPitch}" ToolTip.Tip="Шаг хомутов или полный шаг витка навивки" /></StackPanel>
+                    <StackPanel Grid.Column="2" IsVisible="{Binding IsWall}"><TextBlock Classes="label" Text="Рабочих ветвей" /><TextBox Text="{Binding StirrupLegs}" /></StackPanel>
+                    <StackPanel Grid.Column="2" IsVisible="{Binding IsPile}"><TextBlock Classes="label" Text="a для h0, мм" /><TextBox Text="{Binding PileShearA}" ToolTip.Tip="Расстояние от грани до центра тяжести арматуры; b = 0,885D, h0 = b − a" /></StackPanel>
+                  </Grid>
+                  <TextBlock Classes="hint" IsVisible="{Binding IsPile}" Text="Круглое сечение приводится к квадрату b = 0,885D (ВНИИГС 1984); один виток навивки — две условные ветви. Это инженерное допущение." />
+                  <CheckBox IsChecked="{Binding ShearConfirmed}" Content="Модель и конструктивные требования подтверждены" />
+                  <CheckBox IsChecked="{Binding InclinedMoment}" Content="Момент в наклонном сечении (8.63)" />
+                  <Grid ColumnDefinitions="*,8,*,8,*" IsVisible="{Binding InclinedMoment}">
+                    <StackPanel><TextBlock Classes="label" Text="k анкеровки" /><TextBox Text="{Binding AnchorageFactor}" /></StackPanel>
+                    <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="До опоры ↓, м" /><TextBox Text="{Binding SupportDown}" /></StackPanel>
+                    <StackPanel Grid.Column="4"><TextBlock Classes="label" Text="До опоры ↑, м" /><TextBox Text="{Binding SupportUp}" /></StackPanel>
+                  </Grid>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Материалы">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="10" Margin="4,10,4,14">
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="label" Text="Бетон (тяжёлый)" /><ComboBox ItemsSource="{Binding ConcreteClasses}" SelectedItem="{Binding ConcreteClass}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Коэф. упрочнения (к Eb)" /><TextBox Text="{Binding Hardening}" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="label" Text="Коэффициенты условий работы бетона" />
+                <Grid ColumnDefinitions="*,8,*,8,*,8,*">
+                  <StackPanel><TextBlock Classes="hint" Text="γb1" /><TextBox Text="{Binding Gb1}" ToolTip.Tip="Длительное действие нагрузки: 0,9. В кратковременных сочетаниях принимается 1" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="γb2" /><TextBox Text="{Binding Gb2}" /></StackPanel>
+                  <StackPanel Grid.Column="4"><TextBlock Classes="hint" Text="γb3" /><TextBox Text="{Binding Gb3}" ToolTip.Tip="Бетонирование в вертикальном положении слоями более 1,5 м: 0,85" /></StackPanel>
+                  <StackPanel Grid.Column="6"><TextBlock Classes="hint" Text="γb5" /><TextBox Text="{Binding Gb5}" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="hint" Text="γb1 — к Rb и Rbt; γb2, γb3, γb5 — к Rb (СП 63 п. 6.1.12). В кратковременных сочетаниях γb1 = 1." />
+                <Border Classes="divider" />
+                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto">
+                  <StackPanel><TextBlock Classes="label" Text="Продольная арматура" /><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding RebarClass}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="γs продольной" /><TextBox Text="{Binding GammaS}" /></StackPanel>
+                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Поперечная арматура" /><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding TransverseClass}" /></StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="γs поперечной" /><TextBox Text="{Binding GammaSw}" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="hint" Text="Характеристики — по таблицам СП 63.13330.2018. Коэффициенты условий работы арматуры умножают Rs и Rsw." />
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Расчёт">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8" Margin="4,10,4,14">
+                <Grid ColumnDefinitions="*,8,*,8,*">
+                  <StackPanel><TextBlock Classes="label" Text="Длина L, м" /><TextBox Text="{Binding ElementLength}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="μ в пл. Mx" /><TextBox Text="{Binding MuX}" ToolTip.Tip="Коэффициент расчётной длины в плоскости момента Mx (Арбат: XoZ)" /></StackPanel>
+                  <StackPanel Grid.Column="4"><TextBlock Classes="label" Text="μ в пл. My" /><TextBox Text="{Binding MuY}" ToolTip.Tip="Коэффициент расчётной длины в плоскости момента My (Арбат: XoY)" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="hint" Text="{Binding L0Text}" />
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="label" Text="Предельная гибкость" /><TextBox Text="{Binding SlendernessLimit}" /></StackPanel>
+                  <CheckBox Grid.Column="2" VerticalAlignment="Bottom" IsChecked="{Binding StaticallyDeterminate}" Content="Статически определимая" />
+                </Grid>
+                <TextBlock Classes="label" Text="Случайный эксцентриситет" Margin="0,6,0,0" />
+                <RadioButton IsChecked="{Binding EccentricitySp63}" Content="Добавить (готовит CScore)" />
+                <RadioButton IsChecked="{Binding !EccentricitySp63}" Content="Уже включён в заданные моменты" />
+                <Grid ColumnDefinitions="*,12,*" IsVisible="{Binding EccentricitySp63}">
+                  <StackPanel><TextBlock Classes="hint" Text="ea в пл. Mx, мм" /><TextBox Text="{Binding EaX}" Watermark="0 — по СП 63" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="ea в пл. My, мм" /><TextBox Text="{Binding EaY}" Watermark="0 — по СП 63" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="hint" IsVisible="{Binding EccentricitySp63}" Text="0 — по СП 63 п. 8.1.7 (L/600, h/30, 10 мм). Заданное значение не меньше 10 мм." />
+                <TextBlock Classes="label" Text="Влияние прогиба (η)" Margin="0,6,0,0" />
+                <ComboBox ItemsSource="{Binding SecondOrderOptions}" SelectedIndex="{Binding SecondOrderIndex}" />
+                <TextBlock Classes="hint" IsVisible="{Binding EtaByCscore}" Text="η — по l₀ и доле длительной нагрузки kдл каждого сочетания." />
+                <TextBlock Classes="label" Text="Коэффициент надёжности по ответственности γn" Margin="0,6,0,0" />
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="hint" Text="по прочности" /><TextBox Text="{Binding ReliabilityUls}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="по трещиностойкости" /><TextBox Text="{Binding ReliabilitySls}" /></StackPanel>
                 </Grid>
               </StackPanel>
-            </StackPanel>
-          </Border>
-        </StackPanel>
-      </ScrollViewer>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Трещины">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8" Margin="4,10,4,14">
+                <TextBlock Classes="label" Text="Категория трещиностойкости" />
+                <ComboBox ItemsSource="{Binding CrackCategoryOptions}" SelectedIndex="{Binding CrackCategoryIndex}" />
+                <StackPanel Spacing="8" IsVisible="{Binding LimitedWidth}">
+                  <TextBlock Classes="label" Text="Требование" Margin="0,6,0,0" />
+                  <ComboBox ItemsSource="{Binding CrackRequirementOptions}" SelectedIndex="{Binding CrackRequirementIndex}" />
+                  <TextBlock Classes="label" Text="Предельная ширина раскрытия, мм" Margin="0,6,0,0" />
+                  <Grid ColumnDefinitions="*,12,*">
+                    <StackPanel><TextBlock Classes="hint" Text="непродолжительное" /><TextBox Text="{Binding CrackLimitShort}" /></StackPanel>
+                    <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="продолжительное" /><TextBox Text="{Binding CrackLimitLong}" /></StackPanel>
+                  </Grid>
+                  <TextBlock Classes="hint" Text="СП 63 п. 8.2.6: сохранность арматуры — 0,4 / 0,3 мм, ограничение проницаемости — 0,3 / 0,2 мм." />
+                </StackPanel>
+                <TextBlock Classes="hint" IsVisible="{Binding !LimitedWidth}" Text="Проверяется M / Mcrc при нормативных усилиях: трещины не должны образовываться." />
+                <Border Classes="divider" />
+                <TextBlock Classes="hint" Text="Нормативные усилия = расчётные / γf · γn; длительные = kдл · нормативные. Случайный эксцентриситет и η в расчёте трещин не учитываются. Трещины проверяются, только если выполнена прочность." />
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Сейсмика">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8" Margin="4,10,4,14">
+                <TextBlock Classes="label" Text="Сейсмические сочетания (СП 14.13330)" />
+                <TextBlock Classes="hint" Text="Отметьте «Сейсм.» у сочетания в таблице усилий. Расчётные сопротивления бетона и арматуры умножаются на m_tr (табл. 5.4)." />
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="hint" Text="m_tr нормальных сечений" /><TextBox Text="{Binding SeismicNormal}" ToolTip.Tip="Тяжёлый бетон с арматурой А240…А500: 1,2" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="m_tr наклонных сечений" /><TextBox Text="{Binding SeismicInclined}" ToolTip.Tip="Расчёт по наклонным сечениям: 1,0" /></StackPanel>
+                </Grid>
+                <CheckBox IsChecked="{Binding SeismicCracks}" Content="Проверять трещины при сейсмике (п. 5.18)" />
+                <Border Classes="divider" />
+                <TextBlock Classes="label" Text="Особые сочетания (СП 296.1325800)" />
+                <TextBlock Classes="hint" Text="Отметьте «Особ.» у сочетания. γn = 1, трещины не проверяются." />
+                <RadioButton IsChecked="{Binding SpecialNormative}" Content="Нормативные характеристики материалов" />
+                <RadioButton IsChecked="{Binding SpecialDesign}" Content="Расчётные характеристики (с γb, γs выше)" />
+                <TextBlock Classes="hint" Text="Коэффициенты условий работы (СП 296 прил. Б)" />
+                <Grid ColumnDefinitions="*,8,*,8,*">
+                  <StackPanel><TextBlock Classes="hint" Text="бетон" /><TextBox Text="{Binding SpecialGb}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="продольная" /><TextBox Text="{Binding SpecialGs}" /></StackPanel>
+                  <StackPanel Grid.Column="4"><TextBlock Classes="hint" Text="поперечная" /><TextBox Text="{Binding SpecialGsw}" /></StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="hint" Text="Понижающий коэффициент к R" /><TextBox Text="{Binding SpecialAdditional}" ToolTip.Tip="Дополнительный коэффициент, понижающий расчётные сопротивления (как в Арбате)" /></StackPanel>
+                </Grid>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+        </TabControl>
+      </Border>
 
       <!-- Loads and results -->
       <Grid Grid.Column="1" RowDefinitions="Auto,12,*">
         <Border Classes="card">
           <StackPanel>
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="cardTitle" Text="Усилия в сечении" />
-              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
-                <Button Classes="small" Content="+ Расчётное (ULS)" Command="{Binding AddUlsCommand}" />
-                <Button Classes="small" Content="+ Нормативное (SLS)" Command="{Binding AddSlsCommand}" />
-              </StackPanel>
+            <Grid ColumnDefinitions="Auto,*">
+              <TextBlock Classes="cardTitle" Text="Расчётные усилия" VerticalAlignment="Center" Margin="0,0,0,8" />
+              <WrapPanel Grid.Column="1" HorizontalAlignment="Right" Orientation="Horizontal" Margin="0,0,0,8" ItemSpacing="6">
+                <Button Classes="small primary" Content="+ Сочетание" Command="{Binding AddLoadCommand}" ToolTip.Tip="Новая строка с γf, kдл и признаками выбранной" />
+                <Button Classes="small" Content="Дублировать" Command="{Binding DuplicateLoadCommand}" />
+                <Button Classes="small" Content="Удалить" Command="{Binding RemoveLoadCommand}" />
+                <Button Classes="small" Content="Вставить из Excel" Command="{Binding PasteLoadsCommand}" ToolTip.Tip="Столбцы: [название] N Mx My Q [γf] [kдл], разделитель — табуляция или «;»" />
+                <Button Classes="small" Content="Mx ⇄ My" Command="{Binding SwapPlaneCommand}" ToolTip.Tip="Изменить силовую плоскость: поменять местами Mx и My во всех сочетаниях" />
+                <Button Classes="small link" Content="Очистить" Command="{Binding ClearLoadsCommand}" />
+              </WrapPanel>
             </Grid>
-            <Border Classes="tableFrame">
-              <StackPanel>
-                <Border Classes="thead">
-                  <Grid ColumnDefinitions="2*,82,*,*,*,*,*,*,*,26" >
-                    <TextBlock Classes="th" Text="Сочетание" />
-                    <TextBlock Classes="th" Grid.Column="1" Text="Тип" Margin="4,0" />
-                    <TextBlock Classes="th" Grid.Column="2" Text="N, кН" TextAlignment="Right" Margin="4,0" />
-                    <TextBlock Classes="th" Grid.Column="3" Text="Mx, кН·м" TextAlignment="Right" Margin="4,0" />
-                    <TextBlock Classes="th" Grid.Column="4" Text="My, кН·м" TextAlignment="Right" Margin="4,0" />
-                    <TextBlock Classes="th" Grid.Column="5" Text="Q, кН" TextAlignment="Right" Margin="4,0" />
-                    <TextBlock Classes="th" Grid.Column="6" Text="Nдл" TextAlignment="Right" Margin="4,0" />
-                    <TextBlock Classes="th" Grid.Column="7" Text="Mx,дл" TextAlignment="Right" Margin="4,0" />
-                    <TextBlock Classes="th" Grid.Column="8" Text="My,дл" TextAlignment="Right" Margin="4,0" />
-                  </Grid>
-                </Border>
-                <ItemsControl ItemsSource="{Binding Loads}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:LoadRowViewModel">
-                      <Border Classes="trow" Padding="8,4">
-                        <Grid ColumnDefinitions="2*,82,*,*,*,*,*,*,*,26">
-                          <TextBox Classes="cell name" Text="{Binding Name}" />
-                          <ComboBox Classes="cell" Grid.Column="1" Margin="4,0" ItemsSource="{Binding BasisOptions}" SelectedIndex="{Binding BasisIndex}" />
-                          <TextBox Classes="cell" Grid.Column="2" Margin="4,0" Text="{Binding N}" />
-                          <TextBox Classes="cell" Grid.Column="3" Margin="4,0" Text="{Binding Mx}" />
-                          <TextBox Classes="cell" Grid.Column="4" Margin="4,0" Text="{Binding My}" />
-                          <TextBox Classes="cell" Grid.Column="5" Margin="4,0" Text="{Binding Q}" IsEnabled="{Binding IsUls}" />
-                          <TextBox Classes="cell" Grid.Column="6" Margin="4,0" Text="{Binding NLong}" IsEnabled="{Binding IsSls}" Watermark="= N" />
-                          <TextBox Classes="cell" Grid.Column="7" Margin="4,0" Text="{Binding MxLong}" IsEnabled="{Binding IsSls}" Watermark="= Mx" />
-                          <TextBox Classes="cell" Grid.Column="8" Margin="4,0" Text="{Binding MyLong}" IsEnabled="{Binding IsSls}" Watermark="= My" />
-                          <Button Classes="link" Grid.Column="9" Content="✕" Command="{Binding RemoveCommand}" ToolTip.Tip="Удалить сочетание" />
-                        </Grid>
-                      </Border>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
-            </Border>
+            <DataGrid x:Name="LoadsGrid" Classes="loads" ItemsSource="{Binding Loads}" SelectedItem="{Binding SelectedLoad}"
+                      AutoGenerateColumns="False" CanUserSortColumns="False" CanUserReorderColumns="False" CanUserResizeColumns="True"
+                      SelectionMode="Single" GridLinesVisibility="All" HeadersVisibility="Column" Height="196">
+              <DataGrid.Columns>
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="№" Binding="{Binding Name}" Width="1.3*" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="N, кН" Binding="{Binding N}" Width="*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="Mx, кН·м" Binding="{Binding Mx}" Width="*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="My, кН·м" Binding="{Binding My}" Width="*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="Q, кН" Binding="{Binding Q}" Width="0.85*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="γf" Binding="{Binding LoadFactor}" Width="0.7*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="kдл" Binding="{Binding SustainedShare}" Width="0.7*" CellStyleClasses="num" />
+                <DataGridTemplateColumn Header="Кратк." Width="58">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate x:DataType="vm:LoadRowViewModel"><CheckBox Classes="cell" IsChecked="{Binding ShortTerm}" ToolTip.Tip="Кратковременное сочетание: γb1 = 1" /></DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Сейсм." Width="58">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate x:DataType="vm:LoadRowViewModel"><CheckBox Classes="cell" IsChecked="{Binding Seismic}" ToolTip.Tip="Сейсмическое сочетание (СП 14): m_tr к сопротивлениям" /></DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Особ." Width="58">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate x:DataType="vm:LoadRowViewModel"><CheckBox Classes="cell" IsChecked="{Binding Special}" ToolTip.Tip="Особое сочетание (СП 296)" /></DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+              </DataGrid.Columns>
+            </DataGrid>
             <TextBlock Classes="hint" Margin="0,7,0,0"
-                       Text="ULS — расчётные усилия для прочности и Q; SLS — нормативные для трещин. N &lt; 0 — сжатие. Пустые длительные значения равны полным (нагрузка полностью длительная)." />
+                       Text="Расчётные усилия, N &lt; 0 — сжатие. γf — коэффициент надёжности по нагрузке (нормативные = расчётные / γf, для трещин), kдл — доля длительной части. Двойной щелчок или ввод с клавиатуры — редактирование ячейки." />
           </StackPanel>
         </Border>
 
