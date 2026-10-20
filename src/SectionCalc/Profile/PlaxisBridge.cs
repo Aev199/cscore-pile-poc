@@ -25,6 +25,8 @@ public sealed class PlaxisPhase
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string? Title { get; set; }
+    /// <summary>Calculation type from Input (Plastic, Consolidation, Safety…), when read through Input.</summary>
+    [JsonPropertyName("calc_type")] public string? CalcType { get; set; }
     public string Label => string.IsNullOrWhiteSpace(Title) || Title == Name ? Name : $"{Name} — {Title}";
 }
 
@@ -51,6 +53,12 @@ public sealed class PlaxisExport
     public List<PlaxisPhase> Phases { get; set; } = [];
     public List<string> Columns { get; set; } = [];
     public List<PlaxisSeries> Data { get; set; } = [];
+    /// <summary>Names selected in Input (when read through Input).</summary>
+    public List<string> Selection { get; set; } = [];
+    /// <summary>Safety phases left out.</summary>
+    [JsonPropertyName("excluded_phases")] public List<PlaxisPhase> ExcludedPhases { get; set; } = [];
+    /// <summary>Phases in which the selected structure is not active.</summary>
+    [JsonPropertyName("inactive_phases")] public List<string> InactivePhases { get; set; } = [];
 }
 
 /// <summary>
@@ -79,6 +87,16 @@ public static class PlaxisBridge
             catch (UnauthorizedAccessException) { }
         }
         return found.Distinct().OrderByDescending(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Structures selected in PLAXIS Input; Input opens Output and the results of every phase except Safety are read.
+    /// </summary>
+    public static async Task<PlaxisExport> FromInput(string python, int inputPort, string password, int? outputPort = null, CancellationToken cancel = default)
+    {
+        var args = new List<string> { "input", "--port", inputPort.ToString() };
+        if (outputPort is int o) { args.Add("--output-port"); args.Add(o.ToString()); }
+        return Parse(await Run(python, args.ToArray(), password, cancel));
     }
 
     public static async Task<PlaxisCatalog> Catalog(string python, int port, string password, CancellationToken cancel = default) =>

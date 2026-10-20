@@ -178,6 +178,15 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.Equal("Plate", e.Objects[0].Kind);
         Assert.Equal(-1, e.Data[0].Nodes[1][1]);
         Assert.Throws<InvalidDataException>(() => PlaxisBridge.Parse(json.Replace("[5,-1,-2,3,4]", "[5,-1,-2,3]")));
+
+        // Read through Input: selection, calculation types, Safety and inactive phases.
+        string input = json.Replace("\"title\":\"A\"}", "\"title\":\"A\",\"calc_type\":\"Plastic\"}")
+            .Replace("]}]}", "]}],\"selection\":[\"Plate_1\"],\"excluded_phases\":[{\"name\":\"Phase_9\",\"title\":\"FS\",\"calc_type\":\"Safety\"}],\"inactive_phases\":[\"InitialPhase\"]}");
+        var i = PlaxisBridge.Parse(input);
+        Assert.Equal("Plastic", i.Phases[0].CalcType);
+        Assert.Equal(["Plate_1"], i.Selection);
+        Assert.Equal("Safety", i.ExcludedPhases.Single().CalcType);
+        Assert.Equal(["InitialPhase"], i.InactivePhases);
     }
 
     [Fact]
@@ -190,5 +199,33 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.Equal("m", e.Info.UnitLength);
         Assert.Equal(3, e.Phases.Count);
         Assert.Equal("Выемка 1", e.Phases[0].Title);
+    }
+
+    /// <summary>The whole chain with a real Python and a stand-in plxscripting (tests/fake_plxscripting).</summary>
+    [Fact]
+    public async Task InputSelectionThroughPython()
+    {
+        string python = new[] { "/usr/bin/python3", "/usr/local/bin/python3" }.FirstOrDefault(File.Exists) ?? "";
+        if (python.Length == 0) return;
+        string root = AppContext.BaseDirectory;
+        while (!Directory.Exists(Path.Combine(root, "tests", "fake_plxscripting"))) root = Path.GetDirectoryName(root)!;
+        string old = Environment.GetEnvironmentVariable("PYTHONPATH") ?? "";
+        Environment.SetEnvironmentVariable("PYTHONPATH", Path.Combine(root, "tests", "fake_plxscripting"));
+        try
+        {
+            var e = await PlaxisBridge.FromInput(python, 10000, "secret");
+            Assert.Equal(["Plate_1"], e.Selection);
+            Assert.Equal(2, e.Objects.Count);
+            Assert.Equal(["Phase_1"], e.Phases.Select(p => p.Name));
+            Assert.Equal("Safety", e.ExcludedPhases.Single().CalcType);
+            var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Wall) };
+            p.UseSource(e);
+            var f = ForceProfile.Build(p);
+            Assert.Equal(0, f.TopLevel, 9);
+            Assert.Equal(-10, f.BottomLevel, 9);
+            var wrong = await Assert.ThrowsAsync<InvalidOperationException>(() => PlaxisBridge.FromInput(python, 10000, "wrong"));
+            Assert.Contains("Input", wrong.Message);
+        }
+        finally { Environment.SetEnvironmentVariable("PYTHONPATH", old); }
     }
 }

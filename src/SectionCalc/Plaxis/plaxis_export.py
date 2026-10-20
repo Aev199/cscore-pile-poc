@@ -1,12 +1,16 @@
-"""Read-only export of PLAXIS 2D Output results for the section application.
+"""Read-only export of PLAXIS 2D results for the section application.
 
 Run with the Python that ships with PLAXIS (it contains plxscripting):
+    python plaxis_export.py input --port 10000 [--output-port 10001]
+        the plates / embedded beam rows selected in Input, results of every
+        phase except Safety, Output opened by Input (g_i.view);
     python plaxis_export.py catalog --port 10001
     python plaxis_export.py extract --port 10001 --request request.json
-The password of the Output remote scripting server is taken from the
-environment variable PLAXIS_PASSWORD. The result is JSON on stdout; errors are
-JSON {"error": "..."} with exit code 1. Values are returned in the project
-units of PLAXIS; the application converts them.
+        the same directly from an open Output.
+The password of the remote scripting servers is taken from the environment
+variable PLAXIS_PASSWORD. The result is JSON on stdout; errors are JSON
+{"error": "..."} with exit code 1. Values are in the project units of PLAXIS;
+the application converts them.
 """
 import argparse
 import json
@@ -53,6 +57,45 @@ def first(obj, names):
     return None, None
 
 
+def calc_type(phase):
+    for key in ('DeformCalcType', 'CalculationType', 'CalcType'):
+        value = text(phase, key)
+        if value:
+            return value
+    return None
+
+
+def is_safety(phase):
+    kind = calc_type(phase)
+    return kind is not None and 'safety' in kind.lower()
+
+
+PREFIXES = (('Plate', ('Plate',)), ('EmbeddedBeamRow', ('EmbeddedBeamRow', 'EmbeddedBeam')))
+
+
+def feature_of(obj):
+    """(kind, name) of a selected plate / embedded beam row, also when its line is selected."""
+    plx = str(getattr(obj, '_plx_type', '') or '')
+    name = name_of(obj)
+    for kind, prefixes in PREFIXES:
+        if plx in prefixes or any(name.startswith(p + '_') for p in prefixes):
+            return kind, name
+    for kind, prefixes in PREFIXES:
+        for attr in prefixes:
+            try:
+                feature = getattr(obj, attr)
+            except Exception:
+                continue
+            if feature is not None and not isinstance(feature, (str, int, float, bool)):
+                return kind, name_of(feature)
+    return None
+
+
+def matches(output_name, input_name):
+    # Output splits a structure by the mesh: Plate_1 becomes Plate_1_1, Plate_1_2, ...
+    return output_name == input_name or output_name.startswith(input_name + '_')
+
+
 class Output:
     def __init__(self, g):
         self.g = g
@@ -88,7 +131,7 @@ class Output:
             'result_types': self.result_names,
         }
 
-    def extract(self, object_ids, phase_ids):
+    def extract(self, object_ids, phase_ids, skip_inactive=False):
         if not object_ids or not phase_ids:
             raise ExportError('Не выбраны элементы или фазы')
         for ids, items, what in ((object_ids, self.objects, 'элемента'), (phase_ids, self.phases, 'фазы')):
@@ -100,11 +143,16 @@ class Output:
             for oi in object_ids:
                 kind, obj, types = self.objects[oi]
                 arrays = {}
-                for key, rtype in types.items():
-                    try:
+                try:
+                    for key, rtype in types.items():
                         arrays[key] = [float(v) for v in self.g.getresults(obj, phase, rtype, 'node')]
-                    except Exception as exc:
-                        raise ExportError(f'{name_of(obj)}, {name_of(phase)}: нет результата {key.upper()} ({exc})')
+                except Exception as exc:
+                    # Not active in this phase: Output has no results for it.
+                    if skip_inactive:
+                        continue
+                    raise ExportError(f'{name_of(obj)}, {name_of(phase)}: нет результата ({exc})')
+                if skip_inactive and not arrays['x']:
+                    continue
                 sizes = {len(a) for a in arrays.values()}
                 if len(sizes) != 1 or not arrays['x']:
                     raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул массивы разной длины или пустые')
@@ -121,7 +169,56 @@ class Output:
         }
 
 
-def connect(port):
+def from_input(g_i, connector, output_port=None):
+    """Selected structures of Input, results of all non-Safety phases read from Output."""
+    selected = []
+    try:
+        items = list(g_i.selection)
+    except Exception:
+        items = []
+    for obj in items:
+        found = feature_of(obj)
+        if found and found not in selected:
+            selected.append(found)
+    if not selected:
+        raise ExportError('В PLAXIS Input не выделены Plate или Embedded beam row. '
+                          'Выделите сваю или стену (можно несколько участков одной вертикали) и повторите.')
+    if len({kind for kind, _ in selected}) != 1:
+        raise ExportError('Выделены элементы разных типов: выберите только Plate или только Embedded beam row')
+    phases = list(g_i.Phases)
+    used = [p for p in phases if not is_safety(p)]
+    if not used:
+        raise ExportError('В проекте нет фаз, кроме Safety')
+    if output_port is None:
+        try:
+            output_port = int(g_i.view(used[-1]))
+        except Exception as exc:
+            raise ExportError(f'Input не открыл Output ({exc}). Проект должен быть рассчитан и сохранён; '
+                              'либо откройте Output вручную и укажите его порт.')
+    output = Output(connector(output_port))
+    names = [name for _, name in selected]
+    object_ids = [i for i, (kind, obj, _) in enumerate(output.objects)
+                  if kind == selected[0][0] and any(matches(name_of(obj), n) for n in names)]
+    if not object_ids:
+        raise ExportError('В Output не найдены выбранные элементы: ' + ', '.join(names))
+    wanted = {name_of(p) for p in used}
+    phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted and not is_safety(p)]
+    result = output.extract(object_ids, phase_ids, skip_inactive=True)
+    with_data = {d['phase'] for d in result['data']}
+    types = {name_of(p): calc_type(p) for p in phases}
+    for ph in result['phases']:
+        ph['calc_type'] = types.get(ph['name'])
+    result['phases'] = [ph for ph in result['phases'] if ph['id'] in with_data]
+    result['selection'] = names
+    result['excluded_phases'] = [{'name': name_of(p), 'title': text(p, 'Identification'), 'calc_type': calc_type(p)}
+                                 for p in phases if is_safety(p)]
+    result['inactive_phases'] = [name_of(output.phases[i]) for i in phase_ids if i not in with_data]
+    if not result['data']:
+        raise ExportError('Выбранные элементы не активны ни в одной рассчитанной фазе')
+    return result
+
+
+def connect(port, program='Output'):
     try:
         from plxscripting.easy import new_server
     except ImportError:
@@ -131,18 +228,22 @@ def connect(port):
         _, g = new_server('localhost', port, password=password)
         list(g.Phases)
     except Exception as exc:
-        raise ExportError(f'Нет связи с PLAXIS Output на порту {port}: {exc}. '
-                          'Откройте результаты в Output и включите Expert → Configure remote scripting server.')
+        raise ExportError(f'Нет связи с PLAXIS {program} на порту {port}: {exc}. '
+                          f'В {program}: Expert → Configure remote scripting server — запустите сервер с этим портом и паролем.')
     return g
 
 
 def main(argv=None, connector=connect):
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=('catalog', 'extract'))
+    parser.add_argument('command', choices=('input', 'catalog', 'extract'))
     parser.add_argument('--port', type=int, required=True)
+    parser.add_argument('--output-port', type=int)
     parser.add_argument('--request')
     args = parser.parse_args(argv)
     try:
+        if args.command == 'input':
+            json.dump(from_input(connector(args.port, 'Input'), connector, args.output_port), sys.stdout)
+            return 0
         output = Output(connector(args.port))
         if args.command == 'catalog':
             result = output.catalog()

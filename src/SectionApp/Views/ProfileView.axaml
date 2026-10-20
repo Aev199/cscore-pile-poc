@@ -31,29 +31,37 @@
         <StackPanel Spacing="12">
           <Border Classes="card">
             <StackPanel Spacing="8">
-              <TextBlock Classes="cardTitle" Text="PLAXIS 2D Output" Margin="0" />
+              <TextBlock Classes="cardTitle" Text="PLAXIS 2D" Margin="0" />
               <TextBlock Classes="label" Text="Python из каталога PLAXIS" />
               <Grid ColumnDefinitions="*,6,Auto">
                 <TextBox Text="{Binding PythonPath}" Watermark="…\PLAXIS Python Distribution\python\python.exe" />
                 <Button Grid.Column="2" Content="…" Command="{Binding BrowsePythonCommand}" />
               </Grid>
-              <Grid ColumnDefinitions="90,8,*,8,Auto">
-                <StackPanel><TextBlock Classes="label" Text="Порт" /><TextBox Text="{Binding Port}" /></StackPanel>
+              <Grid ColumnDefinitions="90,8,*">
+                <StackPanel><TextBlock Classes="label" Text="Порт Input" /><TextBox Text="{Binding InputPort}" /></StackPanel>
                 <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Пароль" /><TextBox Text="{Binding Password}" PasswordChar="●" /></StackPanel>
-                <Button Grid.Column="4" VerticalAlignment="Bottom" Content="Подключиться" Command="{Binding ConnectCommand}" />
               </Grid>
-              <Border Classes="tableFrame" MaxHeight="170" IsVisible="{Binding HasObjects}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                  <ItemsControl ItemsSource="{Binding Objects}" Margin="8,4">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:PlaxisObjectViewModel">
-                        <CheckBox IsChecked="{Binding Selected}"><TextBlock Text="{Binding Label}" /></CheckBox>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </ScrollViewer>
-              </Border>
-              <Button Content="Загрузить усилия" Command="{Binding LoadForcesCommand}" HorizontalAlignment="Left" />
+              <Button Classes="primary" Content="Загрузить выделенное в Input" Command="{Binding LoadSelectionCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      ToolTip.Tip="Выделите в Input сваю (Embedded beam row) или стену (Plate). Output откроется сам; фазы Safety не учитываются." />
+              <CheckBox IsChecked="{Binding ShowOutputDirect}" Content="Из открытого Output вручную" />
+              <StackPanel Spacing="8" IsVisible="{Binding ShowOutputDirect}">
+                <Grid ColumnDefinitions="90,8,*">
+                  <StackPanel><TextBlock Classes="label" Text="Порт Output" /><TextBox Text="{Binding Port}" /></StackPanel>
+                  <Button Grid.Column="2" VerticalAlignment="Bottom" Content="Подключиться" Command="{Binding ConnectCommand}" />
+                </Grid>
+                <Border Classes="tableFrame" MaxHeight="170" IsVisible="{Binding HasObjects}">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Objects}" Margin="8,4">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PlaxisObjectViewModel">
+                          <CheckBox IsChecked="{Binding Selected}"><TextBlock Text="{Binding Label}" /></CheckBox>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Border>
+                <Button Content="Загрузить усилия" Command="{Binding LoadForcesCommand}" HorizontalAlignment="Left" />
+              </StackPanel>
               <TextBlock Classes="hint" Text="{Binding SourceText}" />
             </StackPanel>
           </Border>

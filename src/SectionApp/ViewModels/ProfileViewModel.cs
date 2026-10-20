@@ -80,6 +80,7 @@ public partial class ProfileViewModel : ObservableObject
         var settings = AppSettings.Load();
         pythonPath = settings.PlaxisPython ?? PlaxisBridge.FindPython().FirstOrDefault() ?? "";
         port = settings.PlaxisPort.ToString(CultureInfo.InvariantCulture);
+        inputPort = settings.PlaxisInputPort.ToString(CultureInfo.InvariantCulture);
         LoadSettings();
     }
 
@@ -94,6 +95,8 @@ public partial class ProfileViewModel : ObservableObject
     // ---- connection ----
     [ObservableProperty] string pythonPath;
     [ObservableProperty] string port;
+    [ObservableProperty] string inputPort;
+    [ObservableProperty] bool showOutputDirect;
     [ObservableProperty] string password = "";
     public ObservableCollection<PlaxisObjectViewModel> Objects { get; } = [];
     public ObservableCollection<PhaseRowViewModel> Phases { get; } = [];
@@ -114,7 +117,7 @@ public partial class ProfileViewModel : ObservableObject
     // ---- state ----
     [ObservableProperty] Bitmap? chart;
     public ObservableCollection<StationRowViewModel> Stations { get; } = [];
-    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(LoadForcesCommand), nameof(CalculateCommand), nameof(ExportRevitCommand))]
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(LoadSelectionCommand), nameof(LoadForcesCommand), nameof(CalculateCommand), nameof(ExportRevitCommand))]
     bool isBusy;
     [ObservableProperty] double progress;
     [ObservableProperty] string status = "";
@@ -218,10 +221,35 @@ public partial class ProfileViewModel : ObservableObject
         if (files.Count > 0 && files[0].TryGetLocalPath() is string path) PythonPath = path;
     }
 
-    int? PortNumber()
+    int? PortNumber() => PortOf(Port, "Output");
+
+    int? PortOf(string text, string program)
     {
-        if (int.TryParse(Port.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int p) && p is > 0 and < 65536) return p;
-        Errors = "Порт Output — целое число от 1 до 65535"; return null;
+        if (int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int p) && p is > 0 and < 65536) return p;
+        Errors = $"Порт {program} — целое число от 1 до 65535"; return null;
+    }
+
+    void SaveSettings(int? input = null, int? output = null)
+    {
+        var s = AppSettings.Load();
+        s.PlaxisPython = PythonPath;
+        if (input is int i) s.PlaxisInputPort = i;
+        if (output is int o) s.PlaxisPort = o;
+        AppSettings.Save(s);
+    }
+
+    /// <summary>The pile or wall selected in PLAXIS Input; Input opens Output, Safety phases are left out.</summary>
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    async Task LoadSelection()
+    {
+        if (PortOf(InputPort, "Input") is not int port) return;
+        await Busy("PLAXIS: выделение в Input, результаты из Output…", async token =>
+        {
+            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, cancel: token);
+            SaveSettings(input: port);
+            Adopt(export);
+            Status = $"Загружено: {string.Join(", ", export.Selection)}";
+        });
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
@@ -231,7 +259,7 @@ public partial class ProfileViewModel : ObservableObject
         await Busy("Подключение к PLAXIS Output…", async token =>
         {
             catalog = await PlaxisBridge.Catalog(PythonPath, port, Password, token);
-            AppSettings.Save(new AppSettings { PlaxisPython = PythonPath, PlaxisPort = port });
+            SaveSettings(output: port);
             Objects.Clear();
             foreach (var o in catalog.Objects) Objects.Add(new PlaxisObjectViewModel(o));
             HasObjects = Objects.Count > 0;
@@ -306,7 +334,10 @@ public partial class ProfileViewModel : ObservableObject
         foreach (var ph in project.Phases)
             Phases.Add(new PhaseRowViewModel(ph, s.Phases.FirstOrDefault(x => x.Id == ph.Id)?.Label ?? ph.Name, Changed));
         HasPhases = Phases.Count > 0;
-        SourceText = $"{string.Join(", ", s.Objects.Select(o => o.Name))} · фаз {s.Phases.Count} · PLAXIS {s.Info.Version} · единицы {s.Info.UnitForce}, {s.Info.UnitLength}";
+        string selected = s.Selection.Count > 0 ? $"{string.Join(", ", s.Selection)} ({s.Objects.Count} уч.)" : string.Join(", ", s.Objects.Select(o => o.Name));
+        SourceText = $"{selected} · фаз {s.Phases.Count} · PLAXIS {s.Info.Version} · {s.Info.UnitForce}, {s.Info.UnitLength}"
+            + (s.ExcludedPhases.Count > 0 ? $"\nИсключены (Safety): {string.Join(", ", s.ExcludedPhases.Select(p => p.Name))}" : "")
+            + (s.InactivePhases.Count > 0 ? $"\nЭлемент не активен: {string.Join(", ", s.InactivePhases)}" : "");
     }
 
     // ---- calculation ----
@@ -423,6 +454,7 @@ public sealed class AppSettings
 {
     public string? PlaxisPython { get; set; }
     public int PlaxisPort { get; set; } = 10001;
+    public int PlaxisInputPort { get; set; } = 10000;
 
     static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SectionApp", "settings.json");
 
