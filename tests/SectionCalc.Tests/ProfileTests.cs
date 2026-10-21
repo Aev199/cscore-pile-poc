@@ -487,4 +487,21 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.Equal("check", (string)json["mode"]!);
         Assert.Equal("wall_2d", (string)json["scenario"]!);
     }
+
+    [Fact]
+    public void PileAreaIsBoundByTheRingNotByTheGivenBarsAndAswIsFound()
+    {
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.Section.Pile.BarCount = 6;
+        p.Section.Conditions.ShearCheck = true;
+        p.Section.Conditions.ShearModelConfirmed = true;
+        p.UseSource(WallExport("EmbeddedBeamRow", depth: 12));
+        p.Settings.PileSpacingM = 4.5;
+        p.Settings.StationStepM = 6;
+        var r = RequiredReinforcement.Run(p);
+        double sixBars = 6 * Math.PI * 40 * 40 / 4;
+        output.WriteLine(string.Join("; ", r.Stations.Select(st => $"{st.Station.Level}: {st.AsRightMm2 / 100:0.0} {st.Status} Asw {st.AswCm2PerM} {st.Note}")));
+        Assert.Contains(r.Stations, st => st.Status == "ok" && st.AsRightMm2 > sixBars);
+        Assert.All(r.Stations.Where(st => st.Status is "ok" or "minimum"), st => Assert.NotNull(st.AswCm2PerM));
+    }
 }

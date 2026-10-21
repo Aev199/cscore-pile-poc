@@ -137,6 +137,11 @@
                 <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="kдл" /><TextBox Text="{Binding SustainedShare}" /></StackPanel>
               </Grid>
               <CheckBox IsChecked="{Binding IgnoreAxialForce}" Content="Не учитывать N (N = 0)" ToolTip.Tip="В запас при изгибе, когда N ограждения не определено" />
+              <CheckBox IsChecked="{Binding ShearCheck}" Content="Поперечная арматура (проверка Q)" ToolTip.Tip="Подбор Asw/sw при заданном шаге и числе ветвей (свая — спираль); в проверке — проверка заданных хомутов" />
+              <StackPanel IsVisible="{Binding ShearCheck}" Margin="26,0,0,0" Spacing="4">
+                <CheckBox IsChecked="{Binding ShearConfirmed}" Content="Конструктивные требования выполнены" ToolTip.Tip="Без подтверждения программа Q не проверяет" />
+                <TextBlock Classes="hint" Text="{Binding ShearText}" TextWrapping="Wrap" />
+              </StackPanel>
               <Expander Header="Единицы и знак M" Padding="0,6,0,0" HorizontalAlignment="Stretch">
                 <StackPanel Spacing="8">
                   <Grid ColumnDefinitions="*,12,*">

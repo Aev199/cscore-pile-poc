@@ -184,6 +184,19 @@ public partial class ProfileViewModel : ObservableObject
     public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
     [ObservableProperty] bool confirmed;
     public bool IsWall => Scenario == ProfileScenario.Wall;
+    /// <summary>The Q check of the section module: with it the required Asw/sw is found along the element.</summary>
+    public bool ShearCheck
+    {
+        get => main.ShearCheck;
+        set { if (main.ShearCheck == value) return; main.ShearCheck = value; OnPropertyChanged(); Changed(); }
+    }
+    /// <summary>Constructive requirements of the transverse bars confirmed: without it Q is not checked.</summary>
+    public bool ShearConfirmed
+    {
+        get => main.ShearConfirmed;
+        set { if (main.ShearConfirmed == value) return; main.ShearConfirmed = value; OnPropertyChanged(); Changed(); }
+    }
+    public string ShearText => $"Шаг {main.ShearPitch} мм" + (IsWall ? $", ветвей {main.StirrupLegs}" : ", спираль") + " — в режиме «Сечение» → Расчёт";
     [ObservableProperty] string sectionText = "";
 
     // ---- state ----
@@ -229,6 +242,7 @@ public partial class ProfileViewModel : ObservableObject
     partial void OnScenarioIndexChanged(int value)
     {
         main.IsPile = Scenario != ProfileScenario.Wall;
+        OnPropertyChanged(nameof(ShearText));
         if (!loading) Changed();
     }
 
@@ -350,8 +364,12 @@ public partial class ProfileViewModel : ObservableObject
         {
             // Progress of the script: the current step, so that a slow or stuck PLAXIS call is seen.
             var log = new Progress<string>(line => { lastStep = line; Status = "PLAXIS " + line; });
-            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ForcesIndex == 1, cancel: token, log: ((IProgress<string>)log).Report);
-            SaveSettings(input: port);
+            // An Output left open by the previous load is reused: opening it again loads the whole model.
+            int? reuse = int.TryParse(Port, NumberStyles.Integer, CultureInfo.InvariantCulture, out int last) ? last : null;
+            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ForcesIndex == 1, cancel: token,
+                log: ((IProgress<string>)log).Report, reuseOutputPort: reuse);
+            if (export.OutputPort is int used) Port = used.ToString(CultureInfo.InvariantCulture);
+            SaveSettings(input: port, output: export.OutputPort);
             Adopt(export);
             Status = $"Загружено: {string.Join(", ", export.Selection)}";
         });

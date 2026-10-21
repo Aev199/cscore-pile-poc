@@ -480,7 +480,21 @@ class Output:
         }
 
 
-def from_input(g_i, connector, output_port=None, per_phase=False):
+def open_output(connector, port, rows, selected):
+    """An Output already open (the last one used): None if it does not answer at once or shows another model."""
+    try:
+        output = Output(connector(port, 'Output (открытый)'))
+        if len(output.phases) > len(rows):
+            raise ExportError(f'фаз в Output {len(output.phases)}, в Input {len(rows)}')
+        resolve(output, selected)
+    except Exception as exc:
+        log(f'Открытый Output на порту {port} не подходит ({exc}) — Output откроется заново')
+        return None
+    log(f'Используется уже открытый Output на порту {port}')
+    return output
+
+
+def from_input(g_i, connector, output_port=None, per_phase=False, reuse_port=None):
     """Selected structures of Input, results of all non-Safety phases read from Output."""
     selected = []
     try:
@@ -505,18 +519,22 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     log('Input: типы расчёта: ' + '; '.join(f'{r.name} {r.raw or "?"}' for r in rows))
     if not used:
         raise ExportError('В проекте нет фаз, кроме Safety')
-    if output_port is None:
+    output = open_output(connector, reuse_port, rows, selected) if output_port is None and reuse_port else None
+    if output is not None:
+        output_port = reuse_port
+    elif output_port is None:
         log(f'Input: открытие Output на фазе {name_of(used[-1])}')
         try:
             output_port = int(g_i.view(used[-1]))
         except Exception as exc:
             raise ExportError(f'Input не открыл Output ({exc}). Проект должен быть рассчитан и сохранён; '
                               'либо откройте Output вручную и укажите его порт.')
-    log(f'Output: подключение к порту {output_port}')
-    output = Output(connector(output_port))
+    if output is None:
+        output = Output(connector(output_port))
     log(f'Output: {"3D" if output.is3d else "2D"}, конструкций {len(output.objects)}, фаз {len(output.phases)}')
     envelope = None if per_phase else envelope_from_input(output, rows, selected)
     if envelope is not None:
+        envelope['output_port'] = output_port
         return envelope
     names = [name for _, name in selected]
     kind, resolved = resolve(output, selected)
@@ -544,6 +562,7 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     result['inactive_phases'] = [output.phase_label(i)[0] for i in phase_ids if i not in with_data]
     if not result['data']:
         raise ExportError('Выбранные элементы не активны ни в одной рассчитанной фазе')
+    result['output_port'] = output_port
     return result
 
 
@@ -705,7 +724,7 @@ KINDS_BY_NAME = [(kind, groups) for kind, _, groups in KINDS + KINDS3D]
 
 
 # Input answers at once; Output opened by Input first loads the project (a large 3D model — a minute or more).
-CONNECT_SECONDS = {'Input': 30, 'Output': 180}
+CONNECT_SECONDS = {'Input': 30, 'Output': 180, 'Output (открытый)': 10}
 
 
 def connect(port, program='Output'):
@@ -741,10 +760,11 @@ def main(argv=None, connector=connect):
     parser.add_argument('--output-port', type=int)
     parser.add_argument('--request')
     parser.add_argument('--per-phase', action='store_true', help='read every phase instead of the Output envelopes')
+    parser.add_argument('--reuse-output-port', type=int, help='try an Output already open on this port first')
     args = parser.parse_args(argv)
     try:
         if args.command == 'input':
-            json.dump(from_input(connector(args.port, 'Input'), connector, args.output_port, args.per_phase), sys.stdout)
+            json.dump(from_input(connector(args.port, 'Input'), connector, args.output_port, args.per_phase, args.reuse_output_port), sys.stdout)
             return 0
         output = Output(connector(args.port))
         if args.command == 'catalog':
@@ -761,9 +781,9 @@ def main(argv=None, connector=connect):
 
 
 if __name__ == '__main__':
-    # A stuck PLAXIS call: the Python stack goes to the log once after 45 s, so that the step is known.
+    # A stuck PLAXIS call: the Python stack goes to the log once after 5 min, so that the step is known.
     try:
-        faulthandler.dump_traceback_later(45, repeat=False, file=sys.stderr)
+        faulthandler.dump_traceback_later(300, repeat=False, file=sys.stderr)
     except (AttributeError, ValueError, OSError):
         pass
     sys.exit(main())

@@ -34,7 +34,7 @@ public static class RequiredReinforcement
         section.Conditions.ElementLengthM = Math.Max(0.1, Math.Round(forces.Length, 3));
         // A wall from Plate is a strip of a plane-strain model: it bends only in its own plane.
         section.Conditions.OnePlane = section.Kind == SectionKind.Wall;
-        FixLayout(section);
+        FixLayout(section, project.Settings.MaxBarDiameterMm);
         var problems = RequestBuilder.Validate(WithLoads(section, [new LoadRow { Name = "проверка", N = -1 }]));
         if (problems.Count > 0) throw new InvalidOperationException("Сечение: " + string.Join("; ", problems));
         var faces = Faces(section, project.Settings);
@@ -118,9 +118,24 @@ public static class RequiredReinforcement
     /// The required area does not depend on the bars given in the section: the bar axes (cover, reference diameter,
     /// rows) are fixed, and a reference grid of bars carries the area being searched.
     /// </summary>
-    static void FixLayout(SectionProject s)
+    static void FixLayout(SectionProject s, double maxDiameter)
     {
-        if (s.Kind == SectionKind.Pile) { s.Pile.FixedAxisMm = s.Pile.AxisDistanceMm; return; }
+        if (s.Kind == SectionKind.Pile)
+        {
+            s.Pile.FixedAxisMm = s.Pile.AxisDistanceMm;
+            // The upper bound of the search is what the ring holds: as many of the largest bars as fit, not the
+            // bar count given in the section.
+            var probe = Clone(s);
+            probe.Pile.BarDiameterMm = maxDiameter;
+            int n = Math.Max(s.Pile.BarCount, 4);
+            probe.Pile.BarCount = n;
+            if (RequestBuilder.Layout(probe).Fits)
+            {
+                while (n < 200) { probe.Pile.BarCount = n + 1; if (!RequestBuilder.Layout(probe).Fits) break; n++; }
+                s.Pile.BarCount = n;
+            }
+            return;
+        }
         var w = s.Wall;
         int bars = ReferenceBars(w);
         foreach (var face in new[] { w.PositiveFace, w.NegativeFace })
@@ -261,7 +276,8 @@ public static class RequiredReinforcement
         string? note = best is null
             ? (indeterminate ? "Расчёт ядра не сошёлся" : "Не обеспечивается при наибольшем диаметре стержней")
             : evaluations >= MaxEvaluations && !search.All(s => s.Settled) ? "Подбор остановлен по числу итераций, площадь в запас" : null;
-        double? asw = section.Conditions.ShearCheck && best is not null
+        // Asw also where the longitudinal bars are not enough: with the largest area.
+        double? asw = section.Conditions.ShearCheck && (best is not null || !indeterminate)
             ? Shear(section, station, faces, areas, cancel, ref note) : null;
         return new StationResult(station, areas[0], areas.Length > 1 ? areas[1] : 0, asw, status, g?.Title, g?.Combination, g?.Utilization, note, evaluations);
     }

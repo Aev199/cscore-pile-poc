@@ -86,6 +86,8 @@ public sealed class PlaxisExport
     [JsonPropertyName("moment_sign")] public MomentSignHint? MomentSign { get; set; }
     /// <summary>Phases in which the selected structure is not active.</summary>
     [JsonPropertyName("inactive_phases")] public List<string> InactivePhases { get; set; } = [];
+    /// <summary>Port of the Output the results were read from: tried first next time instead of opening Output again.</summary>
+    [JsonPropertyName("output_port")] public int? OutputPort { get; set; }
 }
 
 /// <summary>
@@ -120,11 +122,12 @@ public static class PlaxisBridge
     /// Structures selected in PLAXIS Input; Input opens Output and the results of every phase except Safety are read.
     /// </summary>
     public static async Task<PlaxisExport> FromInput(string python, int inputPort, string password, int? outputPort = null,
-        bool perPhase = false, CancellationToken cancel = default, Action<string>? log = null)
+        bool perPhase = false, CancellationToken cancel = default, Action<string>? log = null, int? reuseOutputPort = null)
     {
         var args = new List<string> { "input", "--port", inputPort.ToString() };
         if (outputPort is int o) { args.Add("--output-port"); args.Add(o.ToString()); }
         if (perPhase) args.Add("--per-phase");
+        if (outputPort is null && reuseOutputPort is int r) { args.Add("--reuse-output-port"); args.Add(r.ToString()); }
         return Parse(await Run(python, args.ToArray(), password, cancel, log));
     }
 

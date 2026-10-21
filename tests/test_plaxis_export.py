@@ -562,6 +562,26 @@ class Group3DTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertEqual(len(result['data']), 6)
 
+    def test_open_output_is_reused(self):
+        g_i = tree_input(self.selection())
+        output = WholeModel3DOutput()
+        connections = {10000: g_i, 10002: output}
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = plaxis_export.main(['input', '--port', '10000', '--reuse-output-port', '10002'],
+                                      connector=lambda port, program='Output': connections[port])
+        result = json.loads(out.getvalue())
+        self.assertEqual(code, 0, result)
+        self.assertIsNone(g_i.viewed)
+        self.assertEqual(result['output_port'], 10002)
+        # Nothing answers on the remembered port: Input opens Output as usual.
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = plaxis_export.main(['input', '--port', '10000', '--reuse-output-port', '10009'],
+                                      connector=lambda port, program='Output': connections[port])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIsNotNone(g_i.viewed)
+
     def test_walls_are_not_supported_in_3d(self):
         output = Fake3DOutput()
         output.Plates = [SimpleNamespace(Name=value('Plate_1'))]
