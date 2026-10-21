@@ -401,6 +401,10 @@ class SafetyDetectionTests(unittest.TestCase):
         self.assertTrue(plaxis_export.is_safety(by_loading))
         self.assertFalse(plaxis_export.is_safety(plastic))
         self.assertEqual(plaxis_export.PhaseRow(by_loading).calc_type, 'Safety')
+        # PLAXIS 3D: the type as a number, 7 — Safety.
+        self.assertTrue(plaxis_export.is_safety(SimpleNamespace(Name=value('Phase_18'), DeformCalcType=value(7))))
+        self.assertFalse(plaxis_export.is_safety(SimpleNamespace(Name=value('Phase_1'), DeformCalcType=value(4))))
+        self.assertEqual(plaxis_export.calc_type(SimpleNamespace(DeformCalcType=value(3))), 'Initial (3)')
 
 
 class BusyServerTests(unittest.TestCase):
@@ -464,6 +468,49 @@ class Fake3DOutput(FakeOutputSplit):
         return values
 
 
+class WholeModel3DOutput(Fake3DOutput):
+    """PLAXIS 3D Output that gives phases by name (g_o.Phase_2) and results of the whole model at once.
+    Reading a phase name is forbidden: it is slow in a large model. EmbeddedBeam_3 stands elsewhere (x = 9)."""
+
+    class Phase:
+        def __init__(self, name):
+            object.__setattr__(self, 'key', name)
+
+        def __getattr__(self, item):
+            raise AssertionError('phase property read: ' + item)
+
+    def __init__(self):
+        super().__init__()
+        self.by_name = {n: self.Phase(n) for n in ('InitialPhase', 'Phase_1', 'Phase_2', 'Phase_3', 'Phase_4')}
+        self.Phases = list(self.by_name.values())
+        self.whole = 0
+
+    def __getattr__(self, item):
+        if item.startswith('Phase_') or item == 'InitialPhase':
+            return self.__dict__['by_name'][item]
+        raise AttributeError(item)
+
+    def one(self, obj, phase, rtype):
+        if phase.key == 'InitialPhase':
+            raise RuntimeError('Object is not active in this phase')
+        shim = SimpleNamespace(Name=value(phase.key))
+        values = Fake3DOutput.getresults(self, obj, shim, rtype, 'node')
+        return [9.0] * len(values) if obj is self.p3 and rtype.split('_')[0] == 'X' else values
+
+    def getresults(self, *args):
+        if len(args) == 4:
+            return self.one(*args[:3])
+        phase, rtype, _ = args
+        self.whole += 1
+        out = []
+        for obj in self.EmbeddedBeams:
+            try:
+                out += self.one(obj, phase, rtype)
+            except RuntimeError:
+                pass
+        return out
+
+
 class Group3DTests(unittest.TestCase):
     def run_tree(self, output, selection, *extra):
         g_i = tree_input(selection)
@@ -497,7 +544,23 @@ class Group3DTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertNotIn('mode', result)
         self.assertEqual(result['columns'], ['x', 'y', 'z', 'n', 'm2', 'm3', 'q12', 'q13'])
-        self.assertEqual({d['phase'] for d in result['data']}, {1, 2, 4})
+        names = {p['id']: p['name'] for p in result['phases']}
+        self.assertEqual({names[d['phase']] for d in result['data']}, {'Phase_1', 'Phase_2', 'Phase_4'})
+
+    def test_whole_model_is_read_at_once_and_phases_by_name(self):
+        output = WholeModel3DOutput()
+        code, result = self.run_tree(output, self.selection())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result['mode'], 'envelope')
+        # One data row per pile and branch: pile 1 joins its two segments (6 nodes), pile 3 is not taken.
+        self.assertEqual(sorted(len(d['nodes']) for d in result['data']), [3, 3, 6, 6])
+        objects = {o['id']: o['pile'] for o in result['objects']}
+        self.assertEqual({objects[d['object']] for d in result['data']}, {'EmbeddedBeam_1', 'EmbeddedBeam_2'})
+        # 13 result types × 2 branches, nothing per segment beyond the plan position of each pile.
+        self.assertEqual(output.whole, 26)
+        code, result = self.run_tree(WholeModel3DOutput(), self.selection(), '--per-phase')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(len(result['data']), 6)
 
     def test_walls_are_not_supported_in_3d(self):
         output = Fake3DOutput()

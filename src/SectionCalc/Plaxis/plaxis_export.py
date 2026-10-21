@@ -91,31 +91,6 @@ def limited(fn, seconds, what):
     return box.get('value')
 
 
-def output_phase_names(output, wanted):
-    """
-    Output phases of the wanted Input names: {name: (index, phase)}. Every name is read with a time limit and
-    logged; the search stops when all wanted phases are found.
-    """
-    found, stuck = {}, 0
-    for i, phase in enumerate(output.phases):
-        try:
-            name = limited(lambda: name_of(phase), 20, f'имя фазы Output №{i}')
-            stuck = 0
-        except TimeoutError as exc:
-            log(str(exc))
-            stuck += 1
-            if stuck >= 2:
-                raise ExportError(f'PLAXIS Output не отвечает на чтение фаз (фаза №{i}). Журнал: стек вызовов Python в нём '
-                                  'показывает, где остановилось чтение.')
-            continue
-        log(f'Output: фаза №{i} — {name}')
-        if name in wanted:
-            found[name] = (i, phase)
-            if len(found) == len(wanted):
-                break
-    return found
-
-
 def first(obj, names):
     for name in names:
         try:
@@ -147,13 +122,24 @@ def raw_calc_types(phase):
     return found
 
 
+# PLAXIS 3D gives the deformation calculation type as a number: the order of the types in Input
+# (the initial ones first; then Plastic, Consolidation, Fully coupled, Safety, Dynamic …). Seen: 3 — initial,
+# 4 — plastic, 7 — Safety.
+CALC_NUMBERS = {4: 'Plastic', 5: 'Consolidation', 6: 'Fully coupled flow-deformation', 7: 'Safety',
+                8: 'Dynamic', 9: 'Dynamic with consolidation'}
+
+
 def calc_type(phase):
     found = raw_calc_types(phase)
     # A Safety type in any form wins (PLAXIS 3D may give it under another key or as a longer text).
     for value in found.values():
         if 'safety' in value.lower():
             return 'Safety'
-    return next(iter(found.values()), None)
+    value = next(iter(found.values()), None)
+    if value is not None and value.strip().isdigit():
+        number = int(value)
+        return CALC_NUMBERS.get(number, f'Initial ({number})' if number <= 3 else f'тип {number}')
+    return value
 
 
 def is_safety(phase):
@@ -391,9 +377,47 @@ class Output:
             for obj in items:
                 self.objects.append((kind, obj, types))
         self.phases = list(g.Phases)
+        # (name, title) of self.phases when they were taken by their Input names (see use_phases).
+        self.phase_labels = None
         if not self.objects:
             raise ExportError('В модели нет свай (Embedded beam / Beam) с результатами X, Y, Z, N, M2, M3, Q12, Q13' if self.is3d
                               else 'В модели нет Plate или Embedded Beam Row с результатами X, Y, N, M, Q')
+
+    def use_phases(self, rows):
+        """
+        The phases of the Input rows taken by name (g_o.Phase_3): reading the name of every Output phase loads all
+        its properties, which in a large 3D model takes seconds per phase.
+        """
+        phases, labels, by_name = [], [], None
+        for row in rows:
+            try:
+                phase = limited(lambda: getattr(self.g, row.name), 120, f'фаза {row.name} в Output')
+            except TimeoutError:
+                raise ExportError(f'PLAXIS Output не отвечает на запрос фазы {row.name}')
+            except Exception:
+                phase = None
+            if phase is None:
+                # No lookup by name: read the names of the Output phases (slow in a large model), once.
+                if by_name is None:
+                    log('Output: фазы по имени недоступны — чтение списка фаз')
+                    by_name = {}
+                    for i, p in enumerate(self.phases):
+                        try:
+                            by_name[limited(lambda: name_of(p), 60, f'имя фазы Output №{i}')] = p
+                        except TimeoutError:
+                            raise ExportError(f'PLAXIS Output не отвечает на чтение фазы №{i}')
+                phase = by_name.get(row.name)
+            if phase is None:
+                log(f'Фаза {row.name} не найдена в Output (не рассчитана?)')
+                continue
+            phases.append(phase)
+            labels.append((row.name, row.title))
+        self.phases, self.phase_labels = phases, labels
+
+    def phase_label(self, i):
+        if self.phase_labels is not None:
+            return self.phase_labels[i]
+        return name_of(self.phases[i]), text(self.phases[i], 'Identification')
 
     def info(self):
         general = getattr(self.g, 'GeneralInfo', None)
@@ -428,7 +452,7 @@ class Output:
             phase = self.phases[pi]
             for oi in object_ids:
                 kind, obj, types = self.objects[oi]
-                log(f'{name_of(phase)}: {name_of(obj)}')
+                log(f'{self.phase_label(pi)[0]}: {name_of(obj)}')
                 arrays = {}
                 try:
                     for key, rtype in types.items():
@@ -437,20 +461,20 @@ class Output:
                     # Not active in this phase: Output has no results for it.
                     if skip_inactive:
                         continue
-                    raise ExportError(f'{name_of(obj)}, {name_of(phase)}: нет результата ({exc})')
+                    raise ExportError(f'{name_of(obj)}, {self.phase_label(pi)[0]}: нет результата ({exc})')
                 if skip_inactive and not arrays['x']:
                     continue
                 sizes = {len(a) for a in arrays.values()}
                 if len(sizes) != 1 or not arrays['x']:
-                    raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул массивы разной длины или пустые')
+                    raise ExportError(f'{name_of(obj)}, {self.phase_label(pi)[0]}: PLAXIS вернул массивы разной длины или пустые')
                 nodes = [[arrays[k][i] for k in self.columns] for i in range(len(arrays['x']))]
                 if not all(math.isfinite(v) for row in nodes for v in row):
-                    raise ExportError(f'{name_of(obj)}, {name_of(phase)}: неконечные значения')
+                    raise ExportError(f'{name_of(obj)}, {self.phase_label(pi)[0]}: неконечные значения')
                 data.append({'object': oi, 'phase': pi, 'nodes': nodes})
         return {
             'info': self.info(),
             'objects': [self.object_row(i, piles) for i in object_ids],
-            'phases': [{'id': i, 'name': name_of(self.phases[i]), 'title': text(self.phases[i], 'Identification')} for i in phase_ids],
+            'phases': [{'id': i, 'name': self.phase_label(i)[0], 'title': self.phase_label(i)[1]} for i in phase_ids],
             'columns': self.columns,
             'data': data,
         }
@@ -498,10 +522,16 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     kind, resolved = resolve(output, selected)
     object_ids = [o[0] for o, _ in resolved]
     piles = {o[0]: pile for o, pile in resolved if pile is not None}
-    wanted = {r.name for r in rows if not r.safety}
-    phase_ids = sorted(i for i, _ in output_phase_names(output, wanted).values())
+    output.use_phases([r for r in rows if not r.safety])
+    phase_ids = list(range(len(output.phases)))
     log(f'Чтение по фазам: элементов {len(object_ids)}, фаз {len(phase_ids)}')
-    result = output.extract(object_ids, phase_ids, skip_inactive=True, piles=piles)
+    data = read_3d(output, phase_ids, resolved, {c: resolved[0][0][2][c] for c in output.columns}, output.columns) if output.is3d else None
+    if data is not None:
+        result = {'info': output.info(), 'objects': [output.object_row(i, piles) for i in object_ids],
+                  'phases': [{'id': i, 'name': output.phase_label(i)[0], 'title': output.phase_label(i)[1]} for i in phase_ids],
+                  'columns': output.columns, 'data': data}
+    else:
+        result = output.extract(object_ids, phase_ids, skip_inactive=True, piles=piles)
     with_data = {d['phase'] for d in result['data']}
     if kind == 'Plate' and with_data:
         result['moment_sign'] = moment_sign(output, [output.objects[i] for i in object_ids], output.phases[max(with_data)])
@@ -511,10 +541,73 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     result['phases'] = [ph for ph in result['phases'] if ph['id'] in with_data]
     result['selection'] = names
     result['excluded_phases'] = [r.info() for r in rows if r.safety]
-    result['inactive_phases'] = [name_of(output.phases[i]) for i in phase_ids if i not in with_data]
+    result['inactive_phases'] = [output.phase_label(i)[0] for i in phase_ids if i not in with_data]
     if not result['data']:
         raise ExportError('Выбранные элементы не активны ни в одной рассчитанной фазе')
     return result
+
+
+# A node belongs to a pile when it lies on the pile axis in plan.
+PILE_TOLERANCE = 0.05
+
+
+def extremes_text(columns, nodes):
+    keys = sorted({c.rsplit('_', 1)[0] for c in columns if c not in COORDS})
+    parts = []
+    for key in keys:
+        idx = [i for i, c in enumerate(columns) if c == key or c.startswith(key + '_')]
+        values = [row[i] for row in nodes for i in idx]
+        if values:
+            parts.append(f'{key} {min(values):.0f}…{max(values):.0f}')
+    return ', '.join(parts)
+
+
+def read_3d(output, phase_ids, resolved, rtypes, columns):
+    """
+    PLAXIS 3D: each result of the whole model in one request per phase (g_o.getresults(phase, type, 'node')),
+    the nodes of every selected pile taken by its axis in plan — instead of a request per Output segment and
+    result type. Returns the data rows, or None when Output does not give the whole model at once.
+    """
+    piles = {}
+    for o, pile in resolved:
+        piles.setdefault(pile, []).append(o)
+    xy, data = {}, []
+    for pi in phase_ids:
+        phase, name = output.phases[pi], output.phase_label(pi)[0]
+        for pile, objs in piles.items():
+            for oi, obj, t in objs if pile not in xy else []:
+                try:
+                    xs = [float(v) for v in output.g.getresults(obj, phase, t['x'], 'node')]
+                    ys = [float(v) for v in output.g.getresults(obj, phase, t['y'], 'node')]
+                except Exception:
+                    continue
+                if xs:
+                    xy[pile] = (sum(xs) / len(xs), sum(ys) / len(ys))
+                    break
+        started = time.time()
+        try:
+            arrays = {c: [float(v) for v in output.g.getresults(phase, rtypes[c], 'node')] for c in columns}
+        except Exception as exc:
+            if not data:
+                log(f'Output не отдаёт результаты всей модели ({exc}) — чтение по элементам')
+                return None
+            log(f'{name}: нет результатов ({exc})')
+            continue
+        n = len(arrays['x'])
+        if len({len(a) for a in arrays.values()}) != 1:
+            raise ExportError(f'{name}: PLAXIS вернул массивы разной длины')
+        log(f'{name}: вся модель — {n} узлов за {time.time() - started:.1f} с')
+        for pile, (px, py) in xy.items():
+            nodes = [[arrays[c][i] for c in columns] for i in range(n)
+                     if math.hypot(arrays['x'][i] - px, arrays['y'][i] - py) <= PILE_TOLERANCE]
+            if not nodes:
+                continue
+            if not all(math.isfinite(v) for row in nodes for v in row):
+                raise ExportError(f'{pile}, {name}: неконечные значения')
+            zs = [row[columns.index('z')] for row in nodes]
+            log(f'  {pile}: {len(nodes)} узлов, отм. {max(zs):.2f}…{min(zs):.2f}, {extremes_text(columns, nodes)}')
+            data.append({'object': piles[pile][0][0], 'phase': pi, 'nodes': nodes})
+    return data
 
 
 def envelope_from_input(output, rows, selected):
@@ -538,11 +631,28 @@ def envelope_from_input(output, rows, selected):
     objects = [o for o, _ in resolved]
     piles = {o[0]: pile for o, pile in resolved if pile is not None}
     columns = output.envelope_columns
-    out_phases = output_phase_names(output, {leaf.name for leaf, _ in branches})
+    output.use_phases([leaf for leaf, _ in branches])
+    out_phases = {output.phase_label(i)[0]: (i, phase) for i, phase in enumerate(output.phases)}
     data, phase_rows, inactive = [], [], []
+    # PLAXIS 3D: every result of the whole model at once, the piles found by their place in plan.
+    if output.is3d:
+        rtypes = {c: objects[0][2][c] for c in COORDS if c in objects[0][2]}
+        rtypes.update({key: rtype for key, (rtype, _) in types.items()})
+        whole = read_3d(output, list(range(len(output.phases))), resolved, rtypes, columns)
+        if whole is not None:
+            got = {d['phase'] for d in whole}
+            for leaf, covered in branches:
+                if leaf.name not in out_phases:
+                    continue
+                pi = out_phases[leaf.name][0]
+                if pi in got:
+                    phase_rows.append({'id': pi, 'name': leaf.name, 'title': leaf.title, 'calc_type': leaf.calc_type, 'covers': covered})
+                else:
+                    inactive.append(leaf.name)
+            data = whole
+            branches = []
     for leaf, covered in branches:
         if leaf.name not in out_phases:
-            log(f'Фаза {leaf.name} не найдена в Output')
             continue
         pi, phase = out_phases[leaf.name]
         got = False
@@ -563,16 +673,16 @@ def envelope_from_input(output, rows, selected):
             zs = arrays.get('z') or arrays.get('y') or [0.0]
             log(f'  {name_of(obj)}: {len(arrays["x"])} узлов, отм. {max(zs):.2f}…{min(zs):.2f}, {span} ({time.time() - started:.1f} с)')
             if len({len(a) for a in arrays.values()}) != 1 or not arrays['x']:
-                raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул огибающие разной длины')
+                raise ExportError(f'{name_of(obj)}, {leaf.name}: PLAXIS вернул огибающие разной длины')
             nodes = [[arrays[c][i] for c in columns] for i in range(len(arrays['x']))]
             if not all(math.isfinite(v) for row in nodes for v in row):
-                raise ExportError(f'{name_of(obj)}, {name_of(phase)}: неконечные значения огибающей')
+                raise ExportError(f'{name_of(obj)}, {leaf.name}: неконечные значения огибающей')
             data.append({'object': oi, 'phase': pi, 'nodes': nodes})
             got = True
         if got:
             phase_rows.append({'id': pi, 'name': leaf.name, 'title': leaf.title, 'calc_type': leaf.calc_type, 'covers': covered})
         else:
-            inactive.append(name_of(phase))
+            inactive.append(leaf.name)
     if not data:
         raise ExportError('Выбранные элементы не активны в конечных фазах расчёта')
     sign = moment_sign(output, objects, out_phases[phase_rows[0]['name']][1]) if kind == 'Plate' else None
