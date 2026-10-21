@@ -132,8 +132,25 @@ def previous(phase):
 
 
 def matches(output_name, input_name):
-    # Output splits a structure by the mesh: Plate_1 becomes Plate_1_1, Plate_1_2, ...
-    return output_name == input_name or output_name.startswith(input_name + '_')
+    # Staged construction splits a structure: Plate_1 becomes Plate_1_1, Plate_1_2, ... Output may list
+    # the segments or only their parent Plate_1; either side may be the selected one.
+    return (output_name == input_name or output_name.startswith(input_name + '_')
+            or input_name.startswith(output_name + '_'))
+
+
+def select_objects(output, kind, names):
+    """Output objects of the selection: exact names if Output lists them, otherwise parents or segments."""
+    same_kind = [(i, obj, t) for i, (k, obj, t) in enumerate(output.objects) if k == kind]
+    exact = [o for o in same_kind if name_of(o[1]) in names]
+    found = exact or [o for o in same_kind if any(matches(name_of(o[1]), n) for n in names)]
+    # A parent already contains its segments: keep the outermost objects only.
+    found = [o for o in found if not any(name_of(o[1]).startswith(name_of(p[1]) + '_') for p in found if p is not o)]
+    if not found:
+        listed = [name_of(obj) for _, obj, _ in same_kind]
+        shown = ', '.join(listed[:15]) + (' …' if len(listed) > 15 else '')
+        raise ExportError('В Output не найдены выбранные элементы: ' + ', '.join(names[:5]) + (' …' if len(names) > 5 else '')
+                          + f'. Output видит ({kind}): ' + (shown or 'ничего'))
+    return found
 
 
 class Output:
@@ -240,10 +257,7 @@ def from_input(g_i, connector, output_port=None):
     if envelope is not None:
         return envelope
     names = [name for _, name in selected]
-    object_ids = [i for i, (kind, obj, _) in enumerate(output.objects)
-                  if kind == selected[0][0] and any(matches(name_of(obj), n) for n in names)]
-    if not object_ids:
-        raise ExportError('В Output не найдены выбранные элементы: ' + ', '.join(names))
+    object_ids = [i for i, _, _ in select_objects(output, selected[0][0], names)]
     wanted = {name_of(p) for p in used}
     phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted and not is_safety(p)]
     result = output.extract(object_ids, phase_ids, skip_inactive=True)
@@ -288,9 +302,7 @@ def envelope_from_input(output, phases, used, selected):
             return None
         branches.append((leaf, [name_of(p) for p in reversed(chain) if name_of(p) in used_names]))
     names = [name for _, name in selected]
-    objects = [(i, obj, t) for i, (k, obj, t) in enumerate(output.objects) if k == kind and any(matches(name_of(obj), n) for n in names)]
-    if not objects:
-        raise ExportError('В Output не найдены выбранные элементы: ' + ', '.join(names))
+    objects = select_objects(output, kind, names)
     out_phases = {name_of(p): (i, p) for i, p in enumerate(output.phases)}
     data, phase_rows, inactive = [], [], []
     for leaf, covered in branches:

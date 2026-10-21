@@ -202,6 +202,45 @@ def tree_input(selection):
     return g_i
 
 
+class ParentOnlyOutput(FakeOutputEnvelope):
+    """Output that lists only the parent Plate_1 (the tree shows its segments Plate_1_1…)."""
+
+    def __init__(self):
+        super().__init__()
+        self.plate = SimpleNamespace(Name=value('Plate_1'))
+        self.Plates = [self.plate, SimpleNamespace(Name=value('Plate_2'))]
+
+
+class SegmentTests(unittest.TestCase):
+    def test_selected_segments_are_read_through_their_parent(self):
+        output = ParentOnlyOutput()
+        segments = [SimpleNamespace(Name=value(f'Plate_1_{i}'), _plx_type='Plate') for i in range(1, 36)]
+        code, result, _ = run_input(segments, output)
+        self.assertEqual(code, 0, result)
+        self.assertEqual([o['name'] for o in result['objects']], ['Plate_1'])
+        self.assertEqual(len(result['selection']), 35)
+
+    def test_exact_segments_win_over_parent(self):
+        output = FakeOutputEnvelope()
+        output.Plates.insert(0, SimpleNamespace(Name=value('Plate_1')))
+        code, result, _ = run_input([SimpleNamespace(Name=value('Plate_1_1'), _plx_type='Plate')], output)
+        self.assertEqual(code, 0, result)
+        self.assertEqual([o['name'] for o in result['objects']], ['Plate_1_1'])
+
+    def test_parent_and_segments_are_not_read_twice(self):
+        output = FakeOutputEnvelope()
+        output.Plates.insert(0, SimpleNamespace(Name=value('Plate_1')))
+        code, result, _ = run_input([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')], output)
+        self.assertEqual(code, 0, result)
+        self.assertEqual([o['name'] for o in result['objects']], ['Plate_1'])
+
+    def test_missing_selection_lists_what_output_has(self):
+        segments = [SimpleNamespace(Name=value('Plate_7_1'), _plx_type='Plate')]
+        code, result, _ = run_input(segments, ParentOnlyOutput())
+        self.assertEqual(code, 1)
+        self.assertIn('Output видит (Plate): Plate_1, Plate_2', result['error'])
+
+
 class EnvelopeTests(unittest.TestCase):
     def run_tree(self, output, g_i):
         out = io.StringIO()
