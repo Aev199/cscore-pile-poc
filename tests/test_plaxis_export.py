@@ -325,6 +325,35 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(result['columns'], ['x', 'y', 'n', 'm', 'q'])
 
 
+class ProxyPhase:
+    """plxscripting proxy: every attribute access returns a new object; InitialPhase.PreviousPhase is itself."""
+
+    def __init__(self, name, previous, calc='Plastic'):
+        self.Name, self.Identification, self.DeformCalcType = value(name), value(name), value(calc)
+        self._previous = previous
+
+    @property
+    def PreviousPhase(self):
+        prev = self._previous() if self._previous else ProxyPhase(self.Name.value, None, self.DeformCalcType.value)
+        return ProxyPhase(prev.Name.value, prev._previous, prev.DeformCalcType.value)
+
+
+class SelfReferenceTests(unittest.TestCase):
+    def test_initial_phase_referring_to_itself_does_not_hang(self):
+        initial = ProxyPhase('InitialPhase', None, 'K0 procedure')
+        p1 = ProxyPhase('Phase_1', lambda: initial)
+        p2 = ProxyPhase('Phase_2', lambda: p1)
+        g_i = FakeInput([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')])
+        g_i.Phases = [initial, p1, p2]
+        output = FakeOutputEnvelope()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = plaxis_export.main(['input', '--port', '10000'], connector=lambda port, program='Output': {10000: g_i, 10002: output}[port])
+        result = json.loads(out.getvalue())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result['phases'][0]['covers'], ['InitialPhase', 'Phase_1', 'Phase_2'])
+
+
 class Fake3DOutput(FakeOutputSplit):
     """PLAXIS 3D Output: embedded beams EmbeddedBeam_1 (two segments) and EmbeddedBeam_2 at another place."""
 

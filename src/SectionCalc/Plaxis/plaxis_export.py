@@ -18,6 +18,15 @@ import json
 import math
 import os
 import sys
+import time
+
+STARTED = time.time()
+
+
+def log(message):
+    """Progress for the application: one line on stderr (stdout carries the JSON result)."""
+    sys.stderr.write(f'[{time.time() - STARTED:6.1f} s] {message}\n')
+    sys.stderr.flush()
 
 KINDS = (
     # kind, collections, result type groups
@@ -147,7 +156,8 @@ def previous(phase):
             prev = getattr(phase, key)
         except Exception:
             continue
-        if prev is not None and prev is not phase:
+        # The initial phase refers to itself; plxscripting returns a new proxy each time, so compare names.
+        if prev is not None and prev is not phase and name_of(prev) != name_of(phase):
             return prev
     return None
 
@@ -305,6 +315,7 @@ class Output:
             phase = self.phases[pi]
             for oi in object_ids:
                 kind, obj, types = self.objects[oi]
+                log(f'{name_of(phase)}: {name_of(obj)}')
                 arrays = {}
                 try:
                     for key, rtype in types.items():
@@ -348,17 +359,22 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
                           'Выделите стену или сваю (можно несколько участков одной вертикали; в 3D — группу свай) и повторите.')
     if len({kind for kind, _ in selected}) != 1:
         raise ExportError('Выделены элементы разных типов: выберите только Plate, только Embedded beam (row) или только Beam')
+    log('Input: выделено ' + ', '.join(name for _, name in selected))
     phases = list(g_i.Phases)
     used = [p for p in phases if not is_safety(p)]
+    log(f'Input: фаз {len(phases)}, из них Safety {len(phases) - len(used)}')
     if not used:
         raise ExportError('В проекте нет фаз, кроме Safety')
     if output_port is None:
+        log(f'Input: открытие Output на фазе {name_of(used[-1])}')
         try:
             output_port = int(g_i.view(used[-1]))
         except Exception as exc:
             raise ExportError(f'Input не открыл Output ({exc}). Проект должен быть рассчитан и сохранён; '
                               'либо откройте Output вручную и укажите его порт.')
+    log(f'Output: подключение к порту {output_port}')
     output = Output(connector(output_port))
+    log(f'Output: {"3D" if output.is3d else "2D"}, конструкций {len(output.objects)}, фаз {len(output.phases)}')
     envelope = None if per_phase else envelope_from_input(output, phases, used, selected)
     if envelope is not None:
         return envelope
@@ -368,6 +384,7 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     piles = {o[0]: pile for o, pile in resolved if pile is not None}
     wanted = {name_of(p) for p in used}
     phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted and not is_safety(p)]
+    log(f'Чтение по фазам: элементов {len(object_ids)}, фаз {len(phase_ids)}')
     result = output.extract(object_ids, phase_ids, skip_inactive=True, piles=piles)
     with_data = {d['phase'] for d in result['data']}
     if kind == 'Plate' and with_data:
@@ -395,20 +412,24 @@ def envelope_from_input(output, phases, used, selected):
     group, _ = first(output.g.ResultTypes, dict(KINDS_BY_NAME)[kind])
     types = envelope_types(group, output.results) if group is not None else None
     if types is None:
+        log('Огибающих в Output нет — чтение по фазам')
         return None
+    log('Огибающие: ' + ', '.join(n for _, n in types.values()))
     by_name = {name_of(p): p for p in phases}
     used_names = {name_of(p) for p in used}
     parents = {name_of(previous(p)) for p in used if previous(p) is not None}
     leaves = [p for p in used if name_of(p) not in parents]
     branches = []
     for leaf in leaves:
-        chain, cur = [], leaf
-        while cur is not None:
+        chain, cur, seen = [], leaf, set()
+        while cur is not None and name_of(cur) not in seen:
+            seen.add(name_of(cur))
             chain.append(cur)
             cur = previous(cur)
             if cur is not None and name_of(cur) not in by_name:
                 break
         if any(is_safety(p) for p in chain):
+            log(f'Safety внутри ветки {name_of(leaf)} — чтение по фазам')
             return None
         branches.append((leaf, [name_of(p) for p in reversed(chain) if name_of(p) in used_names]))
     names = [name for _, name in selected]
@@ -422,7 +443,8 @@ def envelope_from_input(output, phases, used, selected):
             continue
         pi, phase = out_phases[name_of(leaf)]
         got = False
-        for oi, obj, t in objects:
+        for k, (oi, obj, t) in enumerate(objects):
+            log(f'Огибающая {name_of(phase)}: {name_of(obj)} ({k + 1} из {len(objects)})')
             try:
                 arrays = {c: output.g.getresults(obj, phase, t[c], 'node') for c in COORDS if c in t}
                 for key, (rtype, _) in types.items():
@@ -470,6 +492,7 @@ def connect(port, program='Output'):
     except ImportError:
         raise ExportError('Не найден модуль plxscripting: укажите python.exe из каталога установки PLAXIS')
     password = os.environ.get('PLAXIS_PASSWORD', '')
+    log(f'{program}: подключение к порту {port}')
     try:
         _, g = new_server('localhost', port, password=password)
         list(g.Phases)

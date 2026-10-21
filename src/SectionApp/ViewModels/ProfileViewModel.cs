@@ -314,7 +314,9 @@ public partial class ProfileViewModel : ObservableObject
         if (PortOf(InputPort, "Input") is not int port) return;
         await Busy("PLAXIS: выделение в Input, результаты из Output…", async token =>
         {
-            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ReadPhases, cancel: token);
+            // Progress of the script: the current step, so that a slow or stuck PLAXIS call is seen.
+            var log = new Progress<string>(line => { lastStep = line; Status = "PLAXIS " + line; });
+            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ReadPhases, cancel: token, log: ((IProgress<string>)log).Report);
             SaveSettings(input: port);
             Adopt(export);
             Status = $"Загружено: {string.Join(", ", export.Selection)}";
@@ -527,12 +529,18 @@ public partial class ProfileViewModel : ObservableObject
 
     void RemoveCut(PeakCutViewModel c) { PeakCuts.Remove(c); Changed(); }
 
+    string? lastStep;
+
     async Task Busy(string message, Func<CancellationToken, Task> work)
     {
         cancel = new CancellationTokenSource();
-        IsBusy = true; Progress = 0; Status = message; Errors = "";
+        IsBusy = true; Progress = 0; Status = message; Errors = ""; lastStep = null;
         try { await work(cancel.Token); }
-        catch (OperationCanceledException) { Status = "Остановлено"; }
+        catch (OperationCanceledException)
+        {
+            Status = "Остановлено";
+            if (lastStep is not null) Errors = $"Остановлено на шаге: {lastStep}\nЖурнал: {PlaxisBridge.LogPath}";
+        }
         catch (Exception ex) { Status = "Ошибка"; Errors = ex.Message; }
         finally { IsBusy = false; cancel.Dispose(); cancel = null; }
     }

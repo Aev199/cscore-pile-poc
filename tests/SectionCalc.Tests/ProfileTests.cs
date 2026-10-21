@@ -213,7 +213,10 @@ public class ProfileTests(ITestOutputHelper output)
         Environment.SetEnvironmentVariable("PYTHONPATH", Path.Combine(root, "tests", "fake_plxscripting"));
         try
         {
-            var e = await PlaxisBridge.FromInput(python, 10000, "secret");
+            var steps = new List<string>();
+            var e = await PlaxisBridge.FromInput(python, 10000, "secret", log: steps.Add);
+            Assert.Contains(steps, x => x.Contains("Output: подключение"));
+            Assert.Contains("Огибающая", File.ReadAllText(PlaxisBridge.LogPath));
             Assert.Equal(["Plate_1"], e.Selection);
             Assert.Equal(2, e.Objects.Count);
             Assert.True(e.IsEnvelope);

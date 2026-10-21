@@ -120,13 +120,16 @@ public static class PlaxisBridge
     /// Structures selected in PLAXIS Input; Input opens Output and the results of every phase except Safety are read.
     /// </summary>
     public static async Task<PlaxisExport> FromInput(string python, int inputPort, string password, int? outputPort = null,
-        bool perPhase = false, CancellationToken cancel = default)
+        bool perPhase = false, CancellationToken cancel = default, Action<string>? log = null)
     {
         var args = new List<string> { "input", "--port", inputPort.ToString() };
         if (outputPort is int o) { args.Add("--output-port"); args.Add(o.ToString()); }
         if (perPhase) args.Add("--per-phase");
-        return Parse(await Run(python, args.ToArray(), password, cancel));
+        return Parse(await Run(python, args.ToArray(), password, cancel, log));
     }
+
+    /// <summary>Log of the last run of the script (its progress lines), for diagnosing a slow or stuck PLAXIS.</summary>
+    public static string LogPath => Path.Combine(Path.GetTempPath(), "section-app-plaxis.log");
 
     public static async Task<PlaxisCatalog> Catalog(string python, int port, string password, CancellationToken cancel = default) =>
         JsonSerializer.Deserialize<PlaxisCatalog>(await Run(python, ["catalog", "--port", port.ToString()], password, cancel), Json)!;
@@ -156,7 +159,7 @@ public static class PlaxisBridge
         return export;
     }
 
-    static async Task<string> Run(string python, string[] args, string password, CancellationToken cancel)
+    static async Task<string> Run(string python, string[] args, string password, CancellationToken cancel, Action<string>? log = null)
     {
         if (!File.Exists(python)) throw new FileNotFoundException("Не найден python.exe PLAXIS: " + python);
         string script = Path.Combine(Path.GetTempPath(), "section-app-plaxis-export.py");
@@ -169,7 +172,20 @@ public static class PlaxisBridge
         info.Environment["PLAXIS_PASSWORD"] = password;
         using var process = Process.Start(info) ?? throw new InvalidOperationException("Не удалось запустить Python PLAXIS");
         var stdout = process.StandardOutput.ReadToEndAsync(cancel);
-        var stderr = process.StandardError.ReadToEndAsync(cancel);
+        // Progress lines of the script, shown as they come and kept in the log file.
+        var lines = new List<string>();
+        var stderr = Task.Run(async () =>
+        {
+            await using var file = new StreamWriter(LogPath, false) { AutoFlush = true };
+            await file.WriteLineAsync($"{DateTime.Now:s} {string.Join(' ', args)}");
+            while (await process.StandardError.ReadLineAsync(cancel) is { } line)
+            {
+                lock (lines) lines.Add(line);
+                await file.WriteLineAsync(line);
+                log?.Invoke(line);
+            }
+            lock (lines) return string.Join("\n", lines);
+        }, cancel);
         try { await process.WaitForExitAsync(cancel); }
         catch (OperationCanceledException) { try { process.Kill(true); } catch (InvalidOperationException) { } throw; }
         string output = await stdout;
@@ -180,6 +196,7 @@ public static class PlaxisBridge
             return output;
         }
         string err = (await stderr).Trim();
-        throw new InvalidOperationException("Python PLAXIS завершился с ошибкой" + (err.Length > 0 ? ": " + err.Split('\n')[^1] : ""));
+        throw new InvalidOperationException("Python PLAXIS завершился с ошибкой" + (err.Length > 0 ? ": " + err.Split('\n')[^1] : "")
+            + $". Журнал: {LogPath}");
     }
 }
