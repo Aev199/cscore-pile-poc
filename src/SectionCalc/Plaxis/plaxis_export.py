@@ -14,10 +14,12 @@ variable PLAXIS_PASSWORD. The result is JSON on stdout; errors are JSON
 the application converts them.
 """
 import argparse
+import faulthandler
 import json
 import math
 import os
 import sys
+import threading
 import time
 
 STARTED = time.time()
@@ -65,6 +67,53 @@ def text(obj, key):
 
 def name_of(obj):
     return text(obj, 'Name') or text(obj, 'Identification') or str(obj)
+
+
+def limited(fn, seconds, what):
+    """
+    A remote call that PLAXIS may never answer: run it in a thread and give up after the time limit,
+    so that the export reports the step instead of hanging.
+    """
+    box = {}
+
+    def run():
+        try:
+            box['value'] = fn()
+        except Exception as exc:
+            box['error'] = exc
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise TimeoutError(f'PLAXIS не ответил за {seconds} с: {what}')
+    if 'error' in box:
+        raise box['error']
+    return box.get('value')
+
+
+def output_phase_names(output, wanted):
+    """
+    Output phases of the wanted Input names: {name: (index, phase)}. Every name is read with a time limit and
+    logged; the search stops when all wanted phases are found.
+    """
+    found, stuck = {}, 0
+    for i, phase in enumerate(output.phases):
+        try:
+            name = limited(lambda: name_of(phase), 20, f'имя фазы Output №{i}')
+            stuck = 0
+        except TimeoutError as exc:
+            log(str(exc))
+            stuck += 1
+            if stuck >= 2:
+                raise ExportError(f'PLAXIS Output не отвечает на чтение фаз (фаза №{i}). Журнал: стек вызовов Python в нём '
+                                  'показывает, где остановилось чтение.')
+            continue
+        log(f'Output: фаза №{i} — {name}')
+        if name in wanted:
+            found[name] = (i, phase)
+            if len(found) == len(wanted):
+                break
+    return found
 
 
 def first(obj, names):
@@ -418,7 +467,7 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     object_ids = [o[0] for o, _ in resolved]
     piles = {o[0]: pile for o, pile in resolved if pile is not None}
     wanted = {r.name for r in rows if not r.safety}
-    phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted]
+    phase_ids = sorted(i for i, _ in output_phase_names(output, wanted).values())
     log(f'Чтение по фазам: элементов {len(object_ids)}, фаз {len(phase_ids)}')
     result = output.extract(object_ids, phase_ids, skip_inactive=True, piles=piles)
     with_data = {d['phase'] for d in result['data']}
@@ -457,7 +506,7 @@ def envelope_from_input(output, rows, selected):
     objects = [o for o, _ in resolved]
     piles = {o[0]: pile for o, pile in resolved if pile is not None}
     columns = output.envelope_columns
-    out_phases = {name_of(p): (i, p) for i, p in enumerate(output.phases)}
+    out_phases = output_phase_names(output, {leaf.name for leaf, _ in branches})
     data, phase_rows, inactive = [], [], []
     for leaf, covered in branches:
         if leaf.name not in out_phases:
@@ -466,7 +515,7 @@ def envelope_from_input(output, rows, selected):
         pi, phase = out_phases[leaf.name]
         got = False
         for k, (oi, obj, t) in enumerate(objects):
-            log(f'Огибающая {leaf.name}: {name_of(obj)} ({k + 1} из {len(objects)})')
+            log(f'Огибающая {leaf.name}: элемент Output №{oi} ({k + 1} из {len(objects)})')
             started = time.time()
             try:
                 arrays = {c: output.g.getresults(obj, phase, t[c], 'node') for c in COORDS if c in t}
@@ -546,10 +595,15 @@ def main(argv=None, connector=connect):
             result = output.extract(request.get('objects'), request.get('phases'))
         json.dump(result, sys.stdout)  # ASCII: independent of the Windows console code page
         return 0
-    except ExportError as exc:
+    except (ExportError, TimeoutError) as exc:
         json.dump({"error": str(exc)}, sys.stdout)
         return 1
 
 
 if __name__ == '__main__':
+    # A stuck PLAXIS call: the Python stack goes to the log every 20 s, so that the step is known.
+    try:
+        faulthandler.dump_traceback_later(20, repeat=True, file=sys.stderr)
+    except (AttributeError, ValueError, OSError):
+        pass
     sys.exit(main())
