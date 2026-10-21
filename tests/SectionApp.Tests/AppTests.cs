@@ -177,7 +177,10 @@ public class AppTests
         Assert.True(p.HasResult, p.Errors);
         Assert.Equal(6, p.Stations.Count);
         Assert.Contains("правая", p.Summary);
-        Snapshot(window, "11-profile-result");
+        Assert.NotNull(p.SelectedStation);
+        Assert.NotNull(p.StationSketch);
+        Assert.Contains("→", p.StationText);
+                Snapshot(window, "11-profile-result");
         var json = System.Text.Json.Nodes.JsonNode.Parse(SectionCalc.Profile.RevitExport.Json(p.Result!))!;
         Assert.Equal("wall", (string)json["element"]!["type"]!);
         if (Environment.GetEnvironmentVariable("SECTION_APP_EXAMPLES") is { Length: > 0 } dir)

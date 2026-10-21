@@ -84,6 +84,15 @@ public static class RevitExport
             if (wall) { o["as_right_cm2"] = R(st.AsRightMm2 / 100, 2); o["as_left_cm2"] = R(st.AsLeftMm2 / 100, 2); }
             else o["as_cm2"] = R(st.AsRightMm2 / 100, 2);
             o["asw_cm2_per_m"] = st.AswCm2PerM is double a ? R(a, 2) : null;
+            // An illustration of the required area in standard bars (the module may choose its own).
+            if (!r.IsCheck && st.Status is "ok" or "minimum")
+            {
+                var choice = BarSuggestion.Choose(s, st.AsRightMm2, st.AsLeftMm2);
+                JsonObject Set(BarSet b) => new() { ["rows"] = b.Rows, ["count"] = b.Count, ["diameter_mm"] = b.DiameterMm };
+                o["suggested_bars"] = wall
+                    ? new JsonObject { ["right"] = Set(choice.Right), ["left"] = Set(choice.Left!) }
+                    : Set(choice.Right);
+            }
             o["status"] = st.Status;
             o["governing"] = st.Governing is null ? null : new JsonObject
             {

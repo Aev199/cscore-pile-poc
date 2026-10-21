@@ -219,23 +219,31 @@
             </Grid>
           </Border>
           <TextBlock DockPanel.Dock="Bottom" Classes="hint" Margin="0,6,0,0" Text="As — см² на сечение, Asw/sw — см²/м." />
-          <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding Stations}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:StationRowViewModel">
-                  <Border Classes="trow" ToolTip.Tip="{Binding Tip}">
-                    <Grid ColumnDefinitions="54,*,*,*,48">
-                      <TextBlock Classes="td" Text="{Binding Level}" TextAlignment="Left" Margin="0" />
-                      <TextBlock Classes="td" Grid.Column="1" Text="{Binding Right}" Classes.bad="{Binding IsBad}" Margin="0" />
-                      <TextBlock Classes="td" Grid.Column="2" Text="{Binding Left}" Classes.bad="{Binding IsBad}" Margin="0" />
-                      <TextBlock Classes="td" Grid.Column="3" Text="{Binding Asw}" Margin="0" />
-                      <TextBlock Classes="td" Grid.Column="4" Text="{Binding K}" Margin="0" />
-                    </Grid>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
+          <Border DockPanel.Dock="Bottom" IsVisible="{Binding HasResult}" Margin="0,8,0,0">
+            <StackPanel Spacing="4">
+              <Image Source="{Binding StationSketch}" Height="210" Stretch="Uniform" />
+              <TextBlock Text="{Binding StationText}" FontSize="11.5" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <ListBox ItemsSource="{Binding Stations}" SelectedItem="{Binding SelectedStation}" Background="Transparent"
+                   ToolTip.Tip="Выберите сечение — внизу его армирование">
+            <ListBox.Styles>
+              <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="0" /></Style>
+            </ListBox.Styles>
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:StationRowViewModel">
+                <Border Classes="trow" ToolTip.Tip="{Binding Tip}">
+                  <Grid ColumnDefinitions="54,*,*,*,48">
+                    <TextBlock Classes="td" Text="{Binding Level}" TextAlignment="Left" Margin="0" />
+                    <TextBlock Classes="td" Grid.Column="1" Text="{Binding Right}" Classes.bad="{Binding IsBad}" Margin="0" />
+                    <TextBlock Classes="td" Grid.Column="2" Text="{Binding Left}" Classes.bad="{Binding IsBad}" Margin="0" />
+                    <TextBlock Classes="td" Grid.Column="3" Text="{Binding Asw}" Margin="0" />
+                    <TextBlock Classes="td" Grid.Column="4" Text="{Binding K}" Margin="0" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
         </DockPanel>
       </Border>
     </Grid>

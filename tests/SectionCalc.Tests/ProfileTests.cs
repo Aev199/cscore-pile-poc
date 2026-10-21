@@ -504,4 +504,28 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.Contains(r.Stations, st => st.Status == "ok" && st.AsRightMm2 > sixBars);
         Assert.All(r.Stations.Where(st => st.Status is "ok" or "minimum"), st => Assert.NotNull(st.AswCm2PerM));
     }
+
+    [Fact]
+    public void RequiredAreaIsShownInStandardBars()
+    {
+        var pile = SectionProject.Example(SectionKind.Pile);
+        var c = BarSuggestion.Choose(pile, 100 * 100, 0);
+        Assert.True(c.Fits);
+        Assert.True(c.Right.AreaMm2 >= 100 * 100);
+        Assert.Contains(c.Right.DiameterMm, BarSuggestion.Diameters);
+        Assert.Equal(c.Right.Count, c.Section.Pile.BarCount);
+        // Of the lean layouts (≤ 5 % over the leanest) the fewest bars: not 27Ø22 but larger bars.
+        Assert.True(c.Right.DiameterMm >= 28, c.Text);
+        // Little area: the minimum count of the ring and the spacing limit govern.
+        var small = BarSuggestion.Choose(pile, 1, 0);
+        Assert.True(small.Right.Count >= 6, small.Text);
+
+        var wall = SectionProject.Example(SectionKind.Wall);
+        wall.Wall.WidthMm = 1000; wall.Wall.PositiveFace.Rows = 2;
+        var w = BarSuggestion.Choose(wall, 40 * 100, 5 * 100);
+        Assert.True(w.Fits);
+        Assert.Equal(2, w.Right.Rows);
+        Assert.True(w.Right.AreaMm2 >= 40 * 100 && w.Left!.AreaMm2 >= 5 * 100);
+        Assert.Contains("«+»", w.Text);
+    }
 }

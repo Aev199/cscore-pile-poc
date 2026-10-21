@@ -96,6 +96,7 @@ public partial class PeakCutViewModel : ObservableObject
 
 public sealed class StationRowViewModel(StationResult s, bool wall)
 {
+    public StationResult Result => s;
     static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
     public string Level => s.Station.Level.ToString("0.00", Ru);
     public string Right => (s.AsRightMm2 / 100).ToString("0.00", Ru);
@@ -211,6 +212,10 @@ public partial class ProfileViewModel : ObservableObject
     [ObservableProperty] bool hasResult;
     [ObservableProperty] bool resultIsStale;
     [ObservableProperty] string summary = "";
+    /// <summary>The station shown in the section: bars for its required area (or the given bars in the check).</summary>
+    [ObservableProperty] StationRowViewModel? selectedStation;
+    [ObservableProperty] Bitmap? stationSketch;
+    [ObservableProperty] string stationText = "";
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
@@ -508,12 +513,37 @@ public partial class ProfileViewModel : ObservableObject
         });
     }
 
+    partial void OnSelectedStationChanged(StationRowViewModel? value)
+    {
+        if (value is null || result is null) { StationSketch = null; StationText = ""; return; }
+        var st = value.Result;
+        string level = $"Отм. {st.Station.Level.ToString("0.00", Ru)}";
+        SectionProject shown;
+        if (result.IsCheck)
+        {
+            shown = result.Project.Section;
+            StationText = $"{level}: заданное сечение, K = {ReportWriter.Utilization(st.K)}";
+        }
+        else
+        {
+            var choice = BarSuggestion.Choose(result.Project.Section, st.AsRightMm2, st.AsLeftMm2);
+            shown = choice.Section;
+            string need = result.Project.Section.Kind == SectionKind.Wall
+                ? $"«+» {st.AsRightMm2 / 100:0.0}, «−» {st.AsLeftMm2 / 100:0.0}" : $"{st.AsRightMm2 / 100:0.0}";
+            StationText = $"{level}: требуется {need} см² → {choice.Text}" + (choice.Fits ? "" : " — не помещается");
+        }
+        using var stream = new MemoryStream(SectionSketch.Png(shown, 520, 420, 22));
+        StationSketch = new Bitmap(stream);
+    }
+
     void ShowResult()
     {
         if (result is null) return;
         bool wall = result.Project.Section.Kind == SectionKind.Wall;
         Stations.Clear();
         foreach (var s in result.Stations) Stations.Add(new StationRowViewModel(s, wall));
+        // The governing station first: the largest area (in the check — the largest K).
+        SelectedStation = result.IsCheck ? Stations.MaxBy(r => r.Result.K ?? 0) : Stations.MaxBy(r => r.Result.AsTotalMm2);
         HasResult = true; ResultIsStale = false;
         var st = result.Stations;
         string As(double mm2) => (mm2 / 100).ToString("0.0", Ru);
@@ -544,7 +574,7 @@ public partial class ProfileViewModel : ObservableObject
 
     void ClearResult()
     {
-        result = null; HasResult = false; ResultIsStale = false; Stations.Clear(); Summary = "";
+        result = null; HasResult = false; ResultIsStale = false; Stations.Clear(); Summary = ""; SelectedStation = null;
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]

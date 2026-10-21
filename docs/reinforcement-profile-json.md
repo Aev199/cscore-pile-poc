@@ -68,6 +68,8 @@
       "level_m": -6.0, "depth_m": 6.0, "from_level_m": -5.25, "to_level_m": -6.75,
       "as_right_cm2": 22.61, "as_left_cm2": 5.30,      // для сваи вместо них "as_cm2"
       "asw_cm2_per_m": 3.93,                          // null — Q не проверялась или не обеспечивается
+      "suggested_bars": { "right": { "rows": 1, "count": 6, "diameter_mm": 22 },   // пример раскладки требуемой As
+                          "left":  { "rows": 1, "count": 6, "diameter_mm": 12 } },  // стандартными Ø; у сваи — { rows, count, diameter_mm }
       "status": "ok",
       "governing": { "check": "Ширина раскрытия трещин, продолжительное", "combination": "Phase_3: Mmax", "k": 0.997 },
       "note": null

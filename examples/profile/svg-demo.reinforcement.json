@@ -1,7 +1,7 @@
 {
   "format": "section-app/reinforcement-profile",
   "version": 1,
-  "created": "2026-10-21T12:14:28",
+  "created": "2026-10-21T14:23:21",
   "title": "Эпюра армирования",
   "mode": "required",
   "scenario": "wall_2d",
@@ -113,6 +113,18 @@
       "as_right_cm2": 5.28,
       "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
+      "suggested_bars": {
+        "right": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        },
+        "left": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        }
+      },
       "status": "minimum",
       "governing": {
         "check": "Прочность нормального сечения с учётом прогиба",
@@ -129,6 +141,18 @@
       "as_right_cm2": 21.72,
       "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
+      "suggested_bars": {
+        "right": {
+          "rows": 1,
+          "count": 6,
+          "diameter_mm": 22
+        },
+        "left": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        }
+      },
       "status": "ok",
       "governing": {
         "check": "Ширина раскрытия трещин, продолжительное",
@@ -145,6 +169,18 @@
       "as_right_cm2": 22.48,
       "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
+      "suggested_bars": {
+        "right": {
+          "rows": 1,
+          "count": 6,
+          "diameter_mm": 22
+        },
+        "left": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        }
+      },
       "status": "ok",
       "governing": {
         "check": "Ширина раскрытия трещин, продолжительное",
@@ -161,6 +197,18 @@
       "as_right_cm2": 18.82,
       "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
+      "suggested_bars": {
+        "right": {
+          "rows": 1,
+          "count": 4,
+          "diameter_mm": 25
+        },
+        "left": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        }
+      },
       "status": "ok",
       "governing": {
         "check": "Ширина раскрытия трещин, продолжительное",
@@ -177,6 +225,18 @@
       "as_right_cm2": 5.28,
       "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
+      "suggested_bars": {
+        "right": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        },
+        "left": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        }
+      },
       "status": "minimum",
       "governing": {
         "check": "Прочность нормального сечения с учётом прогиба",
@@ -193,6 +253,18 @@
       "as_right_cm2": 5.28,
       "as_left_cm2": 12.58,
       "asw_cm2_per_m": null,
+      "suggested_bars": {
+        "right": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 12
+        },
+        "left": {
+          "rows": 1,
+          "count": 5,
+          "diameter_mm": 18
+        }
+      },
       "status": "ok",
       "governing": {
         "check": "Ширина раскрытия трещин, продолжительное",
