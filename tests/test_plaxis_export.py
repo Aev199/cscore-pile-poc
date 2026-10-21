@@ -403,6 +403,32 @@ class SafetyDetectionTests(unittest.TestCase):
         self.assertEqual(plaxis_export.PhaseRow(by_loading).calc_type, 'Safety')
 
 
+class BusyServerTests(unittest.TestCase):
+    def test_busy_input_is_reported_instead_of_hanging(self):
+        import time
+        import types
+        easy = types.ModuleType('plxscripting.easy')
+        easy.new_server = lambda *a, **k: time.sleep(30)
+        package = types.ModuleType('plxscripting')
+        package.easy = easy
+        saved = {k: sys.modules.get(k) for k in ('plxscripting', 'plxscripting.easy')}
+        sys.modules.update({'plxscripting': package, 'plxscripting.easy': easy})
+        old = dict(plaxis_export.CONNECT_SECONDS)
+        plaxis_export.CONNECT_SECONDS['Input'] = 0.2
+        try:
+            with self.assertRaises(plaxis_export.ExportError) as caught:
+                plaxis_export.connect(10000, 'Input')
+            self.assertIn('не отвечает', str(caught.exception))
+            self.assertIn('Configure remote scripting server', str(caught.exception))
+        finally:
+            plaxis_export.CONNECT_SECONDS.update(old)
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+
 class Fake3DOutput(FakeOutputSplit):
     """PLAXIS 3D Output: embedded beams EmbeddedBeam_1 (two segments) and EmbeddedBeam_2 at another place."""
 

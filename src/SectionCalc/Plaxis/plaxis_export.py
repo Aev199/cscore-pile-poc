@@ -594,6 +594,10 @@ def envelope_from_input(output, rows, selected):
 KINDS_BY_NAME = [(kind, groups) for kind, _, groups in KINDS + KINDS3D]
 
 
+# Input answers at once; Output opened by Input first loads the project (a large 3D model — a minute or more).
+CONNECT_SECONDS = {'Input': 30, 'Output': 180}
+
+
 def connect(port, program='Output'):
     try:
         from plxscripting.easy import new_server
@@ -601,9 +605,19 @@ def connect(port, program='Output'):
         raise ExportError('Не найден модуль plxscripting: укажите python.exe из каталога установки PLAXIS')
     password = os.environ.get('PLAXIS_PASSWORD', '')
     log(f'{program}: подключение к порту {port}')
+    def open_server():
+        _, server = new_server('localhost', port, password=password)
+        list(server.Phases)
+        return server
     try:
-        _, g = new_server('localhost', port, password=password)
-        list(g.Phases)
+        # A busy PLAXIS (a dialog open, an operation running, a request of an interrupted run) accepts the
+        # connection but never answers.
+        seconds = CONNECT_SECONDS.get(program, 60)
+        g = limited(open_server, seconds, f'{program} на порту {port}')
+    except TimeoutError:
+        raise ExportError(f'PLAXIS {program} на порту {port} не отвечает {seconds} с: он занят. Закройте в {program} '
+                          'открытые диалоги и лишние окна Output, дождитесь окончания операции; если не помогло — '
+                          f'перезапустите сервер ({program}: Expert → Configure remote scripting server) и повторите.')
     except Exception as exc:
         raise ExportError(f'Нет связи с PLAXIS {program} на порту {port}: {exc}. '
                           f'В {program}: Expert → Configure remote scripting server — запустите сервер с этим портом и паролем.')
@@ -637,9 +651,9 @@ def main(argv=None, connector=connect):
 
 
 if __name__ == '__main__':
-    # A stuck PLAXIS call: the Python stack goes to the log every 20 s, so that the step is known.
+    # A stuck PLAXIS call: the Python stack goes to the log once after 45 s, so that the step is known.
     try:
-        faulthandler.dump_traceback_later(20, repeat=True, file=sys.stderr)
+        faulthandler.dump_traceback_later(45, repeat=False, file=sys.stderr)
     except (AttributeError, ValueError, OSError):
         pass
     sys.exit(main())
