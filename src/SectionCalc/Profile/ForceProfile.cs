@@ -136,6 +136,30 @@ public sealed class ForceProfile
     }
 
     /// <summary>
+    /// Extremes of every phase (envelope branch) taken alone, with the current units and settings: shows which
+    /// phase governs, e.g. a branch of another scenario left in the list.
+    /// </summary>
+    public static Dictionary<int, (double NMin, double NMax, double MAbs, double QAbs)> PhaseExtremes(ProfileProject p)
+    {
+        var result = new Dictionary<int, (double, double, double, double)>();
+        foreach (var phase in p.Phases)
+        {
+            var one = new ProfileProject
+            {
+                Section = p.Section, Source = p.Source, Settings = p.Settings,
+                Phases = p.Phases.Select(x => new PhaseSetting { Id = x.Id, Name = x.Name, Include = x.Id == phase.Id }).ToList(),
+            };
+            try
+            {
+                var e = Build(one).OriginalEnvelope;
+                result[phase.Id] = (e.Min(x => x.NMin), e.Max(x => x.NMax), e.Max(x => Math.Max(Math.Abs(x.MMin), Math.Abs(x.MMax))), e.Max(x => x.QAbsMax));
+            }
+            catch (InvalidOperationException) { }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Envelope over every curve (phase, corner, pile) at the union of their node levels. Piles of a group have their
     /// nodes at different levels: each curve is interpolated, otherwise the envelope would jump between the piles.
     /// </summary>

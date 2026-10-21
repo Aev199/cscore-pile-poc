@@ -524,8 +524,12 @@ def envelope_from_input(output, rows, selected):
             except Exception as exc:
                 log(f'  нет результата ({exc})')
                 continue
-            log(f'  {len(arrays["x"])} узлов за {time.time() - started:.1f} с')
             arrays = {k: [float(v) for v in a] for k, a in arrays.items()}
+            # Extremes per element and branch: to compare with Output.
+            span = ', '.join(f'{key} {min(arrays[key + "_min"]):.0f}…{max(arrays[key + "_max"]):.0f}'
+                             for key in output.results if key not in COORDS and key + '_min' in arrays and arrays[key + '_min'])
+            zs = arrays.get('z') or arrays.get('y') or [0.0]
+            log(f'  {name_of(obj)}: {len(arrays["x"])} узлов, отм. {max(zs):.2f}…{min(zs):.2f}, {span} ({time.time() - started:.1f} с)')
             if len({len(a) for a in arrays.values()}) != 1 or not arrays['x']:
                 raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул огибающие разной длины')
             nodes = [[arrays[c][i] for c in columns] for i in range(len(arrays['x']))]

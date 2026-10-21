@@ -76,7 +76,12 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:PhaseRowViewModel">
                       <Grid ColumnDefinitions="*,8,140" Margin="0,2">
-                        <CheckBox IsChecked="{Binding Include}" ToolTip.Tip="{Binding Label}"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></CheckBox>
+                        <CheckBox IsChecked="{Binding Include}" ToolTip.Tip="{Binding Label}">
+                          <StackPanel>
+                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="hint" Text="{Binding Extremes}" IsVisible="{Binding HasExtremes}" />
+                          </StackPanel>
+                        </CheckBox>
                         <ComboBox Grid.Column="2" Classes="cell" ItemsSource="{Binding Kinds}" SelectedIndex="{Binding KindIndex}" />
                       </Grid>
                     </DataTemplate>

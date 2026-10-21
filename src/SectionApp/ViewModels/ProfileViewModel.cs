@@ -33,6 +33,9 @@ public partial class PhaseRowViewModel : ObservableObject
     public IReadOnlyList<string> Kinds => KindOptions;
     [ObservableProperty] bool include;
     [ObservableProperty] int kindIndex;
+    /// <summary>Extremes of this phase (branch) alone: which one drives the envelope.</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasExtremes))] string extremes = "";
+    public bool HasExtremes => Extremes.Length > 0;
     partial void OnIncludeChanged(bool value) { Setting.Include = value; changed(); }
     partial void OnKindIndexChanged(int value)
     {
@@ -257,6 +260,10 @@ public partial class ProfileViewModel : ObservableObject
         {
             forces = ForceProfile.Build(project);
             Errors = "";
+            var extremes = ForceProfile.PhaseExtremes(project);
+            foreach (var row in Phases)
+                row.Extremes = extremes.TryGetValue(row.Setting.Id, out var x)
+                    ? $"N {x.NMin:0}…{x.NMax:0} кН · |M| ≤ {x.MAbs:0} кН·м · |Q| ≤ {x.QAbs:0} кН" : "нет усилий выбранных элементов";
             Draw();
         }
         catch (InvalidOperationException ex) { Errors = ex.Message; Chart = null; }

@@ -393,6 +393,9 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.Equal(200, f.Envelope[0].MMax, 6);
         Assert.Equal(5 * 5 * 2, f.Envelope[0].QAbsMax, 6);
         Assert.Equal(-200, f.Envelope[0].NMin, 6);
+        // Each phase alone: phase 1 gives half the moment of phase 2.
+        var extremes = ForceProfile.PhaseExtremes(p);
+        Assert.Equal(100, extremes[1].MAbs, 6); Assert.Equal(200, extremes[2].MAbs, 6);
 
         p.Settings.StationStepM = 6; p.Settings.Confirmed = true;
         var stations = f.Stations(p);
