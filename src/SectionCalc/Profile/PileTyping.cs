@@ -13,6 +13,12 @@ public sealed record TypeZone(double Top, double Bottom, BarSet Bars, double? Sp
 public sealed record PileType(int Number, IReadOnlyList<PileDemand> Members, double[] Levels, double[] As, double[] Asw,
     IReadOnlyList<TypeZone> Zones, double SteelKg, double OwnSteelKg)
 {
+    /// <summary>Kept by the automatic joining as it is (set by the engineer).</summary>
+    public bool Locked { get; init; }
+    /// <summary>The zones were checked by the engine.</summary>
+    public bool Verified => Zones.All(z => z.K is not null || z.Governing is not null);
+    /// <summary>Key of the member set: a type with the same piles keeps its checked zones.</summary>
+    public string Key => string.Join(",", Members.Select(m => m.Pile).OrderBy(x => x));
     public double Head => Members[0].Info.Head;
     public double Tip => Members[0].Info.Tip;
     public double? K => Zones.Any(z => z.K is null) ? null : Zones.Max(z => z.K);
@@ -30,6 +36,7 @@ public sealed class PileDemands
     /// <summary>Points of the tables computed by the engine.</summary>
     public int TablePoints { get; init; }
     public bool ShearChecked { get; init; }
+    internal double? SeparateSteelKg { get; set; }
 }
 
 public sealed record TypingResult(PileDemands Demands, IReadOnlyList<PileType> Types, string? Note)
@@ -39,6 +46,8 @@ public sealed record TypingResult(PileDemands Demands, IReadOnlyList<PileType> T
     public double OwnSteelKg => Types.Sum(t => t.OwnSteelKg);
     /// <summary>Steel with a cage of its own for every pile, by the same rules of bars and zones.</summary>
     public double SeparateSteelKg { get; init; }
+    /// <summary>Steel of the envelopes (no rounding to bars) for every number of types of the automatic joining.</summary>
+    public IReadOnlyList<(int Types, double SteelKg)> Curve { get; init; } = [];
     /// <summary>Steel the typing adds over a cage of its own for every pile, share.</summary>
     public double Overspend => SeparateSteelKg > 0 ? SteelKg / SeparateSteelKg - 1 : 0;
 }
@@ -244,31 +253,35 @@ public static class PileTyping
         return best;
     }
 
-    /// <summary>The piles gathered into the given number of types (fast; the zones are not yet checked).</summary>
-    public static TypingResult Group(PileDemands d, int typeCount)
+    /// <summary>
+    /// The piles gathered into the given number of types (fast; the zones are not yet checked). Locked groups (pile
+    /// indices) stay as they are; the other piles start one per type and the two types whose joint envelope adds the
+    /// least steel are joined. The joining runs to the end: the steel of every number of types is the curve.
+    /// </summary>
+    public static TypingResult Group(PileDemands d, int typeCount, IReadOnlyList<IReadOnlyList<int>>? locked = null)
     {
-        string? note = null;
-        if (typeCount < d.Classes)
-        {
-            note = $"Свай разной длины или с разной отметкой оголовка — {d.Classes} групп: типов не меньше {d.Classes}";
-            typeCount = d.Classes;
-        }
-        var groups = d.Piles.Select(p => new List<PileDemand> { p }).ToList();
+        locked ??= [];
+        var lockedPiles = locked.SelectMany(g => g).ToHashSet();
+        var groups = locked.Select(g => g.Select(i => d.Piles[i]).ToList())
+            .Concat(d.Piles.Where(p => !lockedPiles.Contains(p.Pile)).Select(p => new List<PileDemand> { p })).ToList();
+        int fixedCount = locked.Count;
         double Cost(List<PileDemand> g)
         {
             var (a, w) = Envelope(g);
             return g.Count * Steel(d, g[0].Stations, a, w);
         }
         var cost = groups.Select(Cost).ToList();
-        // Pair costs of joining, only within a class.
-        double Join(int i, int j) => groups[i][0].Class != groups[j][0].Class ? double.PositiveInfinity
+        // Pair costs of joining: only within a class, never a locked group.
+        double Join(int i, int j) => i < fixedCount || j < fixedCount || groups[i][0].Class != groups[j][0].Class ? double.PositiveInfinity
             : Cost([.. groups[i], .. groups[j]]) - cost[i] - cost[j];
         int n = groups.Count;
         var delta = new double[n, n];
         for (int i = 0; i < n; i++)
             for (int j = i + 1; j < n; j++) delta[i, j] = Join(i, j);
         var alive = Enumerable.Range(0, n).ToHashSet();
-        while (alive.Count > typeCount)
+        var curve = new List<(int Types, double SteelKg)> { (alive.Count, alive.Sum(i => cost[i])) };
+        List<List<PileDemand>>? chosen = alive.Count <= typeCount ? alive.Select(i => groups[i].ToList()).ToList() : null;
+        while (true)
         {
             (int I, int J) best = (-1, -1);
             double min = double.PositiveInfinity;
@@ -285,14 +298,33 @@ public static class PileTyping
                     var (i, j) = k < best.I ? (k, best.I) : (best.I, k);
                     delta[i, j] = Join(i, j);
                 }
+            curve.Add((alive.Count, alive.Sum(i => cost[i])));
+            if (chosen is null && alive.Count <= typeCount) chosen = alive.Select(i => groups[i].ToList()).ToList();
         }
-        var types = alive.Select(i => groups[i])
-            .OrderByDescending(g => g[0].Info.Head).ThenByDescending(g => g[0].Length).ThenByDescending(g => g.Count)
-            .Select((g, k) => MakeType(d, k + 1, g)).ToList();
-        var result = new TypingResult(d, types, note);
-        // The reference: every pile a type of its own.
-        double separate = typeCount >= d.Piles.Count ? result.SteelKg : Group(d, d.Piles.Count).SteelKg;
-        return result with { SeparateSteelKg = separate };
+        // Fewer types than possible (different heads and lengths, locked groups): as few as there can be.
+        chosen ??= alive.Select(i => groups[i].ToList()).ToList();
+        string? note = chosen.Count > typeCount
+            ? $"Меньше {chosen.Count} типов нельзя: сваи разной длины или с разной отметкой оголовка" + (fixedCount > 0 ? ", закреплённые типы" : "")
+            : null;
+        var lockedSets = locked.Select(g => g.OrderBy(x => x).ToArray()).ToList();
+        var ordered = chosen.OrderByDescending(g => g[0].Info.Head).ThenByDescending(g => g[0].Length).ThenByDescending(g => g.Count).ToList();
+        var r = Build(d, ordered.Select(g => (IReadOnlyList<int>)g.Select(m => m.Pile).ToList()).ToList(),
+            ordered.Select(g => lockedSets.Any(l => l.SequenceEqual(g.Select(m => m.Pile).OrderBy(x => x)))).ToList());
+        return r with { Note = note, Curve = curve };
+    }
+
+    /// <summary>Types of a given partition of the piles (manual editing), numbered in its order; zones not yet checked.</summary>
+    public static TypingResult Build(PileDemands d, IReadOnlyList<IReadOnlyList<int>> groups, IReadOnlyList<bool>? locked = null)
+    {
+        foreach (var g in groups)
+            if (g.Select(i => d.Piles[i].Class).Distinct().Count() > 1)
+                throw new InvalidOperationException("В одном типе — только сваи с одинаковыми отметками оголовка и низа");
+        var types = groups.Where(g => g.Count > 0)
+            .Select((g, k) => MakeType(d, k + 1, g.Select(i => d.Piles[i]).ToList()) with { Locked = locked is not null && k < locked.Count && locked[k] })
+            .ToList();
+        // The reference: every pile a cage of its own, by the same rules (once per demands).
+        d.SeparateSteelKg ??= d.Piles.Sum(p => MakeType(d, 0, [p]).SteelKg);
+        return new TypingResult(d, types, null) { SeparateSteelKg = d.SeparateSteelKg.Value };
     }
 
     static PileType MakeType(PileDemands d, int number, List<PileDemand> members)
@@ -372,10 +404,11 @@ public static class PileTyping
     /// Every zone of every type checked by the engine with its bars and spiral for the governing rows of its piles
     /// (the largest table demand); a zone with K &gt; 1 gets stronger bars (or spiral) and is checked again.
     /// </summary>
-    public static TypingResult Verify(TypingResult r, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default)
+    public static TypingResult Verify(TypingResult r, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default,
+        Func<PileType, bool>? only = null)
     {
         var d = r.Demands;
-        var work = r.Types.SelectMany(t => t.Zones.Select((z, i) => (Type: t, Index: i))).ToList();
+        var work = r.Types.Where(t => only?.Invoke(t) ?? true).SelectMany(t => t.Zones.Select((z, i) => (Type: t, Index: i))).ToList();
         var zones = r.Types.ToDictionary(t => t.Number, t => t.Zones.ToArray());
         int done = 0;
         Parallel.ForEach(work, new ParallelOptions { CancellationToken = cancel, MaxDegreeOfParallelism = Environment.ProcessorCount }, item =>
@@ -419,7 +452,8 @@ public static class PileTyping
             zones[type.Number][index] = zone;
             progress?.Report((Interlocked.Increment(ref done), work.Count));
         });
-        var types = r.Types.Select(t => t with { Zones = zones[t.Number], SteelKg = ZoneSteel(d, t.Members.Count, zones[t.Number]) }).ToList();
+        var types = r.Types.Select(t => only is not null && !only(t) ? t
+            : t with { Zones = zones[t.Number], SteelKg = ZoneSteel(d, t.Members.Count, zones[t.Number]) }).ToList();
         return r with { Types = types };
     }
 }

@@ -103,9 +103,46 @@ public sealed class TypeRowViewModel(PileType t)
         (uint)TypingChart.Color(t.Number).Alpha << 24 | (uint)TypingChart.Color(t.Number).Red << 16 | (uint)TypingChart.Color(t.Number).Green << 8 | TypingChart.Color(t.Number).Blue));
     public string Title => $"Т{t.Number} · {t.Members.Count} св. · {t.Head.ToString("0.00", Ru)}…{t.Tip.ToString("0.00", Ru)}";
     public string Bars => string.Join(" → ", t.Zones.Select(z => z.Bars.ToString()));
-    public string Detail => $"{t.SteelKg / Math.Max(1, t.Members.Count):0} кг/св. · K {ReportWriter.Utilization(t.K)}";
+    public string Detail => $"{t.SteelKg / Math.Max(1, t.Members.Count):0} кг/св. · K {ReportWriter.Utilization(t.K)}" + (t.Locked ? " · закреплён" : "");
+    public string Number => $"Т{t.Number}";
+    public int Count => t.Members.Count;
+    public string Levels => $"{t.Head.ToString("0.00", Ru)}…{t.Tip.ToString("0.00", Ru)}";
+    public string Spiral => string.Join(" → ", t.Zones.Select(z => z.SpiralMm is double d ? $"Ø{d:0}" : "—").Distinct());
+    public string Steel => (t.SteelKg / Math.Max(1, t.Members.Count)).ToString("0", Ru);
+    public string K => ReportWriter.Utilization(t.K);
+    public string Locked => t.Locked ? "да" : "";
     public bool IsBad => t.K is null or > 1;
     public string Tip => string.Join(", ", t.Members.Select(m => m.Info.Name));
+}
+
+/// <summary>One pile in the table: its type, own demand and how much the type gives it.</summary>
+public sealed class PileRowViewModel(PileDemand p, PileType t)
+{
+    static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+    public PileDemand Pile => p;
+    public string Name => p.Info.Name;
+    public string Type => $"Т{t.Number}";
+    public int TypeNumber => t.Number;
+    public string Levels => $"{p.Info.Head.ToString("0.00", Ru)}…{p.Info.Tip.ToString("0.00", Ru)}";
+    public string AsMax => (p.As.Max() / 100).ToString("0.0", Ru);
+    /// <summary>Stations where this pile sets the envelope of its type (above the minimum).</summary>
+    public int Governs => p.As.Select((a, i) => (a, i)).Count(x => x.i < t.As.Length && x.a >= t.As[x.i] * 0.999 && x.a > p.As.Min() * 1.01);
+    public string GovernsText => Governs > 0 ? $"{Governs} сеч." : "";
+    /// <summary>Steel of the type cage over the pile's own required steel.</summary>
+    public string Excess
+    {
+        get
+        {
+            double own = t.OwnSteelKg / Math.Max(1, t.Members.Count);
+            return own > 0 ? $"+{(t.SteelKg / t.Members.Count / OwnOf() - 1) * 100:0} %" : "";
+        }
+    }
+    double OwnOf()
+    {
+        double kg = 0;
+        for (int s = 0; s < p.Stations.Count; s++) kg += p.As[s] * 1e-6 * (p.Stations[s].Top - p.Stations[s].Bottom) * 7850;
+        return Math.Max(kg, 1e-9);
+    }
 }
 
 public sealed class StationRowViewModel(StationResult s, bool wall)
@@ -191,7 +228,7 @@ public partial class ProfileViewModel : ObservableObject
     public ProfileScenario Scenario => (ProfileScenario)ScenarioIndex;
     public bool Is3D => Scenario == ProfileScenario.Piles3D;
     public bool ShowPileSpacing => Scenario == ProfileScenario.RetainingPiles;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsCheck), nameof(IsTyping), nameof(IsStations), nameof(TableTitle), nameof(ExportText))] int modeIndex;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsCheck), nameof(IsTyping), nameof(IsStations), nameof(TableTitle), nameof(ExportText), nameof(HasTyping), nameof(HasNoTyping))] int modeIndex;
     public bool IsCheck => ModeIndex == 1;
     public bool IsTyping => ModeIndex == 2;
     public bool IsStations => !IsTyping;
@@ -199,10 +236,28 @@ public partial class ProfileViewModel : ObservableObject
     public string ExportText => IsTyping ? "Сохранить таблицу…" : "Сохранить для Revit…";
     [ObservableProperty] string typeCount = "3";
     public ObservableCollection<TypeRowViewModel> Types { get; } = [];
+    public ObservableCollection<PileRowViewModel> PileRows { get; } = [];
     [ObservableProperty] TypeRowViewModel? selectedType;
     PileDemands? demands;
     string? demandsKey;
     TypingResult? typing;
+    /// <summary>Types checked by the engine, by their piles: an edit re-checks only the changed types.</summary>
+    readonly Dictionary<string, PileType> verified = [];
+    /// <summary>The typing result for the plan, the cages and the curve.</summary>
+    public TypingResult? Typing => typing;
+    public bool HasTyping => typing is not null && IsTyping;
+    public bool HasNoTyping => !HasTyping;
+    [ObservableProperty] bool showSettings = true;
+    [ObservableProperty] int selectedTypeNumber;
+    [ObservableProperty] IReadOnlyList<int> selectedPiles = [];
+    [ObservableProperty] int curveCount;
+    [ObservableProperty] int colorModeIndex;
+    public IReadOnlyList<string> ColorModes { get; } = ["Цвет — тип", "Цвет — требуемая As"];
+    [ObservableProperty] string selectionText = "";
+    public ObservableCollection<string> TypeTargets { get; } = [];
+    [ObservableProperty] int targetIndex;
+    [ObservableProperty] PileRowViewModel? selectedPileRow;
+    bool syncing;
     [ObservableProperty] string momentSignText = "";
     [ObservableProperty] bool ignoreAxialForce;
     public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
@@ -226,7 +281,7 @@ public partial class ProfileViewModel : ObservableObject
     // ---- state ----
     [ObservableProperty] Bitmap? chart;
     public ObservableCollection<StationRowViewModel> Stations { get; } = [];
-    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(LoadSelectionCommand), nameof(LoadForcesCommand), nameof(CalculateCommand), nameof(ExportRevitCommand))]
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(LoadSelectionCommand), nameof(LoadForcesCommand), nameof(CalculateCommand), nameof(ExportRevitCommand), nameof(MovePilesCommand), nameof(NewTypeCommand), nameof(ToggleLockCommand))]
     bool isBusy;
     [ObservableProperty] double progress;
     [ObservableProperty] string status = "";
@@ -342,10 +397,8 @@ public partial class ProfileViewModel : ObservableObject
     void Draw()
     {
         if (forces is null) return;
-        // Typing: the plan of the piles and the selected type; otherwise the diagrams along the element.
-        using var stream = new MemoryStream(typing is not null && !ResultIsStale
-            ? TypingChart.Png(typing, SelectedType?.Type.Number ?? 1, 1000, 860, 19)
-            : ProfileChart.Png(forces, ResultIsStale ? null : result, 1000, 1000, 16));
+        // Typing has its own plan and cages; here the diagrams along the element.
+        using var stream = new MemoryStream(ProfileChart.Png(forces, ResultIsStale ? null : result, 1000, 1000, 16));
         Chart = new Bitmap(stream);
     }
 
@@ -364,9 +417,12 @@ public partial class ProfileViewModel : ObservableObject
     {
         var p = project;
         int count = p.Settings.TypeCount;
+        // Types locked by the engineer stay (with the same demands).
+        var locked = typing is not null && demands is not null && demandsKey == DemandKey()
+            ? typing.Types.Where(t => t.Locked).Select(t => (IReadOnlyList<int>)t.Members.Select(m => m.Pile).ToList()).ToList() : [];
         await Busy("Типизация свай…", async token =>
         {
-            string key = Key(), dkey = DemandKey();
+            string dkey = DemandKey();
             if (demands is null || demandsKey != dkey)
             {
                 var progress = new Progress<(int Done, int Total)>(x =>
@@ -376,54 +432,180 @@ public partial class ProfileViewModel : ObservableObject
                 });
                 demands = await Task.Run(() => PileTyping.Demand(p, progress, token), token);
                 demandsKey = dkey;
+                verified.Clear();
+                locked = [];
             }
-            var grouped = PileTyping.Group(demands, count);
-            var check = new Progress<(int Done, int Total)>(x =>
-            {
-                Progress = 100.0 * x.Done / x.Total;
-                Status = $"Проверка зон типов ядром: {x.Done} из {x.Total}";
-            });
-            typing = await Task.Run(() => PileTyping.Verify(grouped, check, token), token);
-            result = null;
-            resultKey = key;
-            ShowTyping();
+            var d = demands;
+            var grouped = await Task.Run(() => PileTyping.Group(d, count, locked), token);
+            await Apply(grouped, token);
         });
+    }
+
+    /// <summary>
+    /// A new partition (automatic or edited): types with the same piles keep their checked zones, the others are
+    /// checked by the engine.
+    /// </summary>
+    async Task Apply(TypingResult r, CancellationToken token)
+    {
+        r = r with { Types = r.Types.Select(t => verified.TryGetValue(t.Key, out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
+        var check = new Progress<(int Done, int Total)>(x =>
+        {
+            Progress = 100.0 * x.Done / x.Total;
+            Status = $"Проверка зон ядром: {x.Done} из {x.Total}";
+        });
+        r = await Task.Run(() => PileTyping.Verify(r, check, token, t => !t.Verified), token);
+        foreach (var t in r.Types) verified[t.Key] = t;
+        typing = r;
+        result = null;
+        resultKey = Key();
+        ShowTyping();
     }
 
     void ShowTyping()
     {
         if (typing is null) return;
+        int keep = SelectedTypeNumber;
         Stations.Clear(); SelectedStation = null;
-        Types.Clear();
-        foreach (var t in typing.Types) Types.Add(new TypeRowViewModel(t));
+        Types.Clear(); PileRows.Clear(); TypeTargets.Clear();
+        foreach (var t in typing.Types)
+        {
+            Types.Add(new TypeRowViewModel(t));
+            TypeTargets.Add($"Т{t.Number}");
+            foreach (var m in t.Members) PileRows.Add(new PileRowViewModel(m, t));
+        }
         HasResult = true; ResultIsStale = false;
         var d = typing.Demands;
         double? k = typing.Types.Any(t => t.K is null) ? null : typing.Types.Max(t => t.K);
-        Summary = $"{d.Piles.Count} свай → {typing.Types.Count} типов: сталь {typing.SteelKg / 1000:0.00} т, "
+        Summary = $"{d.Piles.Count} свай → {typing.Types.Count} типов: сталь {typing.SteelKg / 1000:0.00} т; "
             + $"каркас на каждую сваю — {typing.SeparateSteelKg / 1000:0.00} т (типизация +{typing.Overspend * 100:0.0} %); "
             + $"проверка зон ядром: Kmax {ReportWriter.Utilization(k)}"
             + (d.Piles.Any(x => x.Exceeded.Any(e => e)) ? ". Есть сечения, где не хватает и полного кольца Ø40" : "")
             + (typing.Note is null ? "" : ". " + typing.Note);
-        Status = $"Типизация выполнена (таблицы: {d.TablePoints} точек)";
-        SelectedType = Types.FirstOrDefault();
-        Draw();
+        Status = $"Типизация: {typing.Types.Count} типов (таблицы: {d.TablePoints} точек)";
+        syncing = true;
+        CurveCount = typing.Types.Count;
+        syncing = false;
+        OnPropertyChanged(nameof(Typing)); OnPropertyChanged(nameof(HasTyping)); OnPropertyChanged(nameof(HasNoTyping));
+        SelectedTypeNumber = typing.Types.Any(t => t.Number == keep) ? keep : typing.Types.FirstOrDefault()?.Number ?? 0;
+        SelectedPiles = SelectedPiles.Where(i => i < d.Piles.Count).ToList();
+        ShowSettings = false;
+    }
+
+    partial void OnSelectedTypeNumberChanged(int value)
+    {
+        if (syncing) return;
+        syncing = true;
+        SelectedType = Types.FirstOrDefault(t => t.Type.Number == value);
+        TargetIndex = Math.Max(0, Types.ToList().FindIndex(t => t.Type.Number == value));
+        syncing = false;
+        ShowTypeDetails();
     }
 
     partial void OnSelectedTypeChanged(TypeRowViewModel? value)
     {
-        if (value is null || typing is null) { if (IsTyping) { StationSketch = null; StationText = ""; } return; }
-        var t = value.Type;
+        if (syncing || value is null) return;
+        SelectedTypeNumber = value.Type.Number;
+    }
+
+    partial void OnSelectedPilesChanged(IReadOnlyList<int> value)
+    {
+        SelectionText = value.Count == 0 ? "Сваи не выбраны: щелчок или рамка на плане" : $"Выбрано свай: {value.Count}";
+        if (syncing || value.Count != 1) return;
+        syncing = true;
+        SelectedPileRow = PileRows.FirstOrDefault(r => r.Pile.Pile == value[0]);
+        syncing = false;
+    }
+
+    partial void OnSelectedPileRowChanged(PileRowViewModel? value)
+    {
+        if (syncing || value is null) return;
+        syncing = true;
+        SelectedPiles = [value.Pile.Pile];
+        SelectedTypeNumber = value.TypeNumber;
+        syncing = false;
+        SelectedType = Types.FirstOrDefault(t => t.Type.Number == value.TypeNumber);
+        ShowTypeDetails();
+    }
+
+    /// <summary>The steel curve: a click sets the number of types and gathers again.</summary>
+    partial void OnCurveCountChanged(int value)
+    {
+        if (syncing || value <= 0 || typing is null || IsBusy) return;
+        TypeCount = value.ToString(CultureInfo.InvariantCulture);
+        CalculateCommand.Execute(null);
+    }
+
+    void ShowTypeDetails()
+    {
+        var t = typing?.Types.FirstOrDefault(x => x.Number == SelectedTypeNumber);
+        if (t is null) { StationSketch = null; StationText = ""; return; }
         var strongest = t.Zones.MaxBy(z => z.Bars.AreaMm2)!;
-        var section = ProjectStore.Deserialize(ProjectStore.Serialize(typing.Demands.Project.Section));
+        var section = ProjectStore.Deserialize(ProjectStore.Serialize(typing!.Demands.Project.Section));
         section.Pile.BarCount = strongest.Bars.Count; section.Pile.BarDiameterMm = strongest.Bars.DiameterMm;
         if (strongest.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
         using (var stream = new MemoryStream(SectionSketch.Png(section, 520, 420, 22))) StationSketch = new Bitmap(stream);
-        StationText = $"Тип {t.Number}: {string.Join(", ", t.Members.Select(m => m.Info.Name))}\n"
+        StationText = $"Тип {t.Number}{(t.Locked ? " (закреплён)" : "")}: {string.Join(", ", t.Members.Select(m => m.Info.Name))}\n"
             + string.Join("\n", t.Zones.Select(z => $"{z.Top.ToString("0.00", Ru)}…{z.Bottom.ToString("0.00", Ru)}: {z.Bars}"
                 + (z.SpiralMm is double d ? $", спираль Ø{d:0} шаг {typing.Demands.Project.Section.Conditions.ShearPitchMm:0}" : "")
                 + (z.K is double k ? $", K {ReportWriter.Utilization(k)}" : ", K не определён")));
-        Draw();
     }
+
+    // ---- manual editing of the types ----
+
+    List<List<int>> Partition() => typing!.Types.Select(t => t.Members.Select(m => m.Pile).ToList()).ToList();
+
+    async Task Edit(string what, Func<List<List<int>>, List<bool>, string?> change)
+    {
+        if (typing is null || demands is null) return;
+        if (ResultIsStale) { Errors = "Данные изменены — выполните расчёт заново"; return; }
+        var groups = Partition();
+        var locked = typing.Types.Select(t => t.Locked).ToList();
+        if (change(groups, locked) is string problem) { Errors = problem; return; }
+        // Empty types disappear, the order of the others is kept.
+        var keep = groups.Select((g, i) => (g, l: locked[i])).Where(x => x.g.Count > 0).ToList();
+        TypingResult r;
+        try { r = PileTyping.Build(demands, keep.Select(x => (IReadOnlyList<int>)x.g).ToList(), keep.Select(x => x.l).ToList()) with { Curve = typing.Curve }; }
+        catch (InvalidOperationException ex) { Errors = ex.Message; return; }
+        await Busy(what, token => Apply(r, token));
+    }
+
+    bool CanEdit() => !IsBusy;
+
+    /// <summary>The selected piles into the type chosen in the list.</summary>
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    Task MovePiles() => Edit("Перенос свай…", (groups, locked) =>
+    {
+        if (SelectedPiles.Count == 0) return "Выберите сваи на плане или в таблице";
+        if (TargetIndex < 0 || TargetIndex >= groups.Count) return "Выберите тип";
+        var target = groups[TargetIndex];
+        int cls = demands!.Piles[target[0]].Class;
+        if (SelectedPiles.Any(i => demands.Piles[i].Class != cls)) return "В один тип — только сваи с одинаковыми отметками оголовка и низа";
+        foreach (var g in groups) g.RemoveAll(i => SelectedPiles.Contains(i));
+        target.AddRange(SelectedPiles);
+        return null;
+    });
+
+    /// <summary>The selected piles into a new type (splitting a type).</summary>
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    Task NewType() => Edit("Новый тип…", (groups, locked) =>
+    {
+        if (SelectedPiles.Count == 0) return "Выберите сваи на плане или в таблице";
+        if (SelectedPiles.Select(i => demands!.Piles[i].Class).Distinct().Count() > 1) return "В один тип — только сваи с одинаковыми отметками оголовка и низа";
+        foreach (var g in groups) g.RemoveAll(i => SelectedPiles.Contains(i));
+        groups.Add([.. SelectedPiles]);
+        locked.Add(false);
+        return null;
+    });
+
+    /// <summary>Lock the selected type: the automatic gathering keeps it as it is.</summary>
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    Task ToggleLock() => Edit("Закрепление типа…", (groups, locked) =>
+    {
+        int i = typing!.Types.ToList().FindIndex(t => t.Number == SelectedTypeNumber);
+        if (i < 0) return "Выберите тип";
+        locked[i] = !locked[i];
+        return null;
+    });
 
     static string TypingCsv(TypingResult r)
     {
@@ -637,7 +819,8 @@ public partial class ProfileViewModel : ObservableObject
             string key = Key();
             result = await Task.Run(() => check ? RequiredReinforcement.Check(p, progress, token) : RequiredReinforcement.Run(p, progress, token), token);
             resultKey = key;
-            typing = null; Types.Clear();
+            typing = null; Types.Clear(); PileRows.Clear();
+            OnPropertyChanged(nameof(Typing)); OnPropertyChanged(nameof(HasTyping)); OnPropertyChanged(nameof(HasNoTyping));
             ShowResult();
         });
     }
@@ -704,7 +887,8 @@ public partial class ProfileViewModel : ObservableObject
     void ClearResult()
     {
         result = null; HasResult = false; ResultIsStale = false; Stations.Clear(); Summary = ""; SelectedStation = null;
-        typing = null; demands = null; Types.Clear();
+        typing = null; demands = null; Types.Clear(); PileRows.Clear(); verified.Clear();
+        OnPropertyChanged(nameof(Typing)); OnPropertyChanged(nameof(HasTyping)); OnPropertyChanged(nameof(HasNoTyping));
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]

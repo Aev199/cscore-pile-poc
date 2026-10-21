@@ -168,7 +168,32 @@ public class AppTests
             Assert.NotNull(p.StationSketch);
             Assert.Contains("Тип 1", p.StationText);
             Assert.Equal("Сохранить таблицу…", p.ExportText);
-            p.SelectedType = p.Types[^1];
+            Assert.True(p.HasTyping);
+            Assert.False(p.ShowSettings);
+            Assert.True(p.Typing!.Curve.Count >= 2);
+            Assert.Equal(4, p.PileRows.Count);
+            var shared = p.Types.Single(t => t.Type.Members.Count == 2).Type;
+            // Split: one pile of the shared type into a type of its own.
+            int pile = shared.Members[1].Pile;
+            p.SelectedPiles = [pile];
+            await p.NewTypeCommand.ExecuteAsync(null);
+            Assert.Equal(4, p.Types.Count);
+            // Back into the shared type.
+            p.TargetIndex = p.Types.ToList().FindIndex(t => t.Type.Members.Any(m => m.Pile == shared.Members[0].Pile));
+            p.SelectedPiles = [pile];
+            await p.MovePilesCommand.ExecuteAsync(null);
+            Assert.Equal(3, p.Types.Count);
+            // A pile of another length cannot join it.
+            p.SelectedPiles = [p.Typing.Demands.Piles.Single(x => x.Info.Name == "EmbeddedBeam_4").Pile];
+            await p.MovePilesCommand.ExecuteAsync(null);
+            Assert.Contains("одинаковыми отметками", p.Errors);
+            // Lock a type: it stays when gathered again.
+            p.SelectedTypeNumber = p.Types[0].Type.Number;
+            await p.ToggleLockCommand.ExecuteAsync(null);
+            Assert.True(p.Types[0].Type.Locked);
+            Assert.All(p.Types, t => Assert.True(t.Type.Verified));
+            p.SelectedPiles = [pile];
+            p.SelectedTypeNumber = p.Types.Last().Type.Number;
             Snapshot(window, "14-profile-typing");
         }
         finally { (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM) = (gn, gm); }

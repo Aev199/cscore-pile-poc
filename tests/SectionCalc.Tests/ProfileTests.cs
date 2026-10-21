@@ -567,6 +567,19 @@ public class ProfileTests(ITestOutputHelper output)
             Assert.True(three.Overspend >= -1e-9);
             Assert.All(three.Types, t => Assert.True(t.Zones.Count >= 1 && Math.Abs(t.Zones[0].Top - t.Head) < 1e-6 && Math.Abs(t.Zones[^1].Bottom - t.Tip) < 1e-6));
 
+            // The curve: the steel of every number of types, more types — less steel.
+            Assert.Equal(Enumerable.Range(3, 2).Reverse(), three.Curve.Select(c => c.Types));
+            Assert.True(three.Curve[0].SteelKg <= three.Curve[^1].SteelKg + 1e-9);
+            // A locked group stays apart: piles 1 and 2 locked one by one give four types.
+            var locked = PileTyping.Group(d, 3, [[0], [1]]);
+            Assert.Equal(4, locked.Types.Count);
+            Assert.Equal(2, locked.Types.Count(t => t.Locked));
+            Assert.Contains("закреплённые", locked.Note);
+            // A partition by hand; piles of different classes cannot share a type.
+            var manual = PileTyping.Build(d, [[0, 1], [2], [3]]);
+            Assert.Equal(three.SteelKg, manual.SteelKg, 6);
+            Assert.Throws<InvalidOperationException>(() => PileTyping.Build(d, [[0, 3], [1], [2]]));
+
             sw.Restart();
             var checkedTypes = PileTyping.Verify(three);
             output.WriteLine($"verify: {sw.Elapsed.TotalSeconds:0} s; " + string.Join(" | ", checkedTypes.Types.Select(t =>

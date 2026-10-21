@@ -1,12 +1,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:SectionApp.ViewModels"
+             xmlns:c="using:SectionApp.Controls"
              x:Class="SectionApp.Views.ProfileView"
              x:DataType="vm:ProfileViewModel">
   <DockPanel>
     <Border DockPanel.Dock="Top" Classes="card" Margin="12,12,12,0" Padding="16,10">
       <Grid ColumnDefinitions="Auto,*,Auto">
         <StackPanel Orientation="Horizontal" Spacing="6">
+          <ToggleButton Content="Параметры" IsChecked="{Binding ShowSettings}" IsVisible="{Binding HasTyping}" ToolTip.Tip="Показать или скрыть панель задачи, усилий и параметров" />
           <Button Content="Открыть…" Command="{Binding OpenExportCommand}" ToolTip.Tip="Сохранённая эпюра или выгрузка PLAXIS (*.json)" />
           <Button Content="Сохранить…" Command="{Binding SaveProjectCommand}" />
         </StackPanel>
@@ -26,8 +28,8 @@
       <TextBlock Text="{Binding Errors}" TextWrapping="Wrap" FontSize="11.5" />
     </Border>
 
-    <Grid ColumnDefinitions="370,*,330" Margin="12">
-      <ScrollViewer Grid.Column="0" Margin="0,0,12,0" VerticalScrollBarVisibility="Auto">
+    <Grid ColumnDefinitions="Auto,*,330" Margin="12">
+      <ScrollViewer Grid.Column="0" Width="370" Margin="0,0,12,0" VerticalScrollBarVisibility="Auto" IsVisible="{Binding ShowSettings}">
         <StackPanel Spacing="12">
           <!-- Task: what is designed, which forces -->
           <Border Classes="card">
@@ -200,7 +202,91 @@
         </StackPanel>
       </ScrollViewer>
 
-      <Border Grid.Column="1" Classes="card">
+      <!-- Typing: curve, plan, cages, tables -->
+      <Grid Grid.Column="1" Grid.ColumnSpan="2" RowDefinitions="Auto,8,*,8,230,Auto" IsVisible="{Binding HasTyping}">
+        <Border Classes="card" Padding="12,8">
+          <Grid ColumnDefinitions="Auto,16,*,16,Auto">
+            <StackPanel VerticalAlignment="Center" Spacing="4">
+              <TextBlock Classes="cardTitle" Text="Число типов" Margin="0" />
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBox Text="{Binding TypeCount}" Width="64" />
+                <Button Classes="primary" Content="Собрать" Command="{Binding CalculateCommand}" ToolTip.Tip="Автоматическое объединение; закреплённые типы сохраняются" />
+              </StackPanel>
+              <TextBlock Classes="hint" Text="Кривая: сталь по огибающим — щелчок задаёт число типов" />
+            </StackPanel>
+            <c:SteelCurve Grid.Column="2" Height="110" Typing="{Binding Typing}" SelectedCount="{Binding CurveCount}" />
+            <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="6" Width="290">
+              <TextBlock Text="{Binding SelectionText}" FontSize="11.5" />
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <ComboBox ItemsSource="{Binding TypeTargets}" SelectedIndex="{Binding TargetIndex}" Width="80" />
+                <Button Content="Перенести выбранные" Command="{Binding MovePilesCommand}" ToolTip.Tip="Выбранные сваи — в тип из списка" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button Content="Новый тип" Command="{Binding NewTypeCommand}" ToolTip.Tip="Выбранные сваи — в отдельный тип (разделить тип)" />
+                <Button Content="Закрепить / открепить" Command="{Binding ToggleLockCommand}" ToolTip.Tip="Выбранный тип не меняется при автоматической сборке" />
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+        </Border>
+        <Grid Grid.Row="2" ColumnDefinitions="2*,8,3*">
+          <Border Classes="card" Padding="8">
+            <DockPanel>
+              <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="4,0,0,6">
+                <TextBlock Classes="cardTitle" Text="План свай" Margin="0" VerticalAlignment="Center" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding ColorModes}" SelectedIndex="{Binding ColorModeIndex}" />
+              </Grid>
+              <c:PilePlan Typing="{Binding Typing}" SelectedType="{Binding SelectedTypeNumber}" SelectedPiles="{Binding SelectedPiles}" ColorMode="{Binding ColorModeIndex}" />
+            </DockPanel>
+          </Border>
+          <Border Grid.Column="2" Classes="card" Padding="8">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Classes="cardTitle" Text="Каркасы типов" Margin="4,0,0,6" />
+              <Grid DockPanel.Dock="Right" Width="230" RowDefinitions="Auto,*" Margin="8,0,0,0">
+                <Image Source="{Binding StationSketch}" Height="170" Stretch="Uniform" />
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                  <TextBlock Text="{Binding StationText}" FontSize="11" TextWrapping="Wrap" />
+                </ScrollViewer>
+              </Grid>
+              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <c:CagesView Typing="{Binding Typing}" SelectedType="{Binding SelectedTypeNumber}" />
+              </ScrollViewer>
+            </DockPanel>
+          </Border>
+        </Grid>
+        <Border Grid.Row="4" Classes="card" Padding="8">
+          <TabControl Padding="0">
+            <TabItem Header="Типы">
+              <DataGrid ItemsSource="{Binding Types}" SelectedItem="{Binding SelectedType}" IsReadOnly="True" CanUserSortColumns="True" GridLinesVisibility="Horizontal">
+                <DataGrid.Columns>
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="Тип" Binding="{Binding Number}" Width="70" />
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="Свай" Binding="{Binding Count}" Width="70" />
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="Отметки, м" Binding="{Binding Levels}" Width="120" />
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="Зоны (сверху вниз)" Binding="{Binding Bars}" Width="*" />
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="Спираль" Binding="{Binding Spiral}" Width="110" />
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="кг/св." Binding="{Binding Steel}" Width="85" />
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="K" Binding="{Binding K}" Width="75" />
+                  <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="Закреплён" Binding="{Binding Locked}" Width="105" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </TabItem>
+            <TabItem Header="Сваи">
+              <DataGrid ItemsSource="{Binding PileRows}" SelectedItem="{Binding SelectedPileRow}" IsReadOnly="True" CanUserSortColumns="True" GridLinesVisibility="Horizontal">
+                <DataGrid.Columns>
+                  <DataGridTextColumn x:DataType="vm:PileRowViewModel" Header="Свая" Binding="{Binding Name}" Width="*" />
+                  <DataGridTextColumn x:DataType="vm:PileRowViewModel" Header="Тип" Binding="{Binding Type}" Width="70" />
+                  <DataGridTextColumn x:DataType="vm:PileRowViewModel" Header="Отметки, м" Binding="{Binding Levels}" Width="120" />
+                  <DataGridTextColumn x:DataType="vm:PileRowViewModel" Header="As треб. max, см²" Binding="{Binding AsMax}" Width="130" />
+                  <DataGridTextColumn x:DataType="vm:PileRowViewModel" Header="Определяет тип" Binding="{Binding GovernsText}" Width="120" />
+                  <DataGridTextColumn x:DataType="vm:PileRowViewModel" Header="Сталь сверх своей" Binding="{Binding Excess}" Width="130" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </TabItem>
+          </TabControl>
+        </Border>
+        <TextBlock Grid.Row="5" Text="{Binding Summary}" FontSize="12" FontWeight="Medium" TextWrapping="Wrap" Margin="4,8,0,0" />
+      </Grid>
+
+      <Border Grid.Column="1" Classes="card" IsVisible="{Binding HasNoTyping}">
         <Grid RowDefinitions="Auto,*,Auto">
           <TextBlock Classes="cardTitle" Text="Эпюры" />
           <Border Grid.Row="1" Classes="notice warn" VerticalAlignment="Top" IsVisible="{Binding ResultIsStale}">
@@ -211,7 +297,7 @@
         </Grid>
       </Border>
 
-      <Border Grid.Column="2" Classes="card" Margin="12,0,0,0" Padding="0">
+      <Border Grid.Column="2" Classes="card" Margin="12,0,0,0" Padding="0" IsVisible="{Binding HasNoTyping}">
         <DockPanel Margin="12">
           <TextBlock DockPanel.Dock="Top" Classes="cardTitle" Text="{Binding TableTitle}" />
           <Border DockPanel.Dock="Top" Classes="thead" IsVisible="{Binding IsStations}">
