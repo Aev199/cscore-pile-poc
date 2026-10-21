@@ -21,6 +21,8 @@
   "version": 1,
   "created": "2026-10-20T10:00:00",
   "title": "СВГ-1",
+  "mode": "required",                   // required — требуемая As; check — проверка заданного сечения (as_* — заданные, governing.k — его K)
+  "scenario": "wall_2d",                // wall_2d | retaining_piles_2d | piles_3d
   "element": {
     "type": "wall",                     // "wall" — стена в грунте, "pile" — свая
     "top_level_m": 0.0, "bottom_level_m": -15.0, "length_m": 15.0, "x_m": 5.0,

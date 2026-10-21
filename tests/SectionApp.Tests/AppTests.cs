@@ -199,7 +199,22 @@ public class AppTests
             File.WriteAllText(Path.Combine(dir, "svg-demo.plaxis.json"), o.ToJsonString());
             File.WriteAllText(Path.Combine(dir, "svg-demo.reinforcement.json"), SectionCalc.Profile.RevitExport.Json(p.Result!));
         }
-        p.PileSpacing = "abc";
+        // The given section checked along the wall.
+        p.ModeIndex = 1;
+        await p.CalculateCommand.ExecuteAsync(null);
+        Assert.True(p.HasResult, p.Errors);
+        Assert.True(p.Result!.IsCheck);
+        Assert.Contains("Проверка сечения", p.Summary);
+        Assert.Equal("Проверка сечения", p.TableTitle);
+        Snapshot(window, "13-profile-check");
+        p.ModeIndex = 0;
+        // The scenario decides the section kind.
+        p.ScenarioIndex = 1;
+        Assert.True(vm.IsPile);
+        Assert.True(p.ShowPileSpacing);
+        p.ScenarioIndex = 0;
+        Assert.False(vm.IsPile);
+                p.PileSpacing = "abc";
         Assert.True(p.ResultIsStale || p.HasErrors);
     }
 

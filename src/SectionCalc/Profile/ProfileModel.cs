@@ -27,6 +27,27 @@ public sealed class PeakCut
     public double ShearLimit { get; set; }
 }
 
+/// <summary>What is designed and how the PLAXIS forces relate to one element.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum ProfileScenario
+{
+    /// <summary>Diaphragm wall, PLAXIS 2D Plate: forces per metre × the panel width.</summary>
+    Wall,
+    /// <summary>Retaining piles (bored secant / contiguous), PLAXIS 2D Plate or Embedded beam row: per metre × the pile spacing.</summary>
+    RetainingPiles,
+    /// <summary>Piles of a PLAXIS 3D model (Embedded beam / Beam): forces per pile.</summary>
+    Piles3D,
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum ProfileMode
+{
+    /// <summary>Required reinforcement along the element.</summary>
+    Required,
+    /// <summary>The section as given (bars of the section module) checked along the element.</summary>
+    Check,
+}
+
 /// <summary>Combination kind and inclusion of one PLAXIS phase.</summary>
 public sealed class PhaseSetting
 {
@@ -43,8 +64,12 @@ public sealed class ProfileSettings
     /// <summary>PLAXIS project units; taken from Output and editable.</summary>
     public string ForceUnit { get; set; } = "kN";
     public string LengthUnit { get; set; } = "m";
-    /// <summary>Embedded Beam Row (V22): forces per metre out of plane are multiplied by the pile spacing.</summary>
+    public ProfileScenario Scenario { get; set; } = ProfileScenario.Wall;
+    public ProfileMode Mode { get; set; } = ProfileMode.Required;
+    /// <summary>Retaining piles from PLAXIS 2D: forces per metre out of plane are multiplied by the pile spacing.</summary>
     public double PileSpacingM { get; set; } = 1;
+    /// <summary>Diaphragm wall: panel width, m — the forces per metre are multiplied by it and it is the section width b.</summary>
+    public double PanelWidthM { get; set; }
     /// <summary>+1: positive PLAXIS M stretches the right face (larger x); −1: the left face.</summary>
     public int MomentSign { get; set; } = 1;
     /// <summary>Wall: side of the excavation, +1 — the right face (larger x), −1 — the left face, 0 — not set.</summary>
@@ -101,6 +126,10 @@ public sealed class ProfileProject
         Phases = export.Phases.Select(ph => old.TryGetValue(ph.Name, out var s)
             ? new PhaseSetting { Id = ph.Id, Name = ph.Name, Include = s.Include, ShortTerm = s.ShortTerm, Seismic = s.Seismic, Special = s.Special }
             : new PhaseSetting { Id = ph.Id, Name = ph.Name }).ToList();
+        // The scenario follows the model: 3D — piles of the model; Embedded beam row — retaining piles; Plate — kept.
+        if (export.Is3D) Settings.Scenario = ProfileScenario.Piles3D;
+        else if (export.Objects.Any(o => o.Kind != "Plate")) Settings.Scenario = ProfileScenario.RetainingPiles;
+        else if (Settings.Scenario == ProfileScenario.Piles3D) Settings.Scenario = ProfileScenario.Wall;
         if (Unit.Force(export.Info.UnitForce) is not null) Settings.ForceUnit = export.Info.UnitForce!;
         if (Unit.Length(export.Info.UnitLength) is not null) Settings.LengthUnit = export.Info.UnitLength!;
         // The deflected shape tells which face positive M stretches.

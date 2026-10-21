@@ -51,7 +51,7 @@ public static class RevitExport
             {
                 ["diameter_mm"] = s.Pile.DiameterMm, ["cover_mm"] = s.Pile.CoverMm, ["cover_reference"] = Reference(s.Pile.CoverReference),
                 ["spiral_diameter_mm"] = s.Pile.SpiralDiameterMm,
-                ["bar_count"] = s.Pile.BarCount, ["spacing_m"] = f.Is3D ? null : set.PileSpacingM,
+                ["bar_count"] = s.Pile.BarCount, ["spacing_m"] = set.Scenario == ProfileScenario.RetainingPiles ? set.PileSpacingM : null,
             };
         if (f.Is3D)
             // One reinforcement for every pile of the group; levels are those of the highest head, each pile
@@ -99,6 +99,12 @@ public static class RevitExport
             ["format"] = Format, ["version"] = Version,
             ["created"] = (created ?? DateTime.Now).ToString("s", CultureInfo.InvariantCulture),
             ["title"] = p.Title,
+            // required — required areas; check — the given section checked (as_* — given areas, governing.k — its K).
+            ["mode"] = r.IsCheck ? "check" : "required",
+            ["scenario"] = set.Scenario switch
+            {
+                ProfileScenario.Wall => "wall_2d", ProfileScenario.RetainingPiles => "retaining_piles_2d", _ => "piles_3d",
+            },
             ["element"] = element,
             ["materials"] = new JsonObject { ["concrete"] = s.ConcreteClass, ["longitudinal"] = s.RebarClass, ["transverse"] = s.TransverseClass },
             ["faces"] = wall ? new JsonObject

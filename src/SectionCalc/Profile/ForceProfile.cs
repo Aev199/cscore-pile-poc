@@ -36,6 +36,8 @@ public sealed class ForceProfile
     public IReadOnlyList<PileInfo> Piles { get; init; } = [];
     public bool Is3D { get; init; }
     public bool IsGroup => Piles.Count > 1;
+    /// <summary>A wall: M has a sign (faces); a pile: the bending moment is taken by its magnitude.</summary>
+    public bool IsWall { get; init; }
     public double Length => TopLevel - BottomLevel;
 
     public static ForceProfile Build(ProfileProject p)
@@ -48,12 +50,21 @@ public sealed class ForceProfile
         if (kinds.Count != 1) throw new InvalidOperationException("Выберите элементы одного типа: Plate, Embedded Beam (Row) или Beam");
         string kind = kinds[0];
         bool is3D = src.Is3D;
-        if (kind == "Plate" && p.Section.Kind != SectionKind.Wall) throw new InvalidOperationException("Plate — стена в грунте: выберите тип сечения СВГ");
-        if (kind != "Plate" && p.Section.Kind != SectionKind.Pile) throw new InvalidOperationException("Свая (Embedded Beam / Beam): выберите тип сечения БНС");
+        var scenario = s.Scenario;
+        if (is3D != (scenario == ProfileScenario.Piles3D))
+            throw new InvalidOperationException(is3D ? "Выгрузка PLAXIS 3D: выберите сценарий «Сваи из 3D»"
+                : "Выгрузка PLAXIS 2D: выберите сценарий «Сваи ограждения» или «СВГ»");
+        if (scenario == ProfileScenario.Wall && kind != "Plate") throw new InvalidOperationException("СВГ рассчитывается по Plate: выберите сценарий «Сваи ограждения»");
         if (kind == "Plate" && is3D) throw new InvalidOperationException("PLAXIS 3D: стены пока не поддерживаются");
-        // PLAXIS 2D (V22): Plate and Embedded Beam Row forces per metre out of plane; PLAXIS 3D: per pile.
-        double width = is3D ? 1 : kind == "Plate" ? p.Section.Wall.WidthMm / 1000 : s.PileSpacingM;
-        if (!(width > 0)) throw new InvalidOperationException("Задайте шаг свай в ряду");
+        var need = scenario == ProfileScenario.Wall ? SectionKind.Wall : SectionKind.Pile;
+        if (p.Section.Kind != need)
+            throw new InvalidOperationException($"Сценарий требует сечение {(need == SectionKind.Wall ? "СВГ" : "БНС")}: задайте его в режиме «Сечение»");
+        // PLAXIS 2D: forces per metre out of plane × panel width or pile spacing; PLAXIS 3D: per pile.
+        double width = scenario switch
+        {
+            ProfileScenario.Piles3D => 1, ProfileScenario.Wall => p.Section.Wall.WidthMm / 1000, _ => s.PileSpacingM,
+        };
+        if (!(width > 0)) throw new InvalidOperationException(scenario == ProfileScenario.Wall ? "Задайте ширину захватки" : "Задайте шаг свай");
         var included = p.Phases.Where(ph => ph.Include).Select(ph => ph.Id).ToHashSet();
         if (included.Count == 0) throw new InvalidOperationException("Не выбрано ни одной фазы");
 
@@ -131,7 +142,7 @@ public sealed class ForceProfile
             Samples = samples, Envelope = EnvelopeOf(samples), OriginalEnvelope = original,
             TopLevel = samples.Max(x => x.Level), BottomLevel = samples.Min(x => x.Level),
             X = piles.Average(x => x.X), ElementKind = kind, ForceScale = f * width, IsEnvelope = src.IsEnvelope,
-            Piles = piles, Is3D = is3D,
+            Piles = piles, Is3D = is3D, IsWall = scenario == ProfileScenario.Wall,
         };
     }
 

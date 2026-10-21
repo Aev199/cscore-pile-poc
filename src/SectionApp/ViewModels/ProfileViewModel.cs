@@ -145,14 +145,17 @@ public partial class ProfileViewModel : ObservableObject
     public IReadOnlyList<string> LengthUnitOptions => LengthUnits;
     public IReadOnlyList<string> MomentSignOptions { get; } = ["правую грань (бóльший X)", "левую грань (меньший X)"];
     public IReadOnlyList<string> ExcavationOptions { get; } = ["не задано", "справа (бóльший X)", "слева (меньший X)"];
+    public IReadOnlyList<string> ScenarioOptions { get; } = ["СВГ — PLAXIS 2D, на 1 п.м × захватка", "Сваи ограждения — PLAXIS 2D, на 1 п.м × шаг", "Сваи — PLAXIS 3D, на сваю"];
+    public IReadOnlyList<string> ForcesOptions { get; } = ["Огибающие PLAXIS", "Усилия выбранных стадий"];
+    public IReadOnlyList<string> ModeOptions { get; } = ["Подбор армирования", "Проверка сечения"];
 
     // ---- connection ----
     [ObservableProperty] string pythonPath;
     [ObservableProperty] string port;
     [ObservableProperty] string inputPort;
     [ObservableProperty] bool showOutputDirect;
-    /// <summary>Read every phase instead of the Output envelopes: slower, exact M2 + M3 of 3D piles.</summary>
-    [ObservableProperty] bool readPhases;
+    /// <summary>0 — Output envelopes per branch; 1 — forces of every stage (pick the stages in the list).</summary>
+    [ObservableProperty] int forcesIndex;
     [ObservableProperty] string password = "";
     public ObservableCollection<PlaxisObjectViewModel> Objects { get; } = [];
     public ObservableCollection<PhaseRowViewModel> Phases { get; } = [];
@@ -164,19 +167,23 @@ public partial class ProfileViewModel : ObservableObject
 
     // ---- settings ----
     [ObservableProperty] string forceUnit = "kN", lengthUnit = "m";
-    [ObservableProperty] string pileSpacing = "", stationStep = "", minPercent = "", serviceDivisor = "", sustainedShare = "";
+    [ObservableProperty] string pileSpacing = "", panelWidth = "", stationStep = "", minPercent = "", serviceDivisor = "", sustainedShare = "";
     [ObservableProperty] int momentSignIndex;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(RightHeader), nameof(LeftHeader))] int excavationIndex;
     [ObservableProperty] string excavationText = "";
     [ObservableProperty] bool alignPileHeads = true;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowPileSpacing))] bool is3D;
-    public bool ShowPileSpacing => IsEmbedded && !Is3D;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsWall), nameof(Is3D), nameof(ShowPileSpacing), nameof(RightHeader))] int scenarioIndex;
+    public ProfileScenario Scenario => (ProfileScenario)ScenarioIndex;
+    public bool Is3D => Scenario == ProfileScenario.Piles3D;
+    public bool ShowPileSpacing => Scenario == ProfileScenario.RetainingPiles;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsCheck), nameof(TableTitle))] int modeIndex;
+    public bool IsCheck => ModeIndex == 1;
+    public string TableTitle => IsCheck ? "Проверка сечения" : "Требуемое армирование";
     [ObservableProperty] string momentSignText = "";
     [ObservableProperty] bool ignoreAxialForce;
     public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
     [ObservableProperty] bool confirmed;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsWall), nameof(RightHeader), nameof(ShowPileSpacing))] bool isEmbedded;
-    public bool IsWall => !IsEmbedded;
+    public bool IsWall => Scenario == ProfileScenario.Wall;
     [ObservableProperty] string sectionText = "";
 
     // ---- state ----
@@ -197,7 +204,7 @@ public partial class ProfileViewModel : ObservableObject
         base.OnPropertyChanged(e);
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
                 or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
-                or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads))
+                or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads) or nameof(PanelWidth) or nameof(ModeIndex))
             Changed();
     }
 
@@ -209,12 +216,22 @@ public partial class ProfileViewModel : ObservableObject
         MinPercent = S(s.MinPercent); ServiceDivisor = S(s.ServiceDivisor); SustainedShare = S(s.SustainedShare);
         MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed; IgnoreAxialForce = s.IgnoreAxialForce;
         ExcavationIndex = Excavation(s.ExcavationSide); AlignPileHeads = s.AlignPileHeads;
+        ScenarioIndex = (int)s.Scenario; ModeIndex = (int)s.Mode;
+        PanelWidth = S(s.PanelWidthM > 0 ? s.PanelWidthM : project.Section.Wall.WidthMm / 1000);
         PeakCuts.Clear();
         foreach (var c in s.PeakCuts) PeakCuts.Add(new PeakCutViewModel(c, Changed, RemoveCut));
         loading = false;
     }
 
     static string S(double v) => v.ToString("0.###", Ru);
+    static string Whole(double v) => Math.Round(v) == 0 ? "0" : v.ToString("0", Ru);
+    /// <summary>The scenario decides the section kind: a wall or a round pile in the section module.</summary>
+    partial void OnScenarioIndexChanged(int value)
+    {
+        main.IsPile = Scenario != ProfileScenario.Wall;
+        if (!loading) Changed();
+    }
+
     static int Excavation(int side) => side switch { 1 => 1, -1 => 2, _ => 0 };
 
     /// <summary>Settings from the fields into the project; messages for invalid numbers.</summary>
@@ -232,6 +249,9 @@ public partial class ProfileViewModel : ObservableObject
         s.SustainedShare = D(SustainedShare, "kдл");
         s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed; s.IgnoreAxialForce = IgnoreAxialForce;
         s.ExcavationSide = ExcavationIndex switch { 1 => 1, 2 => -1, _ => 0 }; s.AlignPileHeads = AlignPileHeads;
+        s.Scenario = Scenario; s.Mode = IsCheck ? ProfileMode.Check : ProfileMode.Required;
+        if (IsWall) { s.PanelWidthM = D(PanelWidth, "Ширина захватки"); if (s.PanelWidthM <= 0) e.Add("Ширина захватки должна быть больше 0"); }
+        else if (Scenario == ProfileScenario.RetainingPiles && s.PileSpacingM <= 0) e.Add("Шаг свай должен быть больше 0");
         s.PeakCuts = PeakCuts.Select((c, i) => c.ToModel(e, i + 1)).OfType<PeakCut>().ToList();
         if (s.StationStepM <= 0) e.Add("Шаг сечений должен быть больше 0");
         if (s.ServiceDivisor <= 0) e.Add("γf для нормативных усилий должен быть больше 0");
@@ -254,6 +274,8 @@ public partial class ProfileViewModel : ObservableObject
         if (project.Source is null || !ReadSettings(e)) { Errors = string.Join("\n", e); return; }
         if (main.TryBuild(out var se, quiet: true) is { } section) project.Section = section;
         else { Errors = "Сечение: " + string.Join("; ", se); return; }
+        // Diaphragm wall: the section is one panel, its width b is the panel width.
+        if (IsWall && project.Settings.PanelWidthM > 0) project.Section.Wall.WidthMm = project.Settings.PanelWidthM * 1000;
         SectionText = SectionSummary(project.Section);
         if (result is not null && Key() != resultKey) ResultIsStale = true;
         try
@@ -263,7 +285,7 @@ public partial class ProfileViewModel : ObservableObject
             var extremes = ForceProfile.PhaseExtremes(project);
             foreach (var row in Phases)
                 row.Extremes = extremes.TryGetValue(row.Setting.Id, out var x)
-                    ? $"N {x.NMin:0}…{x.NMax:0} кН · |M| ≤ {x.MAbs:0} кН·м · |Q| ≤ {x.QAbs:0} кН" : "нет усилий выбранных элементов";
+                    ? $"N {Whole(x.NMin)}…{Whole(x.NMax)} кН · |M| ≤ {Whole(x.MAbs)} · |Q| ≤ {Whole(x.QAbs)}" : "нет усилий выбранных элементов";
             Draw();
         }
         catch (InvalidOperationException ex) { Errors = ex.Message; Chart = null; }
@@ -278,9 +300,14 @@ public partial class ProfileViewModel : ObservableObject
 
     string Key() => ProjectStore.Serialize(project.Section) + JsonSerializer.Serialize(project.Settings) + JsonSerializer.Serialize(project.Phases);
 
-    static string SectionSummary(SectionProject p) => p.Kind == SectionKind.Pile
-        ? $"БНС Ø{p.Pile.DiameterMm:0}, {p.Pile.BarCount} стержней, {p.ConcreteClass}, {p.RebarClass}"
-        : $"СВГ {p.Wall.WidthMm:0}×{p.Wall.ThicknessMm:0}, {p.Wall.NegativeFace.BarCount} + {p.Wall.PositiveFace.BarCount} стержней, {p.ConcreteClass}, {p.RebarClass}";
+    static string SectionSummary(SectionProject p)
+    {
+        static string Face(WallFace f) => (f.Rows > 1 ? $"{f.Rows}×" : "") + $"{f.BarCount}Ø{f.BarDiameterMm:0}";
+        return p.Kind == SectionKind.Pile
+            ? $"Сечение: БНС Ø{p.Pile.DiameterMm:0}, {p.Pile.BarCount}Ø{p.Pile.BarDiameterMm:0}, {p.ConcreteClass}, {p.RebarClass}"
+            : $"Сечение: СВГ b×h = {p.Wall.WidthMm:0}×{p.Wall.ThicknessMm:0} (b — захватка), грань «+» {Face(p.Wall.PositiveFace)}, "
+              + $"грань «−» {Face(p.Wall.NegativeFace)}, {p.ConcreteClass}, {p.RebarClass}";
+    }
 
     bool CanRun() => !IsBusy;
 
@@ -323,7 +350,7 @@ public partial class ProfileViewModel : ObservableObject
         {
             // Progress of the script: the current step, so that a slow or stuck PLAXIS call is seen.
             var log = new Progress<string>(line => { lastStep = line; Status = "PLAXIS " + line; });
-            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ReadPhases, cancel: token, log: ((IProgress<string>)log).Report);
+            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ForcesIndex == 1, cancel: token, log: ((IProgress<string>)log).Report);
             SaveSettings(input: port);
             Adopt(export);
             Status = $"Загружено: {string.Join(", ", export.Selection)}";
@@ -407,10 +434,12 @@ public partial class ProfileViewModel : ObservableObject
         var s = project.Source!;
         ForceUnit = project.Settings.ForceUnit; LengthUnit = project.Settings.LengthUnit; Confirmed = project.Settings.Confirmed;
         loading = false;
-        IsEmbedded = s.Objects.Any(o => o.Kind != "Plate");
+        loading = true;
+        ScenarioIndex = (int)project.Settings.Scenario;
+        loading = false;
+        main.IsPile = Scenario != ProfileScenario.Wall;
         MomentSignIndex = project.Settings.MomentSign > 0 ? 0 : 1;
         ExcavationIndex = Excavation(project.Settings.ExcavationSide);
-        Is3D = s.Is3D;
         ExcavationText = s.MomentSign?.Excavation is "right" or "left"
             ? $"Предложено по перемещениям стены (фаза {s.MomentSign.Phase}): стена смещается в сторону котлована"
             : "Укажите сторону котлована — от неё зависят названия граней в результатах и в JSON";
@@ -423,7 +452,8 @@ public partial class ProfileViewModel : ObservableObject
         {
             var src = s.Phases.FirstOrDefault(x => x.Id == ph.Id);
             string label = src?.Label ?? ph.Name;
-            if (src is { Covers.Count: > 1 }) label += $" · огибающая {src.Covers[0]} … {src.Covers[^1]}";
+            if (src is { Covers.Count: > 1 }) label += $" · огибающая {src.Covers.Count} стадий";
+            if (src?.CalcType is { Length: > 0 } calc && !calc.Contains("Plastic", StringComparison.OrdinalIgnoreCase)) label += $" · {calc}";
             Phases.Add(new PhaseRowViewModel(ph, label, Changed));
         }
         HasPhases = Phases.Count > 0;
@@ -444,15 +474,17 @@ public partial class ProfileViewModel : ObservableObject
         if (forces is null) { if (Errors.Length == 0) Errors = "Загрузите усилия PLAXIS"; return; }
         if (!project.Settings.Confirmed) { Errors = "Сверьте с Output единицы, масштаб и знак момента и отметьте «Сверено»"; return; }
         var p = project;
-        await Busy("Подбор армирования…", async token =>
+        bool check = IsCheck;
+        string what = check ? "Проверка сечения" : "Подбор армирования";
+        await Busy(what + "…", async token =>
         {
             var progress = new Progress<(int Done, int Total)>(x =>
             {
                 Progress = 100.0 * x.Done / x.Total;
-                Status = $"Подбор армирования: {x.Done} из {x.Total} сечений";
+                Status = $"{what}: {x.Done} из {x.Total} сечений";
             });
             string key = Key();
-            result = await Task.Run(() => RequiredReinforcement.Run(p, progress, token), token);
+            result = await Task.Run(() => check ? RequiredReinforcement.Check(p, progress, token) : RequiredReinforcement.Run(p, progress, token), token);
             resultKey = key;
             ShowResult();
         });
@@ -470,16 +502,25 @@ public partial class ProfileViewModel : ObservableObject
         var f = result.Forces;
         int side = result.Project.Settings.ExcavationSide;
         string Face(int face) => side == 0 ? (face > 0 ? "правая" : "левая") : side == face ? "со стороны котлована" : "со стороны грунта";
-        Summary = wall
-            ? $"As,max: {Face(1)} {As(st.Max(s => s.AsRightMm2))} см², {Face(-1)} {As(st.Max(s => s.AsLeftMm2))} см²"
-            : f.IsGroup ? $"Единое армирование группы из {f.Piles.Count} свай: As,max {As(st.Max(s => s.AsRightMm2))} см²"
-            : $"As,max {As(st.Max(s => s.AsRightMm2))} см²";
+        if (result.IsCheck)
+        {
+            // The given section: the largest K along the element and where it is.
+            var worst = st.Where(s => s.K is not null).MaxBy(s => s.K);
+            Summary = worst is null ? "Проверка: нет усилий"
+                : $"Проверка сечения{(f.IsGroup ? $" (группа {f.Piles.Count} свай)" : "")}: Kmax {ReportWriter.Utilization(worst.K)} на отм. {worst.Station.Level.ToString("0.00", Ru)} — "
+                  + (worst.K <= 1 ? "сечение обеспечено" : "НЕ обеспечено") + $" ({worst.Governing})";
+        }
+        else
+            Summary = wall
+                ? $"As,max: {Face(1)} {As(st.Max(s => s.AsRightMm2))} см², {Face(-1)} {As(st.Max(s => s.AsLeftMm2))} см²"
+                : f.IsGroup ? $"Единое армирование группы из {f.Piles.Count} свай: As,max {As(st.Max(s => s.AsRightMm2))} см²"
+                : $"As,max {As(st.Max(s => s.AsRightMm2))} см²";
         if (f.Piles.Any(x => Math.Abs(x.Shift) > 1e-6))
             Summary += $". * Эпюры свай совмещены по оголовкам (отметки сваи {f.Piles.MaxBy(x => x.Head)!.Name})";
-        if (st.Any(s => s.AswCm2PerM is not null)) Summary += $"; Asw/sw,max {st.Max(s => s.AswCm2PerM ?? 0).ToString("0.00", Ru)} см²/м";
+        if (!result.IsCheck && st.Any(s => s.AswCm2PerM is not null)) Summary += $"; Asw/sw,max {st.Max(s => s.AswCm2PerM ?? 0).ToString("0.00", Ru)} см²/м";
         int bad = st.Count(s => s.IsBad());
         if (bad > 0) Summary += $". Не обеспечено или не определено: {bad} сеч.";
-        Status = "Подбор выполнен";
+        Status = result.IsCheck ? "Проверка выполнена" : "Подбор выполнен";
         Draw();
     }
 
@@ -535,6 +576,14 @@ public partial class ProfileViewModel : ObservableObject
     }
 
     void RemoveCut(PeakCutViewModel c) { PeakCuts.Remove(c); Changed(); }
+
+    /// <summary>All stages on or off: with the stage forces, tick only the stages wanted.</summary>
+    [RelayCommand]
+    void AllPhases(string? on)
+    {
+        bool value = on != "0";
+        foreach (var row in Phases) row.Include = value;
+    }
 
     string? lastStep;
 

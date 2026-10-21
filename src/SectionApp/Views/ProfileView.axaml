@@ -16,7 +16,7 @@
           <Button Classes="small" Content="Остановить" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-          <Button Classes="primary" Content="Подобрать армирование" Command="{Binding CalculateCommand}" />
+          <Button Classes="primary" Content="Рассчитать" Command="{Binding CalculateCommand}" />
           <Button Classes="apply" Content="Сохранить для Revit…" Command="{Binding ExportRevitCommand}" />
         </StackPanel>
       </Grid>
@@ -29,60 +29,90 @@
     <Grid ColumnDefinitions="370,*,330" Margin="12">
       <ScrollViewer Grid.Column="0" Margin="0,0,12,0" VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="12">
+          <!-- Task: what is designed, which forces -->
           <Border Classes="card">
             <StackPanel Spacing="8">
-              <TextBlock Classes="cardTitle" Text="PLAXIS 2D / 3D" Margin="0" />
-              <TextBlock Classes="label" Text="Python из каталога PLAXIS" />
-              <Grid ColumnDefinitions="*,6,Auto">
-                <TextBox Text="{Binding PythonPath}" Watermark="…\PLAXIS Python Distribution\python\python.exe" />
-                <Button Grid.Column="2" Content="…" Command="{Binding BrowsePythonCommand}" />
+              <TextBlock Classes="cardTitle" Text="Задача" Margin="0" />
+              <ComboBox ItemsSource="{Binding ScenarioOptions}" SelectedIndex="{Binding ScenarioIndex}" HorizontalAlignment="Stretch"
+                        ToolTip.Tip="Сценарий определяет тип сечения (СВГ или БНС) и пересчёт усилий PLAXIS на элемент" />
+              <Grid ColumnDefinitions="*,12,*" IsVisible="{Binding !Is3D}">
+                <StackPanel IsVisible="{Binding IsWall}"><TextBlock Classes="label" Text="Ширина захватки, м" />
+                  <TextBox Text="{Binding PanelWidth}" ToolTip.Tip="Усилия Plate — на 1 п.м; сечение СВГ рассчитывается на захватку: b = ширина захватки" /></StackPanel>
+                <StackPanel IsVisible="{Binding ShowPileSpacing}"><TextBlock Classes="label" Text="Шаг свай, м" />
+                  <TextBox Text="{Binding PileSpacing}" ToolTip.Tip="Усилия Plate / Embedded beam row — на 1 п.м; на сваю = × шаг" /></StackPanel>
               </Grid>
+              <CheckBox IsVisible="{Binding Is3D}" IsChecked="{Binding AlignPileHeads}" Content="Совместить сваи по оголовкам"
+                        ToolTip.Tip="Эпюры свай группы откладываются от оголовков: при разных отметках голов армирование едино по длине сваи" />
+              <TextBlock Classes="label" Text="Расчёт" />
+              <ComboBox ItemsSource="{Binding ModeOptions}" SelectedIndex="{Binding ModeIndex}" HorizontalAlignment="Stretch"
+                        ToolTip.Tip="Подбор — требуемая As по длине (для Revit). Проверка — сечение из режима «Сечение» (стержни, ряды, хомуты) по всей длине." />
+              <TextBlock Classes="hint" Text="{Binding SectionText}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <!-- PLAXIS -->
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="cardTitle" Text="Усилия PLAXIS" Margin="0" />
+              <ComboBox ItemsSource="{Binding ForcesOptions}" SelectedIndex="{Binding ForcesIndex}" HorizontalAlignment="Stretch"
+                        ToolTip.Tip="Огибающие — построенные Output по веткам стадий (Safety исключаются). Стадии — усилия каждой стадии; отметьте нужные в списке." />
               <Grid ColumnDefinitions="90,8,*">
                 <StackPanel><TextBlock Classes="label" Text="Порт Input" /><TextBox Text="{Binding InputPort}" /></StackPanel>
                 <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Пароль" /><TextBox Text="{Binding Password}" PasswordChar="●" /></StackPanel>
               </Grid>
               <Button Classes="primary" Content="Загрузить выделенное в Input" Command="{Binding LoadSelectionCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                      ToolTip.Tip="Выделите в Input стену (Plate) или сваю (Embedded beam row); в PLAXIS 3D — одну или несколько свай (Embedded beam / Beam): для группы подбирается единое армирование. Output откроется сам; фазы Safety не учитываются." />
-              <CheckBox IsChecked="{Binding ReadPhases}" Content="Читать по фазам (точнее, медленнее)"
-                        ToolTip.Tip="По умолчанию берутся огибающие, построенные Output. В 3D огибающие M2 и M3 не одновременны, их максимумы складываются геометрически — в запас (до √2 по M). По фазам момент сваи берётся точно: √(M2² + M3²) в каждой фазе." />
-              <CheckBox IsChecked="{Binding ShowOutputDirect}" Content="Из открытого Output вручную" />
-              <StackPanel Spacing="8" IsVisible="{Binding ShowOutputDirect}">
-                <Grid ColumnDefinitions="90,8,*">
-                  <StackPanel><TextBlock Classes="label" Text="Порт Output" /><TextBox Text="{Binding Port}" /></StackPanel>
-                  <Button Grid.Column="2" VerticalAlignment="Bottom" Content="Подключиться" Command="{Binding ConnectCommand}" />
-                </Grid>
-                <Border Classes="tableFrame" MaxHeight="170" IsVisible="{Binding HasObjects}">
-                  <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Objects}" Margin="8,4">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:PlaxisObjectViewModel">
-                          <CheckBox IsChecked="{Binding Selected}"><TextBlock Text="{Binding Label}" /></CheckBox>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </ScrollViewer>
-                </Border>
-                <Button Content="Загрузить усилия" Command="{Binding LoadForcesCommand}" HorizontalAlignment="Left" />
-              </StackPanel>
-              <TextBlock Classes="hint" Text="{Binding SourceText}" />
+                      ToolTip.Tip="Выделите в Input стену или сваи (в 3D — группу свай). Output откроется сам." />
+              <TextBlock Classes="hint" Text="{Binding SourceText}" TextWrapping="Wrap" />
+              <Expander Header="Подключение" Padding="0,6,0,0" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="label" Text="Python из каталога PLAXIS" />
+                  <Grid ColumnDefinitions="*,6,Auto">
+                    <TextBox Text="{Binding PythonPath}" Watermark="…\PLAXIS Python Distribution\python\python.exe" />
+                    <Button Grid.Column="2" Content="…" Command="{Binding BrowsePythonCommand}" />
+                  </Grid>
+                  <CheckBox IsChecked="{Binding ShowOutputDirect}" Content="Из открытого Output вручную" />
+                  <StackPanel Spacing="8" IsVisible="{Binding ShowOutputDirect}">
+                    <Grid ColumnDefinitions="90,8,*">
+                      <StackPanel><TextBlock Classes="label" Text="Порт Output" /><TextBox Text="{Binding Port}" /></StackPanel>
+                      <Button Grid.Column="2" VerticalAlignment="Bottom" Content="Подключиться" Command="{Binding ConnectCommand}" />
+                    </Grid>
+                    <Border Classes="tableFrame" MaxHeight="170" IsVisible="{Binding HasObjects}">
+                      <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Objects}" Margin="8,4">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PlaxisObjectViewModel">
+                              <CheckBox IsChecked="{Binding Selected}"><TextBlock Text="{Binding Label}" /></CheckBox>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </ScrollViewer>
+                    </Border>
+                    <Button Content="Загрузить усилия" Command="{Binding LoadForcesCommand}" HorizontalAlignment="Left" />
+                  </StackPanel>
+                </StackPanel>
+              </Expander>
             </StackPanel>
           </Border>
 
           <Border Classes="card" IsVisible="{Binding HasPhases}">
             <StackPanel Spacing="4">
-              <TextBlock Classes="cardTitle" Text="Фазы" Margin="0,0,0,6" />
-              <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+              <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,6">
+                <TextBlock Classes="cardTitle" Text="Стадии" Margin="0" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="link" Content="все" Command="{Binding AllPhasesCommand}" CommandParameter="1" />
+                <Button Grid.Column="2" Classes="link" Content="ни одной" Command="{Binding AllPhasesCommand}" CommandParameter="0" />
+              </Grid>
+              <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Phases}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:PhaseRowViewModel">
-                      <Grid ColumnDefinitions="*,8,140" Margin="0,2">
+                      <Grid ColumnDefinitions="*,8,128" Margin="0,2">
                         <CheckBox IsChecked="{Binding Include}" ToolTip.Tip="{Binding Label}">
                           <StackPanel>
                             <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Classes="hint" Text="{Binding Extremes}" IsVisible="{Binding HasExtremes}" />
                           </StackPanel>
                         </CheckBox>
-                        <ComboBox Grid.Column="2" Classes="cell" ItemsSource="{Binding Kinds}" SelectedIndex="{Binding KindIndex}" />
+                        <ComboBox Grid.Column="2" Classes="cell" ItemsSource="{Binding Kinds}" SelectedIndex="{Binding KindIndex}" VerticalAlignment="Top" />
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -94,44 +124,40 @@
           <Border Classes="card">
             <StackPanel Spacing="8">
               <TextBlock Classes="cardTitle" Text="Параметры" Margin="0" />
-              <Grid ColumnDefinitions="*,12,*">
-                <StackPanel><TextBlock Classes="label" Text="Единица силы" /><ComboBox ItemsSource="{Binding ForceUnitOptions}" SelectedItem="{Binding ForceUnit}" /></StackPanel>
-                <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Единица длины" /><ComboBox ItemsSource="{Binding LengthUnitOptions}" SelectedItem="{Binding LengthUnit}" /></StackPanel>
-              </Grid>
-              <CheckBox IsVisible="{Binding Is3D}" IsChecked="{Binding AlignPileHeads}" Content="Совместить сваи по оголовкам"
-                        ToolTip.Tip="Эпюры всех свай группы откладываются от их оголовков (отметки — по самой высокой свае), чтобы при разных отметках голов армирование было единым по длине сваи. Без галочки — по отметкам модели." />
-              <StackPanel IsVisible="{Binding ShowPileSpacing}">
-                <TextBlock Classes="label" Text="Шаг свай в ряду, м" />
-                <TextBox Text="{Binding PileSpacing}" ToolTip.Tip="Усилия Embedded beam row V22 — на 1 м ряда" />
-              </StackPanel>
               <StackPanel IsVisible="{Binding IsWall}">
                 <TextBlock Classes="label" Text="Котлован" />
-                <ComboBox ItemsSource="{Binding ExcavationOptions}" SelectedIndex="{Binding ExcavationIndex}" HorizontalAlignment="Stretch" />
-                <TextBlock Classes="hint" Margin="0,4,0,8" Text="{Binding ExcavationText}" />
-                <TextBlock Classes="hint" Margin="0,0,0,8"
-                           Text="Арматура подбирается на обе грани: каждая — по моментам, которые растягивают именно её, во всех фазах (Mmax и Mmin огибающих)." />
-                <TextBlock Classes="label" Text="Знак M в PLAXIS: M &gt; 0 растягивает" />
-                <ComboBox ItemsSource="{Binding MomentSignOptions}" SelectedIndex="{Binding MomentSignIndex}" HorizontalAlignment="Stretch"
-                          ToolTip.Tip="Служебная настройка: по ней положительный и отрицательный моменты PLAXIS относятся к своим граням. Знак M в PLAXIS зависит от направления, в котором нарисована линия плиты, поэтому определяется по прогибу стены." />
-                <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding MomentSignText}" />
+                <ComboBox ItemsSource="{Binding ExcavationOptions}" SelectedIndex="{Binding ExcavationIndex}" HorizontalAlignment="Stretch"
+                          ToolTip.Tip="Обе грани армируются всегда, каждая — по моментам, растягивающим её. Сторона котлована задаёт названия граней." />
+                <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding ExcavationText}" TextWrapping="Wrap" />
               </StackPanel>
               <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto">
                 <StackPanel><TextBlock Classes="label" Text="Шаг сечений, м" /><TextBox Text="{Binding StationStep}" /></StackPanel>
-                <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="μmin, %" /><TextBox Text="{Binding MinPercent}" ToolTip.Tip="Стена — на каждую грань от b·h0, свая — от площади сечения" /></StackPanel>
+                <StackPanel Grid.Column="2" IsVisible="{Binding !IsCheck}"><TextBlock Classes="label" Text="μmin, %" /><TextBox Text="{Binding MinPercent}" ToolTip.Tip="Стена — на каждую грань от b·h0, свая — от площади сечения" /></StackPanel>
                 <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="γf для нормативных" /><TextBox Text="{Binding ServiceDivisor}" ToolTip.Tip="Трещины: нормативные = расчётные / γf" /></StackPanel>
                 <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="kдл" /><TextBox Text="{Binding SustainedShare}" /></StackPanel>
               </Grid>
-              <CheckBox IsChecked="{Binding IgnoreAxialForce}" Content="Не учитывать N (N = 0, в запас при изгибе)" />
-              <CheckBox IsChecked="{Binding Confirmed}" Content="Единицы, масштаб и знак M сверены с Output" />
-              <TextBlock Classes="hint" Text="{Binding SectionText}" />
+              <CheckBox IsChecked="{Binding IgnoreAxialForce}" Content="Не учитывать N (N = 0)" ToolTip.Tip="В запас при изгибе, когда N ограждения не определено" />
+              <Expander Header="Единицы и знак M" Padding="0,6,0,0" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="8">
+                  <Grid ColumnDefinitions="*,12,*">
+                    <StackPanel><TextBlock Classes="label" Text="Единица силы" /><ComboBox ItemsSource="{Binding ForceUnitOptions}" SelectedItem="{Binding ForceUnit}" HorizontalAlignment="Stretch" /></StackPanel>
+                    <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Единица длины" /><ComboBox ItemsSource="{Binding LengthUnitOptions}" SelectedItem="{Binding LengthUnit}" HorizontalAlignment="Stretch" /></StackPanel>
+                  </Grid>
+                  <StackPanel IsVisible="{Binding IsWall}">
+                    <TextBlock Classes="label" Text="M &gt; 0 в PLAXIS растягивает" />
+                    <ComboBox ItemsSource="{Binding MomentSignOptions}" SelectedIndex="{Binding MomentSignIndex}" HorizontalAlignment="Stretch"
+                              ToolTip.Tip="Относит положительные и отрицательные моменты PLAXIS к граням; определяется по прогибу стены" />
+                    <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding MomentSignText}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </StackPanel>
+              </Expander>
+              <CheckBox IsChecked="{Binding Confirmed}" Content="Усилия сверены с Output" ToolTip.Tip="Единицы, масштаб и (для стены) знак M" />
             </StackPanel>
           </Border>
+
           <Border Classes="card">
-            <StackPanel Spacing="8">
-              <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="cardTitle" Text="Срезка пиков M и Q" Margin="0" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Classes="small" Content="Добавить зону" Command="{Binding AddCutCommand}" />
-              </Grid>
+            <Expander Header="Срезка пиков M и Q" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="8">
               <ItemsControl ItemsSource="{Binding PeakCuts}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:PeakCutViewModel">
@@ -154,8 +180,12 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
-              <TextBlock Classes="hint" Text="На ответственность инженера. Значения — на сечение (как на графике); исходная эпюра показана пунктиром." />
-            </StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Classes="hint" Text="На ответственность инженера; значения — на элемент, исходная эпюра — пунктиром." TextWrapping="Wrap" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Classes="small" Content="Добавить зону" Command="{Binding AddCutCommand}" />
+                </Grid>
+              </StackPanel>
+            </Expander>
           </Border>
         </StackPanel>
       </ScrollViewer>
@@ -173,7 +203,7 @@
 
       <Border Grid.Column="2" Classes="card" Margin="12,0,0,0" Padding="0">
         <DockPanel Margin="12">
-          <TextBlock DockPanel.Dock="Top" Classes="cardTitle" Text="Требуемое армирование" />
+          <TextBlock DockPanel.Dock="Top" Classes="cardTitle" Text="{Binding TableTitle}" />
           <Border DockPanel.Dock="Top" Classes="thead">
             <Grid ColumnDefinitions="54,*,*,*,48">
               <TextBlock Classes="th" Text="Отм." />

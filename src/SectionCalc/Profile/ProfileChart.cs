@@ -41,13 +41,14 @@ public static class ProfileChart
         double z0 = f.TopLevel, z1 = f.BottomLevel;
         float Y(double z) => (float)(top + (z0 - z) / Math.Max(z0 - z1, 1e-6) * (bottom - top));
 
+        bool wall = f.IsWall;
         var panels = new List<Panel>
         {
             new("N, кН", e => (e.NMin, e.NMax)),
-            new("M, кН·м", e => (e.MMin, e.MMax)),
+            // A wall: signed M (faces); a round pile: the magnitude from zero.
+            wall ? new("M, кН·м", e => (e.MMin, e.MMax)) : new("|M|, кН·м", e => (0, Math.Max(Math.Abs(e.MMin), Math.Abs(e.MMax)))),
             new("|Q|, кН", e => (0, e.QAbsMax)),
         };
-        bool wall = f.ElementKind == "Plate";
         int count = panels.Count + (r is null ? 0 : 1) + (r?.Stations.Any(s => s.AswCm2PerM is not null) == true ? 1 : 0);
         float gap = fontPx * 1.6f;
         // The reinforcement panel is twice as wide.

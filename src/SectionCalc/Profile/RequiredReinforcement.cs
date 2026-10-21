@@ -11,7 +11,8 @@ public sealed record StationResult(Station Station, double AsRightMm2, double As
     public double AsTotalMm2 => AsRightMm2 + AsLeftMm2;
 }
 
-public sealed record ReinforcementProfile(ProfileProject Project, ForceProfile Forces, IReadOnlyList<StationResult> Stations);
+/// <summary>Result along the element. IsCheck: the given section was checked (As — the given areas, K — its utilization).</summary>
+public sealed record ReinforcementProfile(ProfileProject Project, ForceProfile Forces, IReadOnlyList<StationResult> Stations, bool IsCheck = false);
 
 /// <summary>
 /// Searches the smallest reinforcement satisfying every CScore check (strength with η, stability, cracks) for the
@@ -46,6 +47,67 @@ public static class RequiredReinforcement
         });
         return new ReinforcementProfile(project, forces, results);
     }
+
+    /// <summary>
+    /// The section as given in the section module (bars, rows, stirrups) checked with the РСУ of every station:
+    /// the largest K of all checks (strength with η, stability, cracks, Q when enabled).
+    /// </summary>
+    public static ReinforcementProfile Check(ProfileProject project, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default)
+    {
+        var forces = ForceProfile.Build(project);
+        var stations = forces.Stations(project);
+        var section = Clone(project.Section);
+        section.Conditions.ElementLengthM = Math.Max(0.1, Math.Round(forces.Length, 3));
+        section.Conditions.OnePlane = section.Kind == SectionKind.Wall;
+        var problems = RequestBuilder.Validate(WithLoads(section, [new LoadRow { Name = "проверка", N = -1 }]));
+        if (problems.Count > 0) throw new InvalidOperationException("Сечение: " + string.Join("; ", problems));
+        double right, left;
+        if (section.Kind == SectionKind.Pile) (right, left) = (Area(section.Pile.BarCount, section.Pile.BarDiameterMm), 0);
+        else
+        {
+            var w = section.Wall;
+            (right, left) = (Area(w.PositiveFace.BarCount * w.PositiveFace.Rows, w.PositiveFace.BarDiameterMm),
+                             Area(w.NegativeFace.BarCount * w.NegativeFace.Rows, w.NegativeFace.BarDiameterMm));
+        }
+        double? asw = null;
+        if (section.Conditions.ShearCheck)
+        {
+            bool pile = section.Kind == SectionKind.Pile;
+            double d = pile ? section.Pile.SpiralDiameterMm : section.Wall.StirrupDiameterMm;
+            asw = (pile ? 2 : section.Conditions.StirrupLegs) * Math.PI * d * d / 4 / section.Conditions.ShearPitchMm * 10;
+        }
+        var results = new StationResult[stations.Count];
+        int done = 0;
+        Parallel.For(0, stations.Count, new ParallelOptions { CancellationToken = cancel, MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
+        {
+            var station = stations[i];
+            if (station.Rsu.Count == 0)
+                results[i] = new StationResult(station, right, left, asw, "none", null, null, null, "Нет усилий в интервале", 0);
+            else
+            {
+                // As in the search: rows with Q only do not load the normal section, they go to the Q check alone.
+                var normal = station.Rsu.Where(l => Math.Abs(l.N) > 1e-6 || Math.Abs(l.Mx) > 1e-6).ToList();
+                var shearOnly = station.Rsu.Except(normal).Where(l => l.Q > 0).ToList();
+                var rows = new List<CheckRow>();
+                if (normal.Count > 0)
+                    rows.AddRange(Engine.Check(WithLoads(section, normal), cancel).Rows.Where(x => Demand.Contains(x.CheckId) || Shears.Contains(x.CheckId)));
+                if (section.Conditions.ShearCheck && shearOnly.Count > 0)
+                    rows.AddRange(Engine.Check(WithLoads(section, shearOnly), cancel).Rows.Where(x => Shears.Contains(x.CheckId)));
+                bool indet = rows.Any(x => x.Status == "indeterminate" && Demand.Contains(x.CheckId));
+                bool shearOpen = rows.Any(x => x.Status == "indeterminate" && Shears.Contains(x.CheckId));
+                var gov = rows.Where(x => x.Utilization is not null && (x.CheckId != "member_stability" || x.IsFailure))
+                    .MaxBy(x => x.Utilization);
+                double? k = gov?.Utilization;
+                string status = indet ? "indeterminate" : k > 1 ? "exceeded" : "ok";
+                results[i] = new StationResult(station, right, left, asw, status, gov?.Title, gov?.Combination, k,
+                    indet ? "Расчёт ядра не сошёлся" : shearOpen ? "Q не проверен: подтвердите модель поперечного армирования" : null, 1);
+            }
+            progress?.Report((Interlocked.Increment(ref done), stations.Count));
+        });
+        return new ReinforcementProfile(project, forces, results, IsCheck: true);
+    }
+
+    static readonly HashSet<string> Shears = ["shear_strip", "shear_inclined", "inclined_moment"];
 
     sealed record Face(int Index, int Bars, double Min, double Max);
 

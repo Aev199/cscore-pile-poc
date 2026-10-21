@@ -1,8 +1,10 @@
 {
   "format": "section-app/reinforcement-profile",
   "version": 1,
-  "created": "2026-10-21T09:38:26",
+  "created": "2026-10-21T12:14:28",
   "title": "Эпюра армирования",
+  "mode": "required",
+  "scenario": "wall_2d",
   "element": {
     "type": "wall",
     "top_level_m": 0,

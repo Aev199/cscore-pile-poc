@@ -125,17 +125,47 @@ def first(obj, names):
     return None, None
 
 
+CALC_KEYS = ('DeformCalcType', 'CalculationType', 'CalcType', 'DeformCalculationType')
+
+
+def raw_calc_types(phase):
+    """Every readable form of the calculation type: {key: text}; PLAXIS versions differ in names and enum values."""
+    found = {}
+    for key in CALC_KEYS:
+        try:
+            attr = getattr(phase, key)
+        except Exception:
+            continue
+        for form in (lambda: attr.value, lambda: str(attr)):
+            try:
+                value = str(form())
+            except Exception:
+                continue
+            if value and value != 'None':
+                found[key] = value
+                break
+    return found
+
+
 def calc_type(phase):
-    for key in ('DeformCalcType', 'CalculationType', 'CalcType'):
-        value = text(phase, key)
-        if value:
-            return value
-    return None
+    found = raw_calc_types(phase)
+    # A Safety type in any form wins (PLAXIS 3D may give it under another key or as a longer text).
+    for value in found.values():
+        if 'safety' in value.lower():
+            return 'Safety'
+    return next(iter(found.values()), None)
 
 
 def is_safety(phase):
     kind = calc_type(phase)
-    return kind is not None and 'safety' in kind.lower()
+    if kind is not None and 'safety' in kind.lower():
+        return True
+    # Safety (φ-c reduction) is calculated with incremental multipliers ΣMsf; plastic phases with staged construction.
+    try:
+        loading = str(phase.Deform.LoadingType.value).lower()
+    except Exception:
+        loading = ''
+    return 'multiplier' in loading and 'staged' not in loading
 
 
 PREFIXES = (('Plate', ('Plate',)), ('EmbeddedBeamRow', ('EmbeddedBeamRow', 'EmbeddedBeam')), ('Beam', ('Beam',)))
@@ -217,8 +247,9 @@ class PhaseRow:
     def __init__(self, phase):
         self.name = name_of(phase)
         self.title = text(phase, 'Identification')
-        self.calc_type = calc_type(phase)
-        self.safety = self.calc_type is not None and 'safety' in self.calc_type.lower()
+        self.raw = raw_calc_types(phase)
+        self.safety = is_safety(phase)
+        self.calc_type = 'Safety' if self.safety else calc_type(phase)
         prev = previous(phase)
         self.previous = name_of(prev) if prev is not None else None
 
@@ -447,6 +478,7 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     used = [p for p, r in zip(phases, rows) if not r.safety]
     log(f'Input: фаз {len(phases)}, из них Safety {len(phases) - len(used)}; дерево: '
         + ', '.join(f'{r.previous or "—"}→{r.name}' + (' (Safety)' if r.safety else '') for r in rows))
+    log('Input: типы расчёта: ' + '; '.join(f'{r.name} {r.raw or "?"}' for r in rows))
     if not used:
         raise ExportError('В проекте нет фаз, кроме Safety')
     if output_port is None:

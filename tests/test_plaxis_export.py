@@ -383,6 +383,26 @@ class SelfReferenceTests(unittest.TestCase):
             self.assertEqual(code, 0, result)
 
 
+class SafetyDetectionTests(unittest.TestCase):
+    def test_safety_in_other_forms(self):
+        class Enum:
+            @property
+            def value(self):
+                raise RuntimeError('no value')
+
+            def __str__(self):
+                return 'DeformCalcType.Safety'
+        by_str = SimpleNamespace(Name=value('Phase_9'), DeformCalcType=Enum())
+        by_loading = SimpleNamespace(Name=value('Phase_20'), DeformCalcType=value(3),
+                                     Deform=SimpleNamespace(LoadingType=value('Incremental multipliers')))
+        plastic = SimpleNamespace(Name=value('Phase_1'), DeformCalcType=value(1),
+                                  Deform=SimpleNamespace(LoadingType=value('Staged construction')))
+        self.assertTrue(plaxis_export.is_safety(by_str))
+        self.assertTrue(plaxis_export.is_safety(by_loading))
+        self.assertFalse(plaxis_export.is_safety(plastic))
+        self.assertEqual(plaxis_export.PhaseRow(by_loading).calc_type, 'Safety')
+
+
 class Fake3DOutput(FakeOutputSplit):
     """PLAXIS 3D Output: embedded beams EmbeddedBeam_1 (two segments) and EmbeddedBeam_2 at another place."""
 

@@ -445,4 +445,46 @@ public class ProfileTests(ITestOutputHelper output)
         var ex = Assert.Throws<InvalidOperationException>(() => ForceProfile.Build(p));
         Assert.Contains("EmbeddedBeam_1", ex.Message);
     }
+
+    [Fact]
+    public void RetainingPilesFromPlateAreForcesPerMetreTimesSpacing()
+    {
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(WallExport());
+        Assert.Equal(ProfileScenario.Wall, p.Settings.Scenario);
+        // Plate with a pile section: the scenario must be chosen.
+        Assert.Contains("СВГ", Assert.Throws<InvalidOperationException>(() => ForceProfile.Build(p)).Message);
+        p.Settings.Scenario = ProfileScenario.RetainingPiles;
+        p.Settings.PileSpacingM = 1.5;
+        var f = ForceProfile.Build(p);
+        Assert.False(f.IsWall);
+        // Up to 280 kN·m/m × 1,5 m, the pile takes |M|.
+        Assert.InRange(f.Envelope.Max(e => e.MMax), 280 * 1.5 * 0.99, 280 * 1.5);
+        p.Settings.StationStepM = 15;
+        Assert.All(f.Stations(p).SelectMany(st => st.Rsu), r => Assert.True(r.Mx >= 0));
+        // A 3D export needs the 3D scenario and the other way round.
+        p.Settings.Scenario = ProfileScenario.Piles3D;
+        Assert.Contains("2D", Assert.Throws<InvalidOperationException>(() => ForceProfile.Build(p)).Message);
+    }
+
+    [Fact]
+    public void GivenSectionIsCheckedAlongTheElement()
+    {
+        var p = Wall();
+        p.Settings.StationStepM = 5;
+        p.Settings.Mode = ProfileMode.Check;
+        var w = p.Section.Wall;
+        w.PositiveFace.BarCount = 5; w.PositiveFace.BarDiameterMm = 12;
+        w.NegativeFace.BarCount = 5; w.NegativeFace.BarDiameterMm = 12;
+        var weak = RequiredReinforcement.Check(p);
+        Assert.True(weak.IsCheck);
+        Assert.Equal(Math.Round(5 * Math.PI * 36, 3), Math.Round(weak.Stations[0].AsRightMm2, 3));
+        Assert.Contains(weak.Stations, st => st.Status == "exceeded" && st.K > 1);
+        w.PositiveFace.BarDiameterMm = 32; w.NegativeFace.BarDiameterMm = 32; w.PositiveFace.BarCount = 10; w.NegativeFace.BarCount = 10;
+        var strong = RequiredReinforcement.Check(p);
+        Assert.All(strong.Stations.Where(st => st.K is not null), st => Assert.True(st.K <= 1, $"{st.Station.Level}: {st.K} {st.Governing}"));
+        var json = System.Text.Json.Nodes.JsonNode.Parse(RevitExport.Json(strong))!;
+        Assert.Equal("check", (string)json["mode"]!);
+        Assert.Equal("wall_2d", (string)json["scenario"]!);
+    }
 }
