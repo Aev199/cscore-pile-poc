@@ -528,4 +528,51 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.True(w.Right.AreaMm2 >= 40 * 100 && w.Left!.AreaMm2 >= 5 * 100);
         Assert.Contains("«+»", w.Text);
     }
+
+    [Fact]
+    public void PilesDesignedOneByOneAndGatheredIntoTypes()
+    {
+        string root = AppContext.BaseDirectory;
+        while (!Directory.Exists(Path.Combine(root, "examples", "profile"))) root = Path.GetDirectoryName(root)!;
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(PlaxisBridge.Parse(File.ReadAllText(Path.Combine(root, "examples", "profile", "pile-group-3d.plaxis.json"))));
+        p.Settings.StationStepM = 3;
+        var (gn, gm) = (PileTyping.GridN, PileTyping.GridM);
+        PileTyping.GridN = 3; PileTyping.GridM = 5;
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var d = PileTyping.Demand(p);
+            output.WriteLine($"demand: {sw.Elapsed.TotalSeconds:0} s, {d.TablePoints} points");
+            // Heads 0, 0, −0,5, 0 and lengths 18, 18, 17,5, 16: three classes.
+            Assert.Equal(3, d.Classes);
+            Assert.Equal(4, d.Piles.Count);
+            Assert.All(d.Piles, x => Assert.All(x.As, a => Assert.True(a > 0)));
+            // Pile 4 has the largest moments (×1,75 of pile 1).
+            Assert.True(d.Piles[3].As.Max() > d.Piles[0].As.Max());
+
+            var two = PileTyping.Group(d, 2);
+            Assert.Equal(3, two.Types.Count);
+            Assert.NotNull(two.Note);
+            var four = PileTyping.Group(d, 4);
+            Assert.Equal(4, four.Types.Count);
+            var three = PileTyping.Group(d, 3);
+            var shared = three.Types.Single(t => t.Members.Count == 2);
+            Assert.Equal(["EmbeddedBeam_1", "EmbeddedBeam_2"], shared.Members.Select(m => m.Info.Name).OrderBy(x => x));
+            // The type covers each member at every station; its steel is not less than the members' own.
+            Assert.All(shared.Members, m => Assert.All(m.As.Select((a, i) => (a, i)), x => Assert.True(shared.As[x.i] >= x.a - 1e-6)));
+            Assert.True(three.SteelKg >= three.OwnSteelKg * 0.999);
+            // Every pile its own type: nothing added by the typing.
+            Assert.Equal(0, four.Overspend, 9);
+            Assert.True(three.Overspend >= -1e-9);
+            Assert.All(three.Types, t => Assert.True(t.Zones.Count >= 1 && Math.Abs(t.Zones[0].Top - t.Head) < 1e-6 && Math.Abs(t.Zones[^1].Bottom - t.Tip) < 1e-6));
+
+            sw.Restart();
+            var checkedTypes = PileTyping.Verify(three);
+            output.WriteLine($"verify: {sw.Elapsed.TotalSeconds:0} s; " + string.Join(" | ", checkedTypes.Types.Select(t =>
+                $"T{t.Number} [{string.Join(", ", t.Members.Select(m => m.Info.Name))}] " + string.Join("; ", t.Zones.Select(z => $"{z.Top:0.0}…{z.Bottom:0.0} {z.Bars} K {z.K:0.000}")))));
+            Assert.All(checkedTypes.Types.SelectMany(t => t.Zones), z => Assert.True(z.K is double k && k <= 1.0, $"{z.Bars} K {z.K} {z.Governing}"));
+        }
+        finally { (PileTyping.GridN, PileTyping.GridM) = (gn, gm); }
+    }
 }

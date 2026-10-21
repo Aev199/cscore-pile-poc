@@ -46,6 +46,8 @@ public enum ProfileMode
     Required,
     /// <summary>The section as given (bars of the section module) checked along the element.</summary>
     Check,
+    /// <summary>Piles of a 3D model designed one by one and gathered into a given number of reinforcement types.</summary>
+    Typing,
 }
 
 /// <summary>Combination kind and inclusion of one PLAXIS phase.</summary>
@@ -66,6 +68,8 @@ public sealed class ProfileSettings
     public string LengthUnit { get; set; } = "m";
     public ProfileScenario Scenario { get; set; } = ProfileScenario.Wall;
     public ProfileMode Mode { get; set; } = ProfileMode.Required;
+    /// <summary>Typing: the number of reinforcement types.</summary>
+    public int TypeCount { get; set; } = 3;
     /// <summary>Retaining piles from PLAXIS 2D: forces per metre out of plane are multiplied by the pile spacing.</summary>
     public double PileSpacingM { get; set; } = 1;
     /// <summary>Diaphragm wall: panel width, m — the forces per metre are multiplied by it and it is the section width b.</summary>

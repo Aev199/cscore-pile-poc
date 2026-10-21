@@ -94,6 +94,20 @@ public partial class PeakCutViewModel : ObservableObject
     }
 }
 
+/// <summary>One pile type in the list: number, colour, piles, zones, steel and K.</summary>
+public sealed class TypeRowViewModel(PileType t)
+{
+    static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+    public PileType Type => t;
+    public Avalonia.Media.IBrush Color { get; } = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromUInt32(
+        (uint)TypingChart.Color(t.Number).Alpha << 24 | (uint)TypingChart.Color(t.Number).Red << 16 | (uint)TypingChart.Color(t.Number).Green << 8 | TypingChart.Color(t.Number).Blue));
+    public string Title => $"Т{t.Number} · {t.Members.Count} св. · {t.Head.ToString("0.00", Ru)}…{t.Tip.ToString("0.00", Ru)}";
+    public string Bars => string.Join(" → ", t.Zones.Select(z => z.Bars.ToString()));
+    public string Detail => $"{t.SteelKg / Math.Max(1, t.Members.Count):0} кг/св. · K {ReportWriter.Utilization(t.K)}";
+    public bool IsBad => t.K is null or > 1;
+    public string Tip => string.Join(", ", t.Members.Select(m => m.Info.Name));
+}
+
 public sealed class StationRowViewModel(StationResult s, bool wall)
 {
     public StationResult Result => s;
@@ -148,7 +162,7 @@ public partial class ProfileViewModel : ObservableObject
     public IReadOnlyList<string> ExcavationOptions { get; } = ["не задано", "справа (бóльший X)", "слева (меньший X)"];
     public IReadOnlyList<string> ScenarioOptions { get; } = ["СВГ — PLAXIS 2D, на 1 п.м × захватка", "Сваи ограждения — PLAXIS 2D, на 1 п.м × шаг", "Сваи — PLAXIS 3D, на сваю"];
     public IReadOnlyList<string> ForcesOptions { get; } = ["Огибающие PLAXIS", "Усилия выбранных стадий"];
-    public IReadOnlyList<string> ModeOptions { get; } = ["Подбор армирования", "Проверка сечения"];
+    public IReadOnlyList<string> ModeOptions { get; } = ["Подбор армирования", "Проверка сечения", "Типизация свай (3D): каждая отдельно → типы"];
 
     // ---- connection ----
     [ObservableProperty] string pythonPath;
@@ -177,9 +191,18 @@ public partial class ProfileViewModel : ObservableObject
     public ProfileScenario Scenario => (ProfileScenario)ScenarioIndex;
     public bool Is3D => Scenario == ProfileScenario.Piles3D;
     public bool ShowPileSpacing => Scenario == ProfileScenario.RetainingPiles;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsCheck), nameof(TableTitle))] int modeIndex;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsCheck), nameof(IsTyping), nameof(IsStations), nameof(TableTitle), nameof(ExportText))] int modeIndex;
     public bool IsCheck => ModeIndex == 1;
-    public string TableTitle => IsCheck ? "Проверка сечения" : "Требуемое армирование";
+    public bool IsTyping => ModeIndex == 2;
+    public bool IsStations => !IsTyping;
+    public string TableTitle => IsTyping ? "Типы свай" : IsCheck ? "Проверка сечения" : "Требуемое армирование";
+    public string ExportText => IsTyping ? "Сохранить таблицу…" : "Сохранить для Revit…";
+    [ObservableProperty] string typeCount = "3";
+    public ObservableCollection<TypeRowViewModel> Types { get; } = [];
+    [ObservableProperty] TypeRowViewModel? selectedType;
+    PileDemands? demands;
+    string? demandsKey;
+    TypingResult? typing;
     [ObservableProperty] string momentSignText = "";
     [ObservableProperty] bool ignoreAxialForce;
     public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
@@ -222,7 +245,8 @@ public partial class ProfileViewModel : ObservableObject
         base.OnPropertyChanged(e);
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
                 or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
-                or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads) or nameof(PanelWidth) or nameof(ModeIndex))
+                or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads) or nameof(PanelWidth) or nameof(ModeIndex)
+                or nameof(TypeCount))
             Changed();
     }
 
@@ -234,7 +258,7 @@ public partial class ProfileViewModel : ObservableObject
         MinPercent = S(s.MinPercent); ServiceDivisor = S(s.ServiceDivisor); SustainedShare = S(s.SustainedShare);
         MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed; IgnoreAxialForce = s.IgnoreAxialForce;
         ExcavationIndex = Excavation(s.ExcavationSide); AlignPileHeads = s.AlignPileHeads;
-        ScenarioIndex = (int)s.Scenario; ModeIndex = (int)s.Mode;
+        ScenarioIndex = (int)s.Scenario; ModeIndex = (int)s.Mode; TypeCount = s.TypeCount.ToString(CultureInfo.InvariantCulture);
         PanelWidth = S(s.PanelWidthM > 0 ? s.PanelWidthM : project.Section.Wall.WidthMm / 1000);
         PeakCuts.Clear();
         foreach (var c in s.PeakCuts) PeakCuts.Add(new PeakCutViewModel(c, Changed, RemoveCut));
@@ -268,7 +292,12 @@ public partial class ProfileViewModel : ObservableObject
         s.SustainedShare = D(SustainedShare, "kдл");
         s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed; s.IgnoreAxialForce = IgnoreAxialForce;
         s.ExcavationSide = ExcavationIndex switch { 1 => 1, 2 => -1, _ => 0 }; s.AlignPileHeads = AlignPileHeads;
-        s.Scenario = Scenario; s.Mode = IsCheck ? ProfileMode.Check : ProfileMode.Required;
+        s.Scenario = Scenario; s.Mode = (ProfileMode)ModeIndex;
+        if (IsTyping)
+        {
+            if (int.TryParse(TypeCount.Trim(), out int k) && k >= 1) s.TypeCount = k; else e.Add("Число типов — целое число от 1");
+            if (Scenario != ProfileScenario.Piles3D) e.Add("Типизация — для свай из PLAXIS 3D (сценарий «Сваи — PLAXIS 3D»)");
+        }
         if (IsWall) { s.PanelWidthM = D(PanelWidth, "Ширина захватки"); if (s.PanelWidthM <= 0) e.Add("Ширина захватки должна быть больше 0"); }
         else if (Scenario == ProfileScenario.RetainingPiles && s.PileSpacingM <= 0) e.Add("Шаг свай должен быть больше 0");
         s.PeakCuts = PeakCuts.Select((c, i) => c.ToModel(e, i + 1)).OfType<PeakCut>().ToList();
@@ -313,8 +342,106 @@ public partial class ProfileViewModel : ObservableObject
     void Draw()
     {
         if (forces is null) return;
-        using var stream = new MemoryStream(ProfileChart.Png(forces, ResultIsStale ? null : result, 1000, 1000, 16));
+        // Typing: the plan of the piles and the selected type; otherwise the diagrams along the element.
+        using var stream = new MemoryStream(typing is not null && !ResultIsStale
+            ? TypingChart.Png(typing, SelectedType?.Type.Number ?? 1, 1000, 860, 19)
+            : ProfileChart.Png(forces, ResultIsStale ? null : result, 1000, 1000, 16));
         Chart = new Bitmap(stream);
+    }
+
+    /// <summary>Settings and data the pile demands depend on (not the number of types).</summary>
+    string DemandKey()
+    {
+        var s = project.Settings;
+        var (count, mode) = (s.TypeCount, s.Mode);
+        (s.TypeCount, s.Mode) = (0, ProfileMode.Typing);
+        string key = Key();
+        (s.TypeCount, s.Mode) = (count, mode);
+        return key;
+    }
+
+    async Task CalculateTyping()
+    {
+        var p = project;
+        int count = p.Settings.TypeCount;
+        await Busy("Типизация свай…", async token =>
+        {
+            string key = Key(), dkey = DemandKey();
+            if (demands is null || demandsKey != dkey)
+            {
+                var progress = new Progress<(int Done, int Total)>(x =>
+                {
+                    Progress = 100.0 * x.Done / x.Total;
+                    Status = $"Таблицы требуемой арматуры (расчёт ядра): {x.Done} из {x.Total}";
+                });
+                demands = await Task.Run(() => PileTyping.Demand(p, progress, token), token);
+                demandsKey = dkey;
+            }
+            var grouped = PileTyping.Group(demands, count);
+            var check = new Progress<(int Done, int Total)>(x =>
+            {
+                Progress = 100.0 * x.Done / x.Total;
+                Status = $"Проверка зон типов ядром: {x.Done} из {x.Total}";
+            });
+            typing = await Task.Run(() => PileTyping.Verify(grouped, check, token), token);
+            result = null;
+            resultKey = key;
+            ShowTyping();
+        });
+    }
+
+    void ShowTyping()
+    {
+        if (typing is null) return;
+        Stations.Clear(); SelectedStation = null;
+        Types.Clear();
+        foreach (var t in typing.Types) Types.Add(new TypeRowViewModel(t));
+        HasResult = true; ResultIsStale = false;
+        var d = typing.Demands;
+        double? k = typing.Types.Any(t => t.K is null) ? null : typing.Types.Max(t => t.K);
+        Summary = $"{d.Piles.Count} свай → {typing.Types.Count} типов: сталь {typing.SteelKg / 1000:0.00} т, "
+            + $"каркас на каждую сваю — {typing.SeparateSteelKg / 1000:0.00} т (типизация +{typing.Overspend * 100:0.0} %); "
+            + $"проверка зон ядром: Kmax {ReportWriter.Utilization(k)}"
+            + (d.Piles.Any(x => x.Exceeded.Any(e => e)) ? ". Есть сечения, где не хватает и полного кольца Ø40" : "")
+            + (typing.Note is null ? "" : ". " + typing.Note);
+        Status = $"Типизация выполнена (таблицы: {d.TablePoints} точек)";
+        SelectedType = Types.FirstOrDefault();
+        Draw();
+    }
+
+    partial void OnSelectedTypeChanged(TypeRowViewModel? value)
+    {
+        if (value is null || typing is null) { if (IsTyping) { StationSketch = null; StationText = ""; } return; }
+        var t = value.Type;
+        var strongest = t.Zones.MaxBy(z => z.Bars.AreaMm2)!;
+        var section = ProjectStore.Deserialize(ProjectStore.Serialize(typing.Demands.Project.Section));
+        section.Pile.BarCount = strongest.Bars.Count; section.Pile.BarDiameterMm = strongest.Bars.DiameterMm;
+        if (strongest.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
+        using (var stream = new MemoryStream(SectionSketch.Png(section, 520, 420, 22))) StationSketch = new Bitmap(stream);
+        StationText = $"Тип {t.Number}: {string.Join(", ", t.Members.Select(m => m.Info.Name))}\n"
+            + string.Join("\n", t.Zones.Select(z => $"{z.Top.ToString("0.00", Ru)}…{z.Bottom.ToString("0.00", Ru)}: {z.Bars}"
+                + (z.SpiralMm is double d ? $", спираль Ø{d:0} шаг {typing.Demands.Project.Section.Conditions.ShearPitchMm:0}" : "")
+                + (z.K is double k ? $", K {ReportWriter.Utilization(k)}" : ", K не определён")));
+        Draw();
+    }
+
+    static string TypingCsv(TypingResult r)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Тип;Свая;X, м;Y, м;Оголовок, м;Низ, м");
+        foreach (var t in r.Types)
+            foreach (var m in t.Members)
+                sb.AppendLine(string.Join(";", $"Т{t.Number}", m.Info.Name, m.Info.X.ToString("0.000", inv), m.Info.Y.ToString("0.000", inv),
+                    m.Info.Head.ToString("0.000", inv), m.Info.Tip.ToString("0.000", inv)));
+        sb.AppendLine();
+        sb.AppendLine("Тип;Свай;Зона от, м;Зона до, м;Стержней;Ø, мм;As, см²;Спираль Ø, мм;K");
+        foreach (var t in r.Types)
+            foreach (var z in t.Zones)
+                sb.AppendLine(string.Join(";", $"Т{t.Number}", t.Members.Count, z.Top.ToString("0.00", inv), z.Bottom.ToString("0.00", inv),
+                    z.Bars.Count, z.Bars.DiameterMm.ToString("0", inv), (z.Bars.AreaMm2 / 100).ToString("0.00", inv),
+                    z.SpiralMm?.ToString("0", inv) ?? "", z.K?.ToString("0.000", inv) ?? ""));
+        return sb.ToString();
     }
 
     string Key() => ProjectStore.Serialize(project.Section) + JsonSerializer.Serialize(project.Settings) + JsonSerializer.Serialize(project.Phases);
@@ -496,6 +623,7 @@ public partial class ProfileViewModel : ObservableObject
         RefreshForces();
         if (forces is null) { if (Errors.Length == 0) Errors = "Загрузите усилия PLAXIS"; return; }
         if (!project.Settings.Confirmed) { Errors = "Сверьте с Output единицы, масштаб и знак момента и отметьте «Сверено»"; return; }
+        if (IsTyping) { await CalculateTyping(); return; }
         var p = project;
         bool check = IsCheck;
         string what = check ? "Проверка сечения" : "Подбор армирования";
@@ -509,6 +637,7 @@ public partial class ProfileViewModel : ObservableObject
             string key = Key();
             result = await Task.Run(() => check ? RequiredReinforcement.Check(p, progress, token) : RequiredReinforcement.Run(p, progress, token), token);
             resultKey = key;
+            typing = null; Types.Clear();
             ShowResult();
         });
     }
@@ -575,11 +704,28 @@ public partial class ProfileViewModel : ObservableObject
     void ClearResult()
     {
         result = null; HasResult = false; ResultIsStale = false; Stations.Clear(); Summary = ""; SelectedStation = null;
+        typing = null; demands = null; Types.Clear();
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
     async Task ExportRevit()
     {
+        if (typing is not null && !ResultIsStale)
+        {
+            if (Storage?.Invoke() is not { } st) return;
+            var csv = await st.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Типы свай", SuggestedFileName = Safe(project.Title) + ".types.csv", DefaultExtension = "csv",
+                FileTypeChoices = [new FilePickerFileType("CSV (Excel)") { Patterns = ["*.csv"] }],
+            });
+            if (csv is null) return;
+            await using var cs = await csv.OpenWriteAsync();
+            // UTF-8 with BOM: Excel opens the Cyrillic text right.
+            await using var cw = new StreamWriter(cs, new System.Text.UTF8Encoding(true));
+            await cw.WriteAsync(TypingCsv(typing));
+            Status = $"Сохранено: {csv.Name}";
+            return;
+        }
         if (result is null || ResultIsStale) { Errors = "Выполните подбор армирования"; return; }
         if (Storage?.Invoke() is not { } storage) return;
         var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions

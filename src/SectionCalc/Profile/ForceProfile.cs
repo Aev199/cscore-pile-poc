@@ -249,19 +249,23 @@ public sealed class ForceProfile
     /// the РСУ of a station come from all nodes of the interval (and the values interpolated at its ends).
     /// РСУ per combination kind: Mmax, Mmin, Nmax, Nmin, |Q|max with the accompanying forces.
     /// </summary>
-    public List<Station> Stations(ProfileProject p)
+    /// <param name="pile">Only this pile of a group, along its own length (the piles one by one).</param>
+    public List<Station> Stations(ProfileProject p, int? pile = null)
     {
         double step = p.Settings.StationStepM;
         if (!(step > 0)) throw new InvalidOperationException("Шаг сечений должен быть больше 0");
-        int count = Math.Max(1, (int)Math.Ceiling(Length / step - 1e-9));
+        IReadOnlyList<ForceSample> samples = pile is int only ? Samples.Where(x => x.Pile == only).ToList() : Samples;
+        if (samples.Count == 0) return [];
+        double topLevel = pile is null ? TopLevel : samples.Max(x => x.Level), bottomLevel = pile is null ? BottomLevel : samples.Min(x => x.Level);
+        int count = Math.Max(1, (int)Math.Ceiling((topLevel - bottomLevel) / step - 1e-9));
         var phases = p.Phases.ToDictionary(ph => ph.Id);
         // Envelope corners are separate curves: interpolate each one on its own.
-        var byPhase = Samples.GroupBy(x => (x.Phase, x.Corner, x.Pile)).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Level).ToList());
+        var byPhase = samples.GroupBy(x => (x.Phase, x.Corner, x.Pile)).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Level).ToList());
         var stations = new List<Station>();
         for (int i = 0; i <= count; i++)
         {
-            double level = Math.Max(BottomLevel, TopLevel - i * step);
-            double top = Math.Min(TopLevel, level + step / 2), bottom = Math.Max(BottomLevel, level - step / 2);
+            double level = Math.Max(bottomLevel, topLevel - i * step);
+            double top = Math.Min(topLevel, level + step / 2), bottom = Math.Max(bottomLevel, level - step / 2);
             var rows = new List<LoadRow>();
             foreach (var group in byPhase.Where(kv => phases.ContainsKey(kv.Key.Phase))
                          .GroupBy(kv => CombinationKind.Of(Row(phases[kv.Key.Phase]))))

@@ -153,6 +153,25 @@ public class AppTests
         Assert.Contains("группы из 4 свай", p.Summary);
         Assert.Contains("оголовкам", p.Summary);
         Snapshot(window, "12-profile-group");
+
+        // Each pile on its own, then three types (heads and lengths give three classes here).
+        var (gn, gm) = (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM);
+        (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM) = (3, 4);
+        try
+        {
+            p.ModeIndex = 2;
+            p.TypeCount = "3";
+            await p.CalculateCommand.ExecuteAsync(null);
+            Assert.True(p.HasResult, p.Errors);
+            Assert.Equal(3, p.Types.Count);
+            Assert.Contains("типов", p.Summary);
+            Assert.NotNull(p.StationSketch);
+            Assert.Contains("Тип 1", p.StationText);
+            Assert.Equal("Сохранить таблицу…", p.ExportText);
+            p.SelectedType = p.Types[^1];
+            Snapshot(window, "14-profile-typing");
+        }
+        finally { (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM) = (gn, gm); }
     }
 
     [AvaloniaFact]

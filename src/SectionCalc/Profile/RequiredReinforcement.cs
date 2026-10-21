@@ -109,7 +109,56 @@ public static class RequiredReinforcement
 
     static readonly HashSet<string> Shears = ["shear_strip", "shear_inclined", "inclined_moment"];
 
-    sealed record Face(int Index, int Bars, double Min, double Max);
+    /// <summary>The section prepared for the search of one length of element, as in <see cref="Run"/>.</summary>
+    internal sealed record Prepared(SectionProject Section, Face[] Faces)
+    {
+        public double MinArea => Faces[0].Min;
+        public double MaxArea => Faces[0].Max;
+    }
+
+    internal static Prepared Prepare(ProfileProject project, double lengthM)
+    {
+        var section = Clone(project.Section);
+        section.Conditions.ElementLengthM = Math.Max(0.1, Math.Round(lengthM, 3));
+        section.Conditions.OnePlane = section.Kind == SectionKind.Wall;
+        FixLayout(section, project.Settings.MaxBarDiameterMm);
+        var problems = RequestBuilder.Validate(WithLoads(section, [new LoadRow { Name = "проверка", N = -1 }]));
+        if (problems.Count > 0) throw new InvalidOperationException("Сечение: " + string.Join("; ", problems));
+        return new Prepared(section, Faces(section, project.Settings));
+    }
+
+    /// <summary>Required area (pile ring / wall right face) for the rows; the status of the search.</summary>
+    internal static (double Area, string Status) AreaFor(Prepared p, IReadOnlyList<LoadRow> rows, CancellationToken cancel, double? start = null)
+    {
+        var section = Clone(p.Section);
+        section.Conditions.ShearCheck = false;
+        var r = Station(section, new Station(0, 0, 0, rows), p.Faces, cancel, start);
+        return (r.AsRightMm2, r.Status);
+    }
+
+    /// <summary>Required Asw/sw, cm²/m, for the rows with the given longitudinal area; null — Q not checked.</summary>
+    internal static double? AswFor(Prepared p, IReadOnlyList<LoadRow> rows, double area, CancellationToken cancel)
+    {
+        string? note = null;
+        return Shear(p.Section, new Station(0, 0, 0, rows), p.Faces, p.Faces.Select(_ => area).ToArray(), cancel, ref note);
+    }
+
+    /// <summary>The given section (bars, spiral) checked for the rows: the largest K of all checks.</summary>
+    internal static (double? K, string? Governing) KFor(SectionProject section, IReadOnlyList<LoadRow> rows, CancellationToken cancel)
+    {
+        var normal = rows.Where(l => Math.Abs(l.N) > 1e-6 || Math.Abs(l.Mx) > 1e-6).ToList();
+        var shearOnly = rows.Except(normal).Where(l => l.Q > 0).ToList();
+        var found = new List<CheckRow>();
+        if (normal.Count > 0)
+            found.AddRange(Engine.Check(WithLoads(section, normal), cancel).Rows.Where(x => Demand.Contains(x.CheckId) || Shears.Contains(x.CheckId)));
+        if (section.Conditions.ShearCheck && shearOnly.Count > 0)
+            found.AddRange(Engine.Check(WithLoads(section, shearOnly), cancel).Rows.Where(x => Shears.Contains(x.CheckId)));
+        var gov = found.Where(x => x.Utilization is not null && (x.CheckId != "member_stability" || x.IsFailure)).MaxBy(x => x.Utilization);
+        if (found.Any(x => x.Status == "indeterminate" && Demand.Contains(x.CheckId))) return (null, "Расчёт ядра не сошёлся");
+        return (gov?.Utilization, gov?.Title);
+    }
+
+    internal sealed record Face(int Index, int Bars, double Min, double Max);
 
     /// <summary>Bars of one row of the reference layout of a wall face: about one per 100 mm of the section width.</summary>
     internal static int ReferenceBars(WallGeometry w) => Math.Max(2, (int)Math.Floor(w.WidthMm / 100));
@@ -187,10 +236,11 @@ public static class RequiredReinforcement
         return lo;
     }
 
-    sealed class Search(Face face)
+    sealed class Search(Face face, double? start = null)
     {
         public Face Face { get; } = face;
-        public double A = face.Min;
+        /// <summary>The first trial: the minimum, or a known nearby answer (a warm start).</summary>
+        public double A = Math.Clamp(start ?? face.Min, face.Min, face.Max);
         public double? Lo, KLo, Hi, KHi;
 
         public bool Settled => Hi is double hi && (hi <= Face.Min * 1.0001 || Lo is double lo && (hi - lo) / hi < Tolerance);
@@ -217,7 +267,7 @@ public static class RequiredReinforcement
         }
     }
 
-    static StationResult Station(SectionProject section, Station station, Face[] faces, CancellationToken cancel)
+    static StationResult Station(SectionProject section, Station station, Face[] faces, CancellationToken cancel, double? start = null)
     {
         if (station.Rsu.Count == 0)
             return new StationResult(station, 0, 0, null, "none", null, null, null, "Нет усилий в интервале", 0);
@@ -231,7 +281,7 @@ public static class RequiredReinforcement
         }
         var basis = WithLoads(section, normal);
         basis.Conditions.ShearCheck = false;
-        var search = faces.Select(f => new Search(f)).ToArray();
+        var search = faces.Select(f => new Search(f, start)).ToArray();
         (double[] A, CheckRow? Gov)? best = null;
         CheckRow? lastGov = null;
         bool exceeded = false, indeterminate = false;
