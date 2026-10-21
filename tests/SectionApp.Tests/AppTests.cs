@@ -135,6 +135,27 @@ public class AppTests
     }
 
     [AvaloniaFact]
+    public async Task ProfileModuleGroupOfPilesFrom3D()
+    {
+        var (window, vm) = Open(pile: true);
+        vm.ShowProfileCommand.Execute(null);
+        var p = vm.Profile;
+        string root = AppContext.BaseDirectory;
+        while (!Directory.Exists(Path.Combine(root, "examples", "profile"))) root = Path.GetDirectoryName(root)!;
+        p.UseExport(SectionCalc.Profile.PlaxisBridge.Parse(File.ReadAllText(Path.Combine(root, "examples", "profile", "pile-group-3d.plaxis.json"))));
+        Assert.True(p.Is3D);
+        Assert.False(p.ShowPileSpacing);
+        Assert.Contains("группа 4 свай", p.SourceText);
+        p.StationStep = "3";
+        p.Confirmed = true;
+        await p.CalculateCommand.ExecuteAsync(null);
+        Assert.True(p.HasResult, p.Errors);
+        Assert.Contains("группы из 4 свай", p.Summary);
+        Assert.Contains("оголовкам", p.Summary);
+        Snapshot(window, "12-profile-group");
+    }
+
+    [AvaloniaFact]
     public async Task ProfileModuleBuildsReinforcementDiagram()
     {
         var (window, vm) = Open(pile: false);

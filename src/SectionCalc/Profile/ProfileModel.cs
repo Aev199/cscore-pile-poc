@@ -47,6 +47,13 @@ public sealed class ProfileSettings
     public double PileSpacingM { get; set; } = 1;
     /// <summary>+1: positive PLAXIS M stretches the right face (larger x); −1: the left face.</summary>
     public int MomentSign { get; set; } = 1;
+    /// <summary>Wall: side of the excavation, +1 — the right face (larger x), −1 — the left face, 0 — not set.</summary>
+    public int ExcavationSide { get; set; }
+    /// <summary>
+    /// Group of piles (PLAXIS 3D): the diagrams of all piles are laid from their heads, so that piles with different
+    /// head levels get one reinforcement along the pile; otherwise by the elevations of the model.
+    /// </summary>
+    public bool AlignPileHeads { get; set; } = true;
     /// <summary>The engineer has checked the units, scale and moment sign against Output.</summary>
     public bool Confirmed { get; set; }
     public double StationStepM { get; set; } = 0.5;
@@ -98,6 +105,8 @@ public sealed class ProfileProject
         if (Unit.Length(export.Info.UnitLength) is not null) Settings.LengthUnit = export.Info.UnitLength!;
         // The deflected shape tells which face positive M stretches.
         if (export.MomentSign is { Sign: 1 or -1, Agreement: >= 0.5 } hint) Settings.MomentSign = hint.Sign;
+        // A retaining wall moves towards the excavation.
+        if (export.MomentSign?.Excavation is "right" or "left") Settings.ExcavationSide = export.MomentSign.Excavation == "right" ? 1 : -1;
         Settings.Confirmed = false;
     }
 }

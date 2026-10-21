@@ -1,8 +1,9 @@
-"""Read-only export of PLAXIS 2D results for the section application.
+"""Read-only export of PLAXIS 2D / 3D results for the section application.
 
 Run with the Python that ships with PLAXIS (it contains plxscripting):
     python plaxis_export.py input --port 10000 [--output-port 10001]
-        the plates / embedded beam rows selected in Input, results of every
+        the plates / embedded beam rows selected in Input (PLAXIS 3D: the
+        embedded beams / beams, each one a pile of a group), results of every
         phase except Safety, Output opened by Input (g_i.view);
     python plaxis_export.py catalog --port 10001
     python plaxis_export.py extract --port 10001 --request request.json
@@ -30,6 +31,15 @@ RESULTS = {
     'n': ('Nx2D', 'N2D', 'N'),
     'm': ('M2D', 'M'),
     'q': ('Q2D', 'Q'),
+}
+# PLAXIS 3D: piles as embedded beams or beams, forces per pile in the local axes 1 (along), 2, 3.
+KINDS3D = (
+    ('EmbeddedBeam', ('EmbeddedBeams',), ('EmbeddedBeam',)),
+    ('Beam', ('Beams',), ('Beam',)),
+)
+RESULTS3D = {
+    'x': ('X',), 'y': ('Y',), 'z': ('Z',),
+    'n': ('N',), 'm2': ('M2',), 'm3': ('M3',), 'q12': ('Q12',), 'q13': ('Q13',),
 }
 
 
@@ -70,7 +80,7 @@ def is_safety(phase):
     return kind is not None and 'safety' in kind.lower()
 
 
-PREFIXES = (('Plate', ('Plate',)), ('EmbeddedBeamRow', ('EmbeddedBeamRow', 'EmbeddedBeam')))
+PREFIXES = (('Plate', ('Plate',)), ('EmbeddedBeamRow', ('EmbeddedBeamRow', 'EmbeddedBeam')), ('Beam', ('Beam',)))
 
 
 def feature_of(obj):
@@ -91,21 +101,32 @@ def feature_of(obj):
     return None
 
 
-ENVELOPE_COLUMNS = ['x', 'y', 'n_min', 'n_max', 'm_min', 'm_max', 'q_min', 'q_max']
+COORDS = ('x', 'y', 'z')
 
 
-def envelope_types(group):
+def envelope_columns(results):
+    """['x', 'y', 'n_min', 'n_max', 'm_min', ...]: coordinates, then the bounds of every force."""
+    return ([k for k in results if k in COORDS]
+            + [f'{k}_{b}' for k in results if k not in COORDS for b in ('min', 'max')])
+
+
+ENVELOPE_COLUMNS = envelope_columns(RESULTS)
+
+
+def envelope_types(group, results=RESULTS):
     """Envelope result types of a structure group: {'n_min': (type, name), ...}, or None if Output has none."""
     try:
         listed = [n for n in dir(group) if 'envelope' in n.lower()]
     except Exception:
         listed = []
     found = {}
-    for key in ('n', 'm', 'q'):
+    for key in [k for k in results if k not in COORDS]:
         for bound in ('Max', 'Min'):
             hit = None
-            for base in RESULTS[key]:
-                guesses = [n for n in listed if n.lower().startswith(base.lower()) and bound.lower() in n.lower()]
+            for base in results[key]:
+                guesses = [n for n in listed if n.lower().startswith(base.lower() + '_') and bound.lower() in n.lower()]
+                guesses += [n for n in listed if n.lower().startswith(base.lower()) and bound.lower() in n.lower()
+                            and not n[len(base):len(base) + 1].isdigit()]
                 guesses += [f'{base}_Envelope{bound}', f'{base}Envelope{bound}', f'{base}_{bound}Envelope', f'{base}{bound}Envelope']
                 for name in guesses:
                     rtype, _ = first(group, [name])
@@ -142,13 +163,13 @@ def moment_sign(output, objects, phase):
     """
     Which face positive M stretches, from the deflected shape: x = x0 + Ux(y); where Ux'' > 0 the wall bends
     towards +x and its left (smaller x) face is stretched. +1: M > 0 stretches the right face (larger x).
-    Returns {'sign', 'agreement' 0…1, 'phase'} or None.
+    Returns {'sign', 'agreement' 0…1, 'phase', 'excavation' 'right' / 'left' / None} or None.
     """
     group, _ = first(output.g.ResultTypes, ('Plate',))
     ux_type, _ = first(group, ('Ux',)) if group is not None else (None, None)
     if ux_type is None:
         return None
-    rows = {}
+    rows, peak = {}, 0.0
     for _, obj, types in objects:
         try:
             ys = output.g.getresults(obj, phase, types['y'], 'node')
@@ -158,6 +179,8 @@ def moment_sign(output, objects, phase):
             continue
         for y, u, m in zip(ys, us, ms):
             rows.setdefault(round(float(y), 4), []).append((float(u), float(m)))
+            if abs(float(u)) > abs(peak):
+                peak = float(u)
     pts = sorted((y, sum(u for u, _ in v) / len(v), sum(m for _, m in v) / len(v)) for y, v in rows.items())
     score = total = 0.0
     for i in range(1, len(pts) - 1):
@@ -169,7 +192,10 @@ def moment_sign(output, objects, phase):
         total += abs(m1 * curvature)
     if total <= 0:
         return None
-    return {'sign': 1 if score > 0 else -1, 'agreement': round(abs(score) / total, 3), 'phase': name_of(phase)}
+    # A retaining wall moves towards the excavation: the side of the largest displacement.
+    excavation = None if peak == 0 else ('right' if peak > 0 else 'left')
+    return {'sign': 1 if score > 0 else -1, 'agreement': round(abs(score) / total, 3), 'phase': name_of(phase),
+            'excavation': excavation}
 
 
 def select_objects(output, kind, names):
@@ -187,18 +213,54 @@ def select_objects(output, kind, names):
     return found
 
 
+def is_3d(g):
+    """PLAXIS 3D Output: the structure result groups have a Z coordinate."""
+    for _, _, groups in KINDS3D + KINDS:
+        group, _ = first(g.ResultTypes, groups)
+        if group is not None and first(group, ('Z',))[0] is not None:
+            return True
+    return False
+
+
+def resolve(output, selected):
+    """
+    Output objects of the Input selection: [(kind, [(id, object, types)], pile or None)].
+    PLAXIS 2D: the selection is one wall / pile row (several segments of one vertical); PLAXIS 3D: every
+    selected embedded beam / beam is a pile of a group, its segments in Output are joined.
+    """
+    kind = selected[0][0]
+    if not output.is3d:
+        return kind, [(o, None) for o in select_objects(output, kind, [name for _, name in selected])]
+    if kind == 'Plate':
+        raise ExportError('PLAXIS 3D: стены (Plate) пока не поддерживаются — выделите сваи (Embedded beam или Beam)')
+    if kind == 'EmbeddedBeamRow':
+        kind = 'EmbeddedBeam'
+    found, seen = [], set()
+    for _, name in selected:
+        for o in select_objects(output, kind, [name]):
+            if o[0] in seen:
+                raise ExportError(f'Элемент {name_of(o[1])} Output относится к нескольким выделенным сваям')
+            seen.add(o[0])
+            found.append((o, name))
+    return kind, found
+
+
 class Output:
     def __init__(self, g):
         self.g = g
         self.objects = []          # (kind, object, {key: result type})
         self.result_names = {}     # kind -> {key: name}
-        for kind, collections, groups in KINDS:
+        self.is3d = is_3d(g)
+        self.results = RESULTS3D if self.is3d else RESULTS
+        self.columns = list(self.results)
+        self.envelope_columns = envelope_columns(self.results)
+        for kind, collections, groups in (KINDS3D if self.is3d else KINDS):
             items, _ = first(g, collections)
             group, _ = first(g.ResultTypes, groups)
             if items is None or group is None:
                 continue
             types, names = {}, {}
-            for key, candidates in RESULTS.items():
+            for key, candidates in self.results.items():
                 types[key], names[key] = first(group, candidates)
             if any(t is None for t in types.values()):
                 continue
@@ -207,12 +269,22 @@ class Output:
                 self.objects.append((kind, obj, types))
         self.phases = list(g.Phases)
         if not self.objects:
-            raise ExportError('В модели нет Plate или Embedded Beam Row с результатами X, Y, N, M, Q')
+            raise ExportError('В модели нет свай (Embedded beam / Beam) с результатами X, Y, Z, N, M2, M3, Q12, Q13' if self.is3d
+                              else 'В модели нет Plate или Embedded Beam Row с результатами X, Y, N, M, Q')
 
     def info(self):
         general = getattr(self.g, 'GeneralInfo', None)
-        return {key: (text(general, key) if general is not None else None)
+        info = {key: (text(general, key) if general is not None else None)
                 for key in ('UnitForce', 'UnitLength', 'Version', 'Title')}
+        info['Dimension'] = '3D' if self.is3d else '2D'
+        return info
+
+    def object_row(self, i, piles=None):
+        kind, obj, _ = self.objects[i]
+        row = {'id': i, 'kind': kind, 'name': name_of(obj)}
+        if piles and i in piles:
+            row['pile'] = piles[i]
+        return row
 
     def catalog(self):
         return {
@@ -222,7 +294,7 @@ class Output:
             'result_types': self.result_names,
         }
 
-    def extract(self, object_ids, phase_ids, skip_inactive=False):
+    def extract(self, object_ids, phase_ids, skip_inactive=False, piles=None):
         if not object_ids or not phase_ids:
             raise ExportError('Не выбраны элементы или фазы')
         for ids, items, what in ((object_ids, self.objects, 'элемента'), (phase_ids, self.phases, 'фазы')):
@@ -247,20 +319,20 @@ class Output:
                 sizes = {len(a) for a in arrays.values()}
                 if len(sizes) != 1 or not arrays['x']:
                     raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул массивы разной длины или пустые')
-                nodes = [[arrays[k][i] for k in ('x', 'y', 'n', 'm', 'q')] for i in range(len(arrays['x']))]
+                nodes = [[arrays[k][i] for k in self.columns] for i in range(len(arrays['x']))]
                 if not all(math.isfinite(v) for row in nodes for v in row):
                     raise ExportError(f'{name_of(obj)}, {name_of(phase)}: неконечные значения')
                 data.append({'object': oi, 'phase': pi, 'nodes': nodes})
         return {
             'info': self.info(),
-            'objects': [{'id': i, 'kind': self.objects[i][0], 'name': name_of(self.objects[i][1])} for i in object_ids],
+            'objects': [self.object_row(i, piles) for i in object_ids],
             'phases': [{'id': i, 'name': name_of(self.phases[i]), 'title': text(self.phases[i], 'Identification')} for i in phase_ids],
-            'columns': ['x', 'y', 'n', 'm', 'q'],
+            'columns': self.columns,
             'data': data,
         }
 
 
-def from_input(g_i, connector, output_port=None):
+def from_input(g_i, connector, output_port=None, per_phase=False):
     """Selected structures of Input, results of all non-Safety phases read from Output."""
     selected = []
     try:
@@ -272,10 +344,10 @@ def from_input(g_i, connector, output_port=None):
         if found and found not in selected:
             selected.append(found)
     if not selected:
-        raise ExportError('В PLAXIS Input не выделены Plate или Embedded beam row. '
-                          'Выделите сваю или стену (можно несколько участков одной вертикали) и повторите.')
+        raise ExportError('В PLAXIS Input не выделены Plate, Embedded beam (row) или Beam. '
+                          'Выделите стену или сваю (можно несколько участков одной вертикали; в 3D — группу свай) и повторите.')
     if len({kind for kind, _ in selected}) != 1:
-        raise ExportError('Выделены элементы разных типов: выберите только Plate или только Embedded beam row')
+        raise ExportError('Выделены элементы разных типов: выберите только Plate, только Embedded beam (row) или только Beam')
     phases = list(g_i.Phases)
     used = [p for p in phases if not is_safety(p)]
     if not used:
@@ -287,16 +359,18 @@ def from_input(g_i, connector, output_port=None):
             raise ExportError(f'Input не открыл Output ({exc}). Проект должен быть рассчитан и сохранён; '
                               'либо откройте Output вручную и укажите его порт.')
     output = Output(connector(output_port))
-    envelope = envelope_from_input(output, phases, used, selected)
+    envelope = None if per_phase else envelope_from_input(output, phases, used, selected)
     if envelope is not None:
         return envelope
     names = [name for _, name in selected]
-    object_ids = [i for i, _, _ in select_objects(output, selected[0][0], names)]
+    kind, resolved = resolve(output, selected)
+    object_ids = [o[0] for o, _ in resolved]
+    piles = {o[0]: pile for o, pile in resolved if pile is not None}
     wanted = {name_of(p) for p in used}
     phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted and not is_safety(p)]
-    result = output.extract(object_ids, phase_ids, skip_inactive=True)
+    result = output.extract(object_ids, phase_ids, skip_inactive=True, piles=piles)
     with_data = {d['phase'] for d in result['data']}
-    if selected[0][0] == 'Plate' and with_data:
+    if kind == 'Plate' and with_data:
         result['moment_sign'] = moment_sign(output, [output.objects[i] for i in object_ids], output.phases[max(with_data)])
     types = {name_of(p): calc_type(p) for p in phases}
     for ph in result['phases']:
@@ -317,9 +391,9 @@ def envelope_from_input(output, phases, used, selected):
     and all phases before it in its branch, so a branch with a Safety phase inside falls back to reading phases.
     Returns None for the per-phase route.
     """
-    kind = selected[0][0]
+    kind, resolved = resolve(output, selected)
     group, _ = first(output.g.ResultTypes, dict(KINDS_BY_NAME)[kind])
-    types = envelope_types(group) if group is not None else None
+    types = envelope_types(group, output.results) if group is not None else None
     if types is None:
         return None
     by_name = {name_of(p): p for p in phases}
@@ -338,7 +412,9 @@ def envelope_from_input(output, phases, used, selected):
             return None
         branches.append((leaf, [name_of(p) for p in reversed(chain) if name_of(p) in used_names]))
     names = [name for _, name in selected]
-    objects = select_objects(output, kind, names)
+    objects = [o for o, _ in resolved]
+    piles = {o[0]: pile for o, pile in resolved if pile is not None}
+    columns = output.envelope_columns
     out_phases = {name_of(p): (i, p) for i, p in enumerate(output.phases)}
     data, phase_rows, inactive = [], [], []
     for leaf, covered in branches:
@@ -348,7 +424,7 @@ def envelope_from_input(output, phases, used, selected):
         got = False
         for oi, obj, t in objects:
             try:
-                arrays = {'x': output.g.getresults(obj, phase, t['x'], 'node'), 'y': output.g.getresults(obj, phase, t['y'], 'node')}
+                arrays = {c: output.g.getresults(obj, phase, t[c], 'node') for c in COORDS if c in t}
                 for key, (rtype, _) in types.items():
                     arrays[key] = output.g.getresults(obj, phase, rtype, 'node')
             except Exception:
@@ -356,7 +432,7 @@ def envelope_from_input(output, phases, used, selected):
             arrays = {k: [float(v) for v in a] for k, a in arrays.items()}
             if len({len(a) for a in arrays.values()}) != 1 or not arrays['x']:
                 raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул огибающие разной длины')
-            nodes = [[arrays[c][i] for c in ENVELOPE_COLUMNS] for i in range(len(arrays['x']))]
+            nodes = [[arrays[c][i] for c in columns] for i in range(len(arrays['x']))]
             if not all(math.isfinite(v) for row in nodes for v in row):
                 raise ExportError(f'{name_of(obj)}, {name_of(phase)}: неконечные значения огибающей')
             data.append({'object': oi, 'phase': pi, 'nodes': nodes})
@@ -373,9 +449,9 @@ def envelope_from_input(output, phases, used, selected):
         'moment_sign': sign,
         'info': output.info(),
         'mode': 'envelope',
-        'objects': [{'id': i, 'kind': kind, 'name': name_of(obj)} for i, obj, _ in objects],
+        'objects': [output.object_row(i, piles) for i, _, _ in objects],
         'phases': phase_rows,
-        'columns': ENVELOPE_COLUMNS,
+        'columns': columns,
         'data': data,
         'selection': names,
         'result_types': {k: n for k, (_, n) in types.items()},
@@ -385,7 +461,7 @@ def envelope_from_input(output, phases, used, selected):
     }
 
 
-KINDS_BY_NAME = [(kind, groups) for kind, _, groups in KINDS]
+KINDS_BY_NAME = [(kind, groups) for kind, _, groups in KINDS + KINDS3D]
 
 
 def connect(port, program='Output'):
@@ -409,10 +485,11 @@ def main(argv=None, connector=connect):
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--output-port', type=int)
     parser.add_argument('--request')
+    parser.add_argument('--per-phase', action='store_true', help='read every phase instead of the Output envelopes')
     args = parser.parse_args(argv)
     try:
         if args.command == 'input':
-            json.dump(from_input(connector(args.port, 'Input'), connector, args.output_port), sys.stdout)
+            json.dump(from_input(connector(args.port, 'Input'), connector, args.output_port, args.per_phase), sys.stdout)
             return 0
         output = Output(connector(args.port))
         if args.command == 'catalog':

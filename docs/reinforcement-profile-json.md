@@ -28,12 +28,20 @@
               "right_face_rows": 2, "left_face_rows": 1,                 // рядов стержней у граней
               "right_face_axis_mm": 72.5, "left_face_axis_mm": 72.5,     // от грани до оси первого ряда
               "right_row_pitch_mm": 50, "left_row_pitch_mm": 50 }        // между осями рядов
-    // для сваи: "pile": { "diameter_mm", "cover_mm", "spiral_diameter_mm", "bar_count", "spacing_m" }
+    // для сваи: "pile": { "diameter_mm", "cover_mm", "spiral_diameter_mm", "bar_count", "spacing_m" }  (spacing_m = null в 3D)
+    // группа свай PLAXIS 3D — единое армирование всех свай:
+    // "group": { "uniform": true,
+    //            "level_reference": "head",   // head — эпюра отложена от оголовков, отметки — по самой высокой свае;
+    //                                         // elevation — по отметкам модели
+    //            "piles": [ { "name": "EmbeddedBeam_2", "x_m": 4.8, "y_m": 0.0,
+    //                         "head_level_m": -0.5, "tip_level_m": -18.0,
+    //                         "shift_m": 0.5 } ] }   // сдвиг эпюры сваи к общему оголовку: отметка сваи = level_m − shift_m
   },
   "materials": { "concrete": "B30", "longitudinal": "A500", "transverse": "A240" },
-  "faces": { "right": "грань со стороны большего X модели PLAXIS", "left": "…меньшего X…" },  // null для сваи
+  "faces": { "right": "грань со стороны большего X модели PLAXIS (котлован)", "left": "…меньшего X… (грунт)",
+             "excavation": "right" },   // сторона котлована: right | left | null (не задана); null для сваи
   "source": {
-    "program": "PLAXIS 2D", "version": "22.01", "project": "Котлован",
+    "program": "PLAXIS 2D", "version": "22.01", "project": "Котлован",   // или "PLAXIS 3D"
     "forces": "envelope",               // envelope — огибающие Output по веткам; phases — по каждой фазе
     "objects": ["Plate_1"],
     "phases": [ { "name": "Phase_3", "title": "Дно", "kind": "main", "short_term": false,
@@ -41,7 +49,7 @@
   },
   "design": {
     "code": "СП 63.13330.2018", "forces": "design",
-    "force_width_m": 1.0,               // ширина стены или шаг свай, на который умножены погонные усилия PLAXIS
+    "force_width_m": 1.0,               // ширина стены или шаг свай, на который умножены погонные усилия PLAXIS 2D; null в 3D
     "moment_sign": 1,                   // 1: M > 0 PLAXIS растягивает правую грань; -1: левую
     "station_step_m": 0.5, "min_percent": 0.1, "as_min_cm2": 5.3,
     "service_divisor": 1.0,             // нормативные = расчётные / service_divisor

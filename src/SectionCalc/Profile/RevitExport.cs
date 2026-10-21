@@ -25,6 +25,8 @@ public static class RevitExport
     /// <summary>bar — to the longitudinal bar surface, transverse — to the spiral/stirrup, axis — to the bar axis.</summary>
     static string Reference(CoverReference r) => r switch { CoverReference.Bar => "bar", CoverReference.Axis => "axis", _ => "transverse" };
 
+    static string Side(int excavation, int face) => excavation == 0 ? "" : excavation == face ? " (котлован)" : " (грунт)";
+
     public static JsonObject Build(ReinforcementProfile r, DateTime? created = null)
     {
         var p = r.Project; var s = p.Section; var set = p.Settings; var f = r.Forces;
@@ -49,7 +51,20 @@ public static class RevitExport
             {
                 ["diameter_mm"] = s.Pile.DiameterMm, ["cover_mm"] = s.Pile.CoverMm, ["cover_reference"] = Reference(s.Pile.CoverReference),
                 ["spiral_diameter_mm"] = s.Pile.SpiralDiameterMm,
-                ["bar_count"] = s.Pile.BarCount, ["spacing_m"] = set.PileSpacingM,
+                ["bar_count"] = s.Pile.BarCount, ["spacing_m"] = f.Is3D ? null : set.PileSpacingM,
+            };
+        if (f.Is3D)
+            // One reinforcement for every pile of the group; levels are those of the highest head, each pile
+            // is placed from its own head (shift_m) when the heads are aligned.
+            element["group"] = new JsonObject
+            {
+                ["uniform"] = true,
+                ["level_reference"] = set.AlignPileHeads ? "head" : "elevation",
+                ["piles"] = new JsonArray(f.Piles.Select(x => (JsonNode)new JsonObject
+                {
+                    ["name"] = x.Name, ["x_m"] = R(x.X), ["y_m"] = R(x.Y),
+                    ["head_level_m"] = R(x.Head), ["tip_level_m"] = R(x.Tip), ["shift_m"] = R(x.Shift),
+                }).ToArray()),
             };
         var src = p.Source!;
         var phases = new JsonArray(p.Phases.Where(ph => ph.Include).Select(ph => (JsonNode)new JsonObject
@@ -88,12 +103,13 @@ public static class RevitExport
             ["materials"] = new JsonObject { ["concrete"] = s.ConcreteClass, ["longitudinal"] = s.RebarClass, ["transverse"] = s.TransverseClass },
             ["faces"] = wall ? new JsonObject
             {
-                ["right"] = "грань со стороны большего X модели PLAXIS",
-                ["left"] = "грань со стороны меньшего X модели PLAXIS",
+                ["right"] = "грань со стороны большего X модели PLAXIS" + Side(set.ExcavationSide, 1),
+                ["left"] = "грань со стороны меньшего X модели PLAXIS" + Side(set.ExcavationSide, -1),
+                ["excavation"] = set.ExcavationSide switch { 1 => "right", -1 => "left", _ => null },
             } : null,
             ["source"] = new JsonObject
             {
-                ["program"] = "PLAXIS 2D", ["version"] = src.Info.Version, ["project"] = src.Info.Title,
+                ["program"] = f.Is3D ? "PLAXIS 3D" : "PLAXIS 2D", ["version"] = src.Info.Version, ["project"] = src.Info.Title,
                 ["forces"] = src.IsEnvelope ? "envelope" : "phases",
                 ["objects"] = new JsonArray(src.Objects.Select(o => (JsonNode)JsonValue.Create(o.Name)!).ToArray()),
                 ["phases"] = phases,
@@ -102,7 +118,7 @@ public static class RevitExport
             {
                 ["code"] = "СП 63.13330.2018",
                 ["forces"] = "design",
-                ["force_width_m"] = wall ? s.Wall.WidthMm / 1000 : set.PileSpacingM,
+                ["force_width_m"] = f.Is3D ? null : wall ? s.Wall.WidthMm / 1000 : set.PileSpacingM,
                 ["moment_sign"] = set.MomentSign,
                 ["station_step_m"] = set.StationStepM,
                 ["min_percent"] = set.MinPercent,

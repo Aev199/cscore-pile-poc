@@ -325,5 +325,118 @@ public class ProfileTests(ITestOutputHelper output)
         e.MomentSign = new MomentSignHint { Sign = 1, Agreement = 0.3 };
         p.UseSource(e);
         Assert.Equal(-1, p.Settings.MomentSign);
+        e.MomentSign = new MomentSignHint { Sign = 1, Agreement = 0.9, Excavation = "left" };
+        p.UseSource(e);
+        Assert.Equal(-1, p.Settings.ExcavationSide);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(RevitExport.Json(new ReinforcementProfile(p, ForceProfile.Build(p), [])))!;
+        Assert.Equal("left", (string)json["faces"]!["excavation"]!);
+        Assert.Contains("(котлован)", (string)json["faces"]!["left"]!);
+    }
+
+    /// <summary>
+    /// PLAXIS 3D, kN and m: two piles of a group as embedded beams. EmbeddedBeam_1 (two Output segments) has its head
+    /// at 0 and 12 m long; EmbeddedBeam_2 has its head at −1 m, 10 m long, and twice the moments.
+    /// </summary>
+    internal static PlaxisExport GroupExport(bool envelope)
+    {
+        var export = new PlaxisExport
+        {
+            Info = new PlaxisInfo { UnitForce = "kN", UnitLength = "m", Version = "2024.1", Title = "Котлован 3D", Dimension = "3D" },
+            Objects = [new PlaxisObject { Id = 0, Kind = "EmbeddedBeam", Name = "EmbeddedBeam_1_1", Pile = "EmbeddedBeam_1" },
+                       new PlaxisObject { Id = 1, Kind = "EmbeddedBeam", Name = "EmbeddedBeam_1_2", Pile = "EmbeddedBeam_1" },
+                       new PlaxisObject { Id = 2, Kind = "EmbeddedBeam", Name = "EmbeddedBeam_2_1", Pile = "EmbeddedBeam_2" }],
+            Phases = [new PlaxisPhase { Id = 1, Name = "Phase_1" }, new PlaxisPhase { Id = 2, Name = "Phase_2" }],
+            Columns = [.. envelope ? PlaxisExport.EnvelopeColumns3D : PlaxisExport.PhaseColumns3D],
+            Mode = envelope ? "envelope" : null,
+        };
+        void Add(int obj, double head, double from, double to, double x, double k)
+        {
+            foreach (var phase in export.Phases)
+            {
+                var nodes = new List<double[]>();
+                for (double t = from; t <= to + 1e-9; t += 0.5)
+                {
+                    // M2 = 30, M3 = 40 → resultant 50 kN·m at the head, decreasing to zero at 8 m below it.
+                    double m = Math.Max(0, 1 - t / 8) * k * phase.Id, n = -100 * k, q = 5 * k;
+                    nodes.Add(envelope
+                        ? [x, 2, head - t, n * 1.2, n * 0.8, -30 * m, 30 * m, -40 * m * 0.5, 40 * m, -3 * q, 3 * q, -4 * q, 4 * q]
+                        : [x, 2, head - t, n, 30 * m, -40 * m, 3 * q, -4 * q]);
+                }
+                export.Data.Add(new PlaxisSeries { Object = obj, Phase = phase.Id, Nodes = nodes });
+            }
+        }
+        Add(0, 0, 0, 6, 1, 1);
+        Add(1, 0, 6, 12, 1, 1);
+        Add(2, -1, 0, 10, 4, 2);
+        return export;
+    }
+
+    [Fact]
+    public void PileGroupFrom3DGetsOneReinforcement()
+    {
+        var p = new ProfileProject { Title = "Группа", Section = SectionProject.Example(SectionKind.Pile) };
+        var e = PlaxisBridge.Parse(System.Text.Json.JsonSerializer.Serialize(GroupExport(envelope: false),
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
+        Assert.True(e.Is3D);
+        p.UseSource(e);
+        p.Settings.PileSpacingM = 99; // not used in 3D: forces are per pile
+        var f = ForceProfile.Build(p);
+        Assert.True(f.IsGroup);
+        Assert.Equal(["EmbeddedBeam_1", "EmbeddedBeam_2"], f.Piles.Select(x => x.Name));
+        // Heads aligned: pile 2 is moved up by 1 m, the profile runs from 0 to −12.
+        Assert.Equal(1, f.Piles[1].Shift, 9);
+        Assert.Equal(0, f.TopLevel, 9); Assert.Equal(-12, f.BottomLevel, 9);
+        // Resultant √(30² + 40²) = 50 per unit; pile 2, phase 2: 50 × 2 × 2 = 200 kN·m at the head.
+        Assert.Equal(200, f.Envelope[0].MMax, 6);
+        Assert.Equal(5 * 5 * 2, f.Envelope[0].QAbsMax, 6);
+        Assert.Equal(-200, f.Envelope[0].NMin, 6);
+
+        p.Settings.StationStepM = 6; p.Settings.Confirmed = true;
+        var stations = f.Stations(p);
+        Assert.Contains(stations[0].Rsu, r => r.Name.StartsWith("EmbeddedBeam_2, Phase_2") && Math.Abs(r.Mx - 200) < 1e-6);
+        var r = RequiredReinforcement.Run(p);
+        Assert.Equal(3, r.Stations.Count);
+        Assert.Contains("EmbeddedBeam_2", r.Stations[0].Combination);
+        Assert.True(r.Stations[0].AsRightMm2 >= r.Stations[2].AsRightMm2);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(RevitExport.Json(r))!;
+        Assert.Equal("PLAXIS 3D", (string)json["source"]!["program"]!);
+        var group = json["element"]!["group"]!;
+        Assert.Equal("head", (string)group["level_reference"]!);
+        Assert.Equal(-1, (double)group["piles"]![1]!["head_level_m"]!, 9);
+        Assert.Equal(-11, (double)group["piles"]![1]!["tip_level_m"]!, 9);
+        Assert.Null(json["element"]!["pile"]!["spacing_m"]);
+
+        // Without alignment the model elevations are kept: pile 2 starts at −1.
+        p.Settings.AlignPileHeads = false;
+        var g = ForceProfile.Build(p);
+        Assert.Equal(0, g.Piles[1].Shift, 9);
+        Assert.Equal(100, g.Envelope[0].MMax, 6);
+    }
+
+    [Fact]
+    public void PileGroupEnvelopesCombineM2AndM3OnTheSafeSide()
+    {
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(GroupExport(envelope: true));
+        var f = ForceProfile.Build(p);
+        Assert.True(f.IsEnvelope);
+        // Largest |M2| = 30, |M3| = 40 per unit: 50 × 2 × 2 = 200; N from −240 to −160 (pile 2).
+        Assert.Equal(200, f.Envelope[0].MMax, 6);
+        Assert.Equal(-240, f.Envelope[0].NMin, 6);
+        p.Settings.StationStepM = 6;
+        var rsu = f.Stations(p)[0].Rsu;
+        Assert.Contains(rsu, r => r.Name.Contains("EmbeddedBeam_2 (из 2 свай)"));
+        Assert.Contains(rsu, r => Math.Abs(r.Mx - 200) < 1e-6);
+    }
+
+    [Fact]
+    public void InclinedPileIsRejected()
+    {
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        var e = GroupExport(envelope: false);
+        e.Data[0].Nodes[^1][0] += 0.2;
+        p.UseSource(e);
+        var ex = Assert.Throws<InvalidOperationException>(() => ForceProfile.Build(p));
+        Assert.Contains("EmbeddedBeam_1", ex.Message);
     }
 }

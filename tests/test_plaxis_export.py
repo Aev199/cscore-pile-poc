@@ -278,6 +278,8 @@ class MomentSignTests(unittest.TestCase):
             self.assertEqual(code, 0, result)
             self.assertEqual(result['moment_sign']['sign'], m_sign)
             self.assertGreater(result['moment_sign']['agreement'], 0.9)
+            # The wall moves towards +x: the excavation is on the right.
+            self.assertEqual(result['moment_sign']['excavation'], 'right')
 
 
 class EnvelopeTests(unittest.TestCase):
@@ -321,6 +323,85 @@ class EnvelopeTests(unittest.TestCase):
         code, result, _ = run_input([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')], FakeOutputSplit())
         self.assertEqual(code, 0, result)
         self.assertEqual(result['columns'], ['x', 'y', 'n', 'm', 'q'])
+
+
+class Fake3DOutput(FakeOutputSplit):
+    """PLAXIS 3D Output: embedded beams EmbeddedBeam_1 (two segments) and EmbeddedBeam_2 at another place."""
+
+    FORCES = ('N', 'M2', 'M3', 'Q12', 'Q13')
+
+    def __init__(self, envelopes=True):
+        super().__init__()
+        del self.Plates
+        self.p1a = SimpleNamespace(Name=value('EmbeddedBeam_1_1'))
+        self.p1b = SimpleNamespace(Name=value('EmbeddedBeam_1_2'))
+        self.p2 = SimpleNamespace(Name=value('EmbeddedBeam_2_1'))
+        self.p3 = SimpleNamespace(Name=value('EmbeddedBeam_3_1'))
+        self.EmbeddedBeams = [self.p1a, self.p1b, self.p2, self.p3]
+        names = {n: n for n in ('X', 'Y', 'Z') + self.FORCES}
+        if envelopes:
+            for base in self.FORCES:
+                for bound in ('Max', 'Min'):
+                    names[f'{base}_Envelope{bound}'] = f'{base}_Envelope{bound}'
+        self.ResultTypes = SimpleNamespace(EmbeddedBeam=SimpleNamespace(**names), Plate=SimpleNamespace(X='X', Y='Y', Z='Z'))
+        self.Phases.append(SimpleNamespace(Name=value('Phase_4'), Identification=value('Phase_4')))
+
+    def getresults(self, obj, phase, rtype, location):
+        if name_of_phase(phase) == 'InitialPhase':
+            raise RuntimeError('Object is not active in this phase')
+        self.requested.append((obj.Name.value, phase.Name.value, rtype))
+        z = [0.0, -1.0, -2.0] if obj is not self.p1b else [-2.0, -3.0, -4.0]
+        k = 2.0 if obj is self.p2 else 1.0
+        base = rtype.split('_')[0]
+        values = {'X': [3.0 * k] * 3, 'Y': [1.0] * 3, 'Z': z, 'N': [-100.0 * k] * 3, 'M2': [30.0 * k, 40.0 * k, 0.0],
+                  'M3': [40.0 * k, 30.0 * k, 0.0], 'Q12': [3.0] * 3, 'Q13': [4.0] * 3}[base]
+        if 'Envelope' in rtype:
+            return [v * (1.0 if rtype.endswith('Max') == (v >= 0) else 0.5) for v in values]
+        return values
+
+
+class Group3DTests(unittest.TestCase):
+    def run_tree(self, output, selection, *extra):
+        g_i = tree_input(selection)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = plaxis_export.main(['input', '--port', '10000', *extra],
+                                      connector=lambda port, program='Output': {10000: g_i, 10002: output}[port])
+        return code, json.loads(out.getvalue())
+
+    def selection(self):
+        return [SimpleNamespace(Name=value('EmbeddedBeam_1'), _plx_type='EmbeddedBeam'),
+                SimpleNamespace(Name=value('Line_9'), _plx_type='Line', EmbeddedBeam=SimpleNamespace(Name=value('EmbeddedBeam_2')))]
+
+    def test_selected_piles_are_a_group_with_3d_envelopes(self):
+        output = Fake3DOutput()
+        code, result = self.run_tree(output, self.selection())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result['info']['Dimension'], '3D')
+        self.assertEqual(result['mode'], 'envelope')
+        self.assertEqual(result['columns'], ['x', 'y', 'z', 'n_min', 'n_max', 'm2_min', 'm2_max', 'm3_min', 'm3_max',
+                                             'q12_min', 'q12_max', 'q13_min', 'q13_max'])
+        self.assertEqual([(o['name'], o['pile']) for o in result['objects']],
+                         [('EmbeddedBeam_1_1', 'EmbeddedBeam_1'), ('EmbeddedBeam_1_2', 'EmbeddedBeam_1'), ('EmbeddedBeam_2_1', 'EmbeddedBeam_2')])
+        self.assertEqual(result['result_types']['m2_max'], 'M2_EnvelopeMax')
+        self.assertNotIn('EmbeddedBeam_3_1', {r[0] for r in output.requested})
+        self.assertNotIn('moment_sign', [k for k, v in result.items() if v])
+        self.assertEqual(result['data'][0]['nodes'][0][:3], [3.0, 1.0, 0.0])
+
+    def test_per_phase_route_on_request(self):
+        code, result = self.run_tree(Fake3DOutput(), self.selection(), '--per-phase')
+        self.assertEqual(code, 0, result)
+        self.assertNotIn('mode', result)
+        self.assertEqual(result['columns'], ['x', 'y', 'z', 'n', 'm2', 'm3', 'q12', 'q13'])
+        self.assertEqual({d['phase'] for d in result['data']}, {1, 2, 4})
+
+    def test_walls_are_not_supported_in_3d(self):
+        output = Fake3DOutput()
+        output.Plates = [SimpleNamespace(Name=value('Plate_1'))]
+        output.ResultTypes.Plate = SimpleNamespace(**{n: n for n in ('X', 'Y', 'Z', 'N', 'M2', 'M3', 'Q12', 'Q13')})
+        code, result = self.run_tree(output, [SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')])
+        self.assertEqual(code, 1)
+        self.assertIn('3D', result['error'])
 
 
 if __name__ == '__main__':

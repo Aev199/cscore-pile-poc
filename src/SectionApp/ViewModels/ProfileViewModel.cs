@@ -141,29 +141,38 @@ public partial class ProfileViewModel : ObservableObject
     public IReadOnlyList<string> ForceUnitOptions => ForceUnits;
     public IReadOnlyList<string> LengthUnitOptions => LengthUnits;
     public IReadOnlyList<string> MomentSignOptions { get; } = ["правую грань (бóльший X)", "левую грань (меньший X)"];
+    public IReadOnlyList<string> ExcavationOptions { get; } = ["не задано", "справа (бóльший X)", "слева (меньший X)"];
 
     // ---- connection ----
     [ObservableProperty] string pythonPath;
     [ObservableProperty] string port;
     [ObservableProperty] string inputPort;
     [ObservableProperty] bool showOutputDirect;
+    /// <summary>Read every phase instead of the Output envelopes: slower, exact M2 + M3 of 3D piles.</summary>
+    [ObservableProperty] bool readPhases;
     [ObservableProperty] string password = "";
     public ObservableCollection<PlaxisObjectViewModel> Objects { get; } = [];
     public ObservableCollection<PhaseRowViewModel> Phases { get; } = [];
     [ObservableProperty] string sourceText = "Усилия не загружены";
     [ObservableProperty] bool hasObjects;
     [ObservableProperty] bool hasPhases;
-    public string RightHeader => IsWall ? "As прав." : "As";
+    public string RightHeader => !IsWall ? "As" : ExcavationIndex switch { 1 => "As котл.", 2 => "As грунт", _ => "As прав." };
+    public string LeftHeader => ExcavationIndex switch { 1 => "As грунт", 2 => "As котл.", _ => "As лев." };
 
     // ---- settings ----
     [ObservableProperty] string forceUnit = "kN", lengthUnit = "m";
     [ObservableProperty] string pileSpacing = "", stationStep = "", minPercent = "", serviceDivisor = "", sustainedShare = "";
     [ObservableProperty] int momentSignIndex;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(RightHeader), nameof(LeftHeader))] int excavationIndex;
+    [ObservableProperty] string excavationText = "";
+    [ObservableProperty] bool alignPileHeads = true;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowPileSpacing))] bool is3D;
+    public bool ShowPileSpacing => IsEmbedded && !Is3D;
     [ObservableProperty] string momentSignText = "";
     [ObservableProperty] bool ignoreAxialForce;
     public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
     [ObservableProperty] bool confirmed;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsWall), nameof(RightHeader))] bool isEmbedded;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsWall), nameof(RightHeader), nameof(ShowPileSpacing))] bool isEmbedded;
     public bool IsWall => !IsEmbedded;
     [ObservableProperty] string sectionText = "";
 
@@ -185,7 +194,7 @@ public partial class ProfileViewModel : ObservableObject
         base.OnPropertyChanged(e);
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
                 or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
-                or nameof(IgnoreAxialForce))
+                or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads))
             Changed();
     }
 
@@ -196,12 +205,14 @@ public partial class ProfileViewModel : ObservableObject
         ForceUnit = s.ForceUnit; LengthUnit = s.LengthUnit; PileSpacing = S(s.PileSpacingM); StationStep = S(s.StationStepM);
         MinPercent = S(s.MinPercent); ServiceDivisor = S(s.ServiceDivisor); SustainedShare = S(s.SustainedShare);
         MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed; IgnoreAxialForce = s.IgnoreAxialForce;
+        ExcavationIndex = Excavation(s.ExcavationSide); AlignPileHeads = s.AlignPileHeads;
         PeakCuts.Clear();
         foreach (var c in s.PeakCuts) PeakCuts.Add(new PeakCutViewModel(c, Changed, RemoveCut));
         loading = false;
     }
 
     static string S(double v) => v.ToString("0.###", Ru);
+    static int Excavation(int side) => side switch { 1 => 1, -1 => 2, _ => 0 };
 
     /// <summary>Settings from the fields into the project; messages for invalid numbers.</summary>
     bool ReadSettings(List<string> e)
@@ -217,6 +228,7 @@ public partial class ProfileViewModel : ObservableObject
         s.MinPercent = D(MinPercent, "Минимальное армирование"); s.ServiceDivisor = D(ServiceDivisor, "γf для нормативных");
         s.SustainedShare = D(SustainedShare, "kдл");
         s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed; s.IgnoreAxialForce = IgnoreAxialForce;
+        s.ExcavationSide = ExcavationIndex switch { 1 => 1, 2 => -1, _ => 0 }; s.AlignPileHeads = AlignPileHeads;
         s.PeakCuts = PeakCuts.Select((c, i) => c.ToModel(e, i + 1)).OfType<PeakCut>().ToList();
         if (s.StationStepM <= 0) e.Add("Шаг сечений должен быть больше 0");
         if (s.ServiceDivisor <= 0) e.Add("γf для нормативных усилий должен быть больше 0");
@@ -302,7 +314,7 @@ public partial class ProfileViewModel : ObservableObject
         if (PortOf(InputPort, "Input") is not int port) return;
         await Busy("PLAXIS: выделение в Input, результаты из Output…", async token =>
         {
-            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, cancel: token);
+            var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ReadPhases, cancel: token);
             SaveSettings(input: port);
             Adopt(export);
             Status = $"Загружено: {string.Join(", ", export.Selection)}";
@@ -388,6 +400,11 @@ public partial class ProfileViewModel : ObservableObject
         loading = false;
         IsEmbedded = s.Objects.Any(o => o.Kind != "Plate");
         MomentSignIndex = project.Settings.MomentSign > 0 ? 0 : 1;
+        ExcavationIndex = Excavation(project.Settings.ExcavationSide);
+        Is3D = s.Is3D;
+        ExcavationText = s.MomentSign?.Excavation is "right" or "left"
+            ? $"Предложено по перемещениям стены (фаза {s.MomentSign.Phase}): стена смещается в сторону котлована"
+            : "Укажите сторону котлована — от неё зависят названия граней в результатах и в JSON";
         MomentSignText = s.MomentSign is { } h
             ? $"По прогибу стены в фазе {h.Phase}: M > 0 растягивает {(h.Sign > 0 ? "правую" : "левую")} грань (совпадение {h.Agreement * 100:0} % узлов)"
                 + (h.Agreement < 0.5 ? " — ненадёжно, проверьте по Output" : "")
@@ -401,8 +418,10 @@ public partial class ProfileViewModel : ObservableObject
             Phases.Add(new PhaseRowViewModel(ph, label, Changed));
         }
         HasPhases = Phases.Count > 0;
-        string selected = s.Selection.Count > 0 ? $"{string.Join(", ", s.Selection)} ({s.Objects.Count} уч.)" : string.Join(", ", s.Objects.Select(o => o.Name));
-        SourceText = $"{selected} · " + (s.IsEnvelope ? $"огибающие Output, веток {s.Phases.Count}" : $"фаз {s.Phases.Count}") + $" · PLAXIS {s.Info.Version} · {s.Info.UnitForce}, {s.Info.UnitLength}"
+        int piles = s.Objects.Select(o => o.Pile).Distinct().Count();
+        string selected = s.Is3D && piles > 1 ? $"группа {piles} свай: {string.Join(", ", s.Selection)}"
+            : s.Selection.Count > 0 ? $"{string.Join(", ", s.Selection)} ({s.Objects.Count} уч.)" : string.Join(", ", s.Objects.Select(o => o.Name));
+        SourceText = $"{selected} · " + (s.IsEnvelope ? $"огибающие Output, веток {s.Phases.Count}" : $"фаз {s.Phases.Count}") + $" · PLAXIS {(s.Is3D ? "3D " : "")}{s.Info.Version} · {s.Info.UnitForce}, {s.Info.UnitLength}"
             + (s.ExcludedPhases.Count > 0 ? $"\nИсключены (Safety): {string.Join(", ", s.ExcludedPhases.Select(p => p.Name))}" : "")
             + (s.InactivePhases.Count > 0 ? $"\nЭлемент не активен: {string.Join(", ", s.InactivePhases)}" : "");
     }
@@ -439,9 +458,15 @@ public partial class ProfileViewModel : ObservableObject
         HasResult = true; ResultIsStale = false;
         var st = result.Stations;
         string As(double mm2) => (mm2 / 100).ToString("0.0", Ru);
+        var f = result.Forces;
+        int side = result.Project.Settings.ExcavationSide;
+        string Face(int face) => side == 0 ? (face > 0 ? "правая" : "левая") : side == face ? "со стороны котлована" : "со стороны грунта";
         Summary = wall
-            ? $"As,max: правая {As(st.Max(s => s.AsRightMm2))} см², левая {As(st.Max(s => s.AsLeftMm2))} см²"
+            ? $"As,max: {Face(1)} {As(st.Max(s => s.AsRightMm2))} см², {Face(-1)} {As(st.Max(s => s.AsLeftMm2))} см²"
+            : f.IsGroup ? $"Единое армирование группы из {f.Piles.Count} свай: As,max {As(st.Max(s => s.AsRightMm2))} см²"
             : $"As,max {As(st.Max(s => s.AsRightMm2))} см²";
+        if (f.Piles.Any(x => Math.Abs(x.Shift) > 1e-6))
+            Summary += $". * Эпюры свай совмещены по оголовкам (отметки сваи {f.Piles.MaxBy(x => x.Head)!.Name})";
         if (st.Any(s => s.AswCm2PerM is not null)) Summary += $"; Asw/sw,max {st.Max(s => s.AswCm2PerM ?? 0).ToString("0.00", Ru)} см²/м";
         int bad = st.Count(s => s.IsBad());
         if (bad > 0) Summary += $". Не обеспечено или не определено: {bad} сеч.";

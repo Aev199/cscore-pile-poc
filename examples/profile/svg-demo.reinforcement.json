@@ -1,11 +1,11 @@
 {
   "format": "section-app/reinforcement-profile",
   "version": 1,
-  "created": "2026-10-21T09:01:23",
+  "created": "2026-10-21T09:38:26",
   "title": "Эпюра армирования",
   "element": {
     "type": "wall",
-    "top_level_m": -0,
+    "top_level_m": 0,
     "bottom_level_m": -15,
     "length_m": 15,
     "x_m": 5,
@@ -30,7 +30,8 @@
   },
   "faces": {
     "right": "грань со стороны большего X модели PLAXIS",
-    "left": "грань со стороны меньшего X модели PLAXIS"
+    "left": "грань со стороны меньшего X модели PLAXIS",
+    "excavation": null
   },
   "source": {
     "program": "PLAXIS 2D",
@@ -103,9 +104,9 @@
   },
   "stations": [
     {
-      "level_m": -0,
+      "level_m": 0,
       "depth_m": 0,
-      "from_level_m": -0,
+      "from_level_m": 0,
       "to_level_m": -1.5,
       "as_right_cm2": 5.28,
       "as_left_cm2": 5.28,
@@ -201,7 +202,7 @@
   ],
   "envelope": [
     {
-      "level_m": -0,
+      "level_m": 0,
       "n_min_kn": -0,
       "n_max_kn": -0,
       "m_min_knm": 0,

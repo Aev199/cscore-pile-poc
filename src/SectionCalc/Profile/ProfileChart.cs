@@ -60,7 +60,8 @@ public static class ProfileChart
             canvas.DrawLine(left, Y(z), width - fontPx, Y(z), grid);
             SectionSketch.Label(canvas, z.ToString("0.##", Ru), left - fontPx * 0.4f, Y(z) + fontPx * 0.35f, SKTextAlign.Right, small, muted);
         }
-        SectionSketch.Label(canvas, "Отм., м", left - fontPx * 0.4f, top - fontPx * 1.6f, SKTextAlign.Right, small, muted);
+        // Group of piles laid from their heads: levels of the highest head.
+        SectionSketch.Label(canvas, f.Piles.Any(p => Math.Abs(p.Shift) > 1e-6) ? "Отм.*, м" : "Отм., м", left - fontPx * 0.4f, top - fontPx * 1.6f, SKTextAlign.Right, small, muted);
 
         float x = left;
         foreach (var panel in panels)
@@ -74,7 +75,9 @@ public static class ProfileChart
         float w = unit * 2;
         var st = r.Stations;
         double max = Math.Max(1e-6, st.Max(s => Math.Max(s.AsRightMm2, s.AsLeftMm2)) / 100);
-        SectionSketch.Label(canvas, wall ? "As, см²: левая | правая" : "As, см²", x + w / 2, top - fontPx * 1.6f, SKTextAlign.Center, font, text);
+        int side = r.Project.Settings.ExcavationSide;
+        string Face(int face) => side == 0 ? (face > 0 ? "правая" : "левая") : side == face ? "котлован" : "грунт";
+        SectionSketch.Label(canvas, wall ? $"As, см²: {Face(-1)} | {Face(1)}" : f.IsGroup ? $"As, см² (группа {f.Piles.Count} свай)" : "As, см²", x + w / 2, top - fontPx * 1.6f, SKTextAlign.Center, font, text);
         float mid = wall ? x + w / 2 : x;
         float scale = (float)((wall ? w / 2 : w) * 0.92 / max);
         canvas.DrawLine(mid, top, mid, bottom, axis);
