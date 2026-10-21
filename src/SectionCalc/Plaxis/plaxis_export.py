@@ -162,6 +162,39 @@ def previous(phase):
     return None
 
 
+class PhaseRow:
+    """Input phase read once: Input is not asked again after it has opened Output (PLAXIS 3D Input may be busy then)."""
+
+    def __init__(self, phase):
+        self.name = name_of(phase)
+        self.title = text(phase, 'Identification')
+        self.calc_type = calc_type(phase)
+        self.safety = self.calc_type is not None and 'safety' in self.calc_type.lower()
+        prev = previous(phase)
+        self.previous = name_of(prev) if prev is not None else None
+
+    def info(self):
+        return {'name': self.name, 'title': self.title, 'calc_type': self.calc_type}
+
+
+def branches_of(rows):
+    """[(leaf, [phase names of its branch from the start])] of the non-Safety phases; None if a branch has Safety."""
+    by_name = {r.name: r for r in rows}
+    used = [r for r in rows if not r.safety]
+    parents = {r.previous for r in used if r.previous}
+    result = []
+    for leaf in [r for r in used if r.name not in parents]:
+        chain, cur = [], leaf
+        while cur is not None and cur.name not in {c.name for c in chain}:
+            chain.append(cur)
+            cur = by_name.get(cur.previous) if cur.previous else None
+        if any(r.safety for r in chain):
+            log(f'Safety внутри ветки {leaf.name} — чтение по фазам')
+            return None
+        result.append((leaf, [r.name for r in reversed(chain)]))
+    return result
+
+
 def matches(output_name, input_name):
     # Staged construction splits a structure: Plate_1 becomes Plate_1_1, Plate_1_2, ... Output may list
     # the segments or only their parent Plate_1; either side may be the selected one.
@@ -361,8 +394,10 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
         raise ExportError('Выделены элементы разных типов: выберите только Plate, только Embedded beam (row) или только Beam')
     log('Input: выделено ' + ', '.join(name for _, name in selected))
     phases = list(g_i.Phases)
-    used = [p for p in phases if not is_safety(p)]
-    log(f'Input: фаз {len(phases)}, из них Safety {len(phases) - len(used)}')
+    rows = [PhaseRow(p) for p in phases]
+    used = [p for p, r in zip(phases, rows) if not r.safety]
+    log(f'Input: фаз {len(phases)}, из них Safety {len(phases) - len(used)}; дерево: '
+        + ', '.join(f'{r.previous or "—"}→{r.name}' + (' (Safety)' if r.safety else '') for r in rows))
     if not used:
         raise ExportError('В проекте нет фаз, кроме Safety')
     if output_port is None:
@@ -375,34 +410,33 @@ def from_input(g_i, connector, output_port=None, per_phase=False):
     log(f'Output: подключение к порту {output_port}')
     output = Output(connector(output_port))
     log(f'Output: {"3D" if output.is3d else "2D"}, конструкций {len(output.objects)}, фаз {len(output.phases)}')
-    envelope = None if per_phase else envelope_from_input(output, phases, used, selected)
+    envelope = None if per_phase else envelope_from_input(output, rows, selected)
     if envelope is not None:
         return envelope
     names = [name for _, name in selected]
     kind, resolved = resolve(output, selected)
     object_ids = [o[0] for o, _ in resolved]
     piles = {o[0]: pile for o, pile in resolved if pile is not None}
-    wanted = {name_of(p) for p in used}
-    phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted and not is_safety(p)]
+    wanted = {r.name for r in rows if not r.safety}
+    phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted]
     log(f'Чтение по фазам: элементов {len(object_ids)}, фаз {len(phase_ids)}')
     result = output.extract(object_ids, phase_ids, skip_inactive=True, piles=piles)
     with_data = {d['phase'] for d in result['data']}
     if kind == 'Plate' and with_data:
         result['moment_sign'] = moment_sign(output, [output.objects[i] for i in object_ids], output.phases[max(with_data)])
-    types = {name_of(p): calc_type(p) for p in phases}
+    types = {r.name: r.calc_type for r in rows}
     for ph in result['phases']:
         ph['calc_type'] = types.get(ph['name'])
     result['phases'] = [ph for ph in result['phases'] if ph['id'] in with_data]
     result['selection'] = names
-    result['excluded_phases'] = [{'name': name_of(p), 'title': text(p, 'Identification'), 'calc_type': calc_type(p)}
-                                 for p in phases if is_safety(p)]
+    result['excluded_phases'] = [r.info() for r in rows if r.safety]
     result['inactive_phases'] = [name_of(output.phases[i]) for i in phase_ids if i not in with_data]
     if not result['data']:
         raise ExportError('Выбранные элементы не активны ни в одной рассчитанной фазе')
     return result
 
 
-def envelope_from_input(output, phases, used, selected):
+def envelope_from_input(output, rows, selected):
     """
     Envelopes computed by Output: one per branch, read at its last non-Safety phase. An envelope covers the phase
     and all phases before it in its branch, so a branch with a Safety phase inside falls back to reading phases.
@@ -415,23 +449,10 @@ def envelope_from_input(output, phases, used, selected):
         log('Огибающих в Output нет — чтение по фазам')
         return None
     log('Огибающие: ' + ', '.join(n for _, n in types.values()))
-    by_name = {name_of(p): p for p in phases}
-    used_names = {name_of(p) for p in used}
-    parents = {name_of(previous(p)) for p in used if previous(p) is not None}
-    leaves = [p for p in used if name_of(p) not in parents]
-    branches = []
-    for leaf in leaves:
-        chain, cur, seen = [], leaf, set()
-        while cur is not None and name_of(cur) not in seen:
-            seen.add(name_of(cur))
-            chain.append(cur)
-            cur = previous(cur)
-            if cur is not None and name_of(cur) not in by_name:
-                break
-        if any(is_safety(p) for p in chain):
-            log(f'Safety внутри ветки {name_of(leaf)} — чтение по фазам')
-            return None
-        branches.append((leaf, [name_of(p) for p in reversed(chain) if name_of(p) in used_names]))
+    branches = branches_of(rows)
+    if branches is None:
+        return None
+    log('Ветки фаз: ' + '; '.join(f'{leaf.name} ({len(chain)} фаз)' for leaf, chain in branches))
     names = [name for _, name in selected]
     objects = [o for o, _ in resolved]
     piles = {o[0]: pile for o, pile in resolved if pile is not None}
@@ -439,18 +460,22 @@ def envelope_from_input(output, phases, used, selected):
     out_phases = {name_of(p): (i, p) for i, p in enumerate(output.phases)}
     data, phase_rows, inactive = [], [], []
     for leaf, covered in branches:
-        if name_of(leaf) not in out_phases:
+        if leaf.name not in out_phases:
+            log(f'Фаза {leaf.name} не найдена в Output')
             continue
-        pi, phase = out_phases[name_of(leaf)]
+        pi, phase = out_phases[leaf.name]
         got = False
         for k, (oi, obj, t) in enumerate(objects):
-            log(f'Огибающая {name_of(phase)}: {name_of(obj)} ({k + 1} из {len(objects)})')
+            log(f'Огибающая {leaf.name}: {name_of(obj)} ({k + 1} из {len(objects)})')
+            started = time.time()
             try:
                 arrays = {c: output.g.getresults(obj, phase, t[c], 'node') for c in COORDS if c in t}
                 for key, (rtype, _) in types.items():
                     arrays[key] = output.g.getresults(obj, phase, rtype, 'node')
-            except Exception:
+            except Exception as exc:
+                log(f'  нет результата ({exc})')
                 continue
+            log(f'  {len(arrays["x"])} узлов за {time.time() - started:.1f} с')
             arrays = {k: [float(v) for v in a] for k, a in arrays.items()}
             if len({len(a) for a in arrays.values()}) != 1 or not arrays['x']:
                 raise ExportError(f'{name_of(obj)}, {name_of(phase)}: PLAXIS вернул огибающие разной длины')
@@ -460,8 +485,7 @@ def envelope_from_input(output, phases, used, selected):
             data.append({'object': oi, 'phase': pi, 'nodes': nodes})
             got = True
         if got:
-            phase_rows.append({'id': pi, 'name': name_of(phase), 'title': text(phase, 'Identification'),
-                               'calc_type': calc_type(by_name[name_of(leaf)]), 'covers': covered})
+            phase_rows.append({'id': pi, 'name': leaf.name, 'title': leaf.title, 'calc_type': leaf.calc_type, 'covers': covered})
         else:
             inactive.append(name_of(phase))
     if not data:
@@ -477,8 +501,7 @@ def envelope_from_input(output, phases, used, selected):
         'data': data,
         'selection': names,
         'result_types': {k: n for k, (_, n) in types.items()},
-        'excluded_phases': [{'name': name_of(p), 'title': text(p, 'Identification'), 'calc_type': calc_type(p)}
-                            for p in phases if is_safety(p)],
+        'excluded_phases': [r.info() for r in rows if r.safety],
         'inactive_phases': inactive,
     }
 

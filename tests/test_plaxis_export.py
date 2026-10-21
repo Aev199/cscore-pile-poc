@@ -353,6 +353,35 @@ class SelfReferenceTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertEqual(result['phases'][0]['covers'], ['InitialPhase', 'Phase_1', 'Phase_2'])
 
+    def test_input_is_not_asked_after_it_opened_output(self):
+        class BusyInput(FakeInput):
+            def view(self, phase):
+                self.viewed = phase
+                for p in self.Phases:
+                    p.__class__ = BusyPhase
+                return 10002
+
+        class BusyPhase(ProxyPhase):
+            def __getattribute__(self, key):
+                if not key.startswith('__') and key != '__class__':
+                    raise AssertionError('Input asked after it opened Output: ' + key)
+                return object.__getattribute__(self, key)
+
+        initial = ProxyPhase('InitialPhase', None, 'K0 procedure')
+        p1 = ProxyPhase('Phase_1', lambda: initial)
+        g_i = BusyInput([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')])
+        g_i.Phases = [initial, p1]
+        for per_phase in ([], ['--per-phase']):
+            for p in g_i.Phases:
+                p.__class__ = ProxyPhase
+            output = FakeOutputEnvelope() if not per_phase else FakeOutputSplit()
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = plaxis_export.main(['input', '--port', '10000', *per_phase],
+                                          connector=lambda port, program='Output': {10000: g_i, 10002: output}[port])
+            result = json.loads(out.getvalue())
+            self.assertEqual(code, 0, result)
+
 
 class Fake3DOutput(FakeOutputSplit):
     """PLAXIS 3D Output: embedded beams EmbeddedBeam_1 (two segments) and EmbeddedBeam_2 at another place."""
