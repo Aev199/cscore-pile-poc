@@ -247,4 +247,83 @@ public class ProfileTests(ITestOutputHelper output)
         }
         finally { Environment.SetEnvironmentVariable("PYTHONPATH", old); }
     }
+
+    [Fact]
+    public void WallRowsLayout()
+    {
+        var w = new WallGeometry { WidthMm = 1000, ThicknessMm = 800, CoverMm = 50, CoverReference = CoverReference.Bar, StirrupDiameterMm = 12,
+            PositiveFace = new WallFace { BarCount = 5, BarDiameterMm = 32, Rows = 3, RowGapMm = 32 },
+            NegativeFace = new WallFace { BarCount = 5, BarDiameterMm = 20, Rows = 1 } };
+        var layout = RequestBuilder.WallLayout(w);
+        Assert.Null(layout.Problem);
+        Assert.Equal(20, layout.Bars.Count);
+        var ys = layout.Bars.Where(b => b.YMm > 0).Select(b => b.YMm).Distinct().OrderByDescending(y => y).ToList();
+        // Rows at 50 + 16, + 64, + 128 mm from the face.
+        Assert.Equal([400 - 66, 400 - 130, 400 - 194], ys);
+        Assert.Equal(3 * 5 * Math.PI * 32 * 32 / 4 + 5 * Math.PI * 20 * 20 / 4, layout.SteelAreaMm2, 6);
+        Assert.Equal(66 + 64, w.CentroidMm(w.PositiveFace), 9);
+        w.PositiveFace.Rows = 4;
+        Assert.NotNull(RequestBuilder.WallLayout(w).Problem);
+    }
+
+    [Fact]
+    public void PeakCutsByChordAndLimit()
+    {
+        var p = Wall();
+        var f0 = ForceProfile.Build(p);
+        double peak = f0.Envelope.Max(e => e.MMax);
+        double level = f0.Envelope.MaxBy(e => e.MMax)!.Level;
+        p.Settings.PeakCuts = [new PeakCut { TopLevel = level + 1, BottomLevel = level - 1, Moment = true, Method = PeakCutMethod.Chord }];
+        var f1 = ForceProfile.Build(p);
+        double edges = Math.Max(f0.Envelope.Where(e => Math.Abs(e.Level - (level + 1)) < 0.13).Max(e => e.MMax),
+            f0.Envelope.Where(e => Math.Abs(e.Level - (level - 1)) < 0.13).Max(e => e.MMax));
+        Assert.True(f1.Envelope.Max(e => e.MMax) <= edges + 1e-6);
+        Assert.Equal(peak, f1.OriginalEnvelope.Max(e => e.MMax), 9);
+        // Q is untouched by a moment-only cut.
+        Assert.Equal(f0.Envelope.Max(e => e.QAbsMax), f1.Envelope.Max(e => e.QAbsMax), 9);
+
+        p.Settings.PeakCuts = [new PeakCut { TopLevel = 0, BottomLevel = -15, Moment = true, Shear = true, Method = PeakCutMethod.Limit, MomentLimit = 200, ShearLimit = 50 }];
+        var f2 = ForceProfile.Build(p);
+        Assert.Equal(200, f2.Envelope.Where(e => e.Level < -0.01 && e.Level > -14.99).Max(e => e.MMax), 9);
+        Assert.True(f2.Envelope.Where(e => e.Level < -0.01 && e.Level > -14.99).Max(e => e.QAbsMax) <= 50 + 1e-9);
+    }
+
+    [Fact]
+    public void AxialForceCanBeIgnored()
+    {
+        var p = Wall();
+        p.Settings.IgnoreAxialForce = true;
+        var stations = ForceProfile.Build(p).Stations(p);
+        Assert.All(stations.SelectMany(s => s.Rsu), r => Assert.Equal(0, r.N));
+    }
+
+    [Fact]
+    public void RequiredAreaDoesNotDependOnTheGivenBars()
+    {
+        static ProfileProject Make(int bars)
+        {
+            var p = Wall();
+            p.Settings.StationStepM = 7.5;
+            p.Section.Wall.PositiveFace.BarCount = bars; p.Section.Wall.NegativeFace.BarCount = bars;
+            return p;
+        }
+        var a = RequiredReinforcement.Run(Make(4));
+        var b = RequiredReinforcement.Run(Make(9));
+        Assert.Equal(a.Stations.Select(s => Math.Round(s.AsRightMm2, 3)), b.Stations.Select(s => Math.Round(s.AsRightMm2, 3)));
+        Assert.Equal(a.Stations.Select(s => Math.Round(s.AsLeftMm2, 3)), b.Stations.Select(s => Math.Round(s.AsLeftMm2, 3)));
+        Assert.True(a.Stations[1].AsRightMm2 > a.Stations[0].AsRightMm2);
+    }
+
+    [Fact]
+    public void MomentSignHintIsAdopted()
+    {
+        var p = Wall();
+        var e = WallExport();
+        e.MomentSign = new MomentSignHint { Sign = -1, Agreement = 0.95, Phase = "Phase_3" };
+        p.UseSource(e);
+        Assert.Equal(-1, p.Settings.MomentSign);
+        e.MomentSign = new MomentSignHint { Sign = 1, Agreement = 0.3 };
+        p.UseSource(e);
+        Assert.Equal(-1, p.Settings.MomentSign);
+    }
 }

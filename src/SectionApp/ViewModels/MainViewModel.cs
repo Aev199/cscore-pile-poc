@@ -67,6 +67,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] string wallWidth = "", wallThickness = "", wallCover = "", wallStirrup = "";
     [ObservableProperty] string positiveCount = "", positiveDiameter = "", negativeCount = "", negativeDiameter = "";
     [ObservableProperty] string minClearSpacing = "";
+    [ObservableProperty] string positiveRows = "1", negativeRows = "1", rowGap = "25";
     public IReadOnlyList<string> CoverReferenceOptions { get; } = ["до продольных стержней (в свету)", "до спирали / хомута", "до оси продольных стержней"];
     [ObservableProperty] int coverReferenceIndex;
     [ObservableProperty] string axisText = "";
@@ -200,6 +201,7 @@ public partial class MainViewModel : ObservableObject
             WallWidth = S(p.Wall.WidthMm); WallThickness = S(p.Wall.ThicknessMm); WallCover = S(p.Wall.CoverMm); WallStirrup = S(p.Wall.StirrupDiameterMm);
             PositiveCount = S(p.Wall.PositiveFace.BarCount); PositiveDiameter = S(p.Wall.PositiveFace.BarDiameterMm);
             NegativeCount = S(p.Wall.NegativeFace.BarCount); NegativeDiameter = S(p.Wall.NegativeFace.BarDiameterMm);
+            PositiveRows = S(p.Wall.PositiveFace.Rows); NegativeRows = S(p.Wall.NegativeFace.Rows); RowGap = S(p.Wall.PositiveFace.RowGapMm);
             MinClearSpacing = S(IsPile ? p.Pile.MinClearSpacingMm : p.Wall.MinClearSpacingMm);
             CoverReferenceIndex = IndexOf(IsPile ? p.Pile.CoverReference : p.Wall.CoverReference);
             ConcreteClass = p.ConcreteClass; RebarClass = p.RebarClass; TransverseClass = p.TransverseClass;
@@ -284,8 +286,10 @@ public partial class MainViewModel : ObservableObject
                 WidthMm = D(WallWidth, "Ширина b"), ThicknessMm = D(WallThickness, "Толщина h"), CoverMm = D(WallCover, "Защитный слой"),
                 CoverReference = CoverOf(CoverReferenceIndex),
                 StirrupDiameterMm = D(WallStirrup, "Ø хомута"), MinClearSpacingMm = clear,
-                PositiveFace = new WallFace { BarCount = I(PositiveCount, "Стержней на грани «+»"), BarDiameterMm = D(PositiveDiameter, "Ø на грани «+»") },
-                NegativeFace = new WallFace { BarCount = I(NegativeCount, "Стержней на грани «−»"), BarDiameterMm = D(NegativeDiameter, "Ø на грани «−»") },
+                PositiveFace = new WallFace { BarCount = I(PositiveCount, "Стержней на грани «+»"), BarDiameterMm = D(PositiveDiameter, "Ø на грани «+»"),
+                    Rows = I(PositiveRows, "Рядов у грани «+»"), RowGapMm = D(RowGap, "Зазор между рядами") },
+                NegativeFace = new WallFace { BarCount = I(NegativeCount, "Стержней на грани «−»"), BarDiameterMm = D(NegativeDiameter, "Ø на грани «−»"),
+                    Rows = I(NegativeRows, "Рядов у грани «−»"), RowGapMm = D(RowGap, "Зазор между рядами") },
             };
         var c = p.Conditions;
         c.ElementLengthM = D(ElementLength, "Длина элемента"); c.MuX = D(MuX, "μ в плоскости Mx"); c.MuY = D(MuY, "μ в плоскости My");

@@ -45,16 +45,33 @@ public sealed class PileGeometry
     public double MinClearSpacingMm { get; set; } = 25;
 
     /// <summary>Cover to the outer surface of the spiral, whatever reference the input uses.</summary>
-    public double SpiralCoverMm => Geometry.TransverseCover(CoverMm, CoverReference, SpiralDiameterMm, BarDiameterMm);
+    public double SpiralCoverMm => FixedAxisMm is double a ? a - SpiralDiameterMm - BarDiameterMm / 2
+        : Geometry.TransverseCover(CoverMm, CoverReference, SpiralDiameterMm, BarDiameterMm);
     /// <summary>Distance from the concrete face to the bar axis.</summary>
-    public double AxisDistanceMm => SpiralCoverMm + SpiralDiameterMm + BarDiameterMm / 2;
+    public double AxisDistanceMm => FixedAxisMm ?? SpiralCoverMm + SpiralDiameterMm + BarDiameterMm / 2;
+    /// <summary>Bar axis kept independently of the diameter (reinforcement-area search).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? FixedAxisMm { get; set; }
 }
 
 /// <summary>One face of a diaphragm-wall section.</summary>
 public sealed class WallFace
 {
+    /// <summary>Bars in one row.</summary>
     public int BarCount { get; set; } = 5;
     public double BarDiameterMm { get; set; } = 25;
+    /// <summary>Rows of bars at this face, 1–3; the next row lies deeper by d + RowGapMm.</summary>
+    public int Rows { get; set; } = 1;
+    /// <summary>Clear distance between rows.</summary>
+    public double RowGapMm { get; set; } = 25;
+    /// <summary>Distance from the face to the axis of the first row, when it is fixed independently of the diameter
+    /// (the reinforcement-area search keeps the bar axes while the area changes).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? FixedAxisMm { get; set; }
+    /// <summary>Distance between row axes, when fixed independently of the diameter.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? FixedRowPitchMm { get; set; }
+    public double RowPitchMm => FixedRowPitchMm ?? BarDiameterMm + RowGapMm;
 }
 
 /// <summary>Diaphragm wall (СВГ): rectangular section b × h with bars on two faces.</summary>
@@ -75,8 +92,12 @@ public sealed class WallGeometry
 
     /// <summary>Cover to the outer surface of the stirrup at a face with the given bar diameter.</summary>
     public double StirrupCoverMm(double barDiameterMm) => Geometry.TransverseCover(CoverMm, CoverReference, StirrupDiameterMm, barDiameterMm);
-    /// <summary>Distance from the face to the bar axis of the face.</summary>
-    public double AxisDistanceMm(WallFace face) => StirrupCoverMm(face.BarDiameterMm) + StirrupDiameterMm + face.BarDiameterMm / 2;
+    /// <summary>Distance from the face to the bar axis of the first (outer) row of the face.</summary>
+    public double AxisDistanceMm(WallFace face) => face.FixedAxisMm ?? StirrupCoverMm(face.BarDiameterMm) + StirrupDiameterMm + face.BarDiameterMm / 2;
+    /// <summary>Distance from the face to the axis of row k (0 — outer row).</summary>
+    public double RowAxisMm(WallFace face, int row) => AxisDistanceMm(face) + row * face.RowPitchMm;
+    /// <summary>Distance from the face to the centroid of all rows of the face.</summary>
+    public double CentroidMm(WallFace face) => AxisDistanceMm(face) + (face.Rows - 1) / 2.0 * face.RowPitchMm;
 }
 
 public static class Geometry

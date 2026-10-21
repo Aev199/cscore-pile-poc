@@ -40,7 +40,9 @@ public static class RevitExport
                 ["width_mm"] = s.Wall.WidthMm, ["thickness_mm"] = s.Wall.ThicknessMm, ["cover_mm"] = s.Wall.CoverMm,
                 ["cover_reference"] = Reference(s.Wall.CoverReference),
                 ["stirrup_diameter_mm"] = s.Wall.StirrupDiameterMm,
-                ["right_face_bars"] = s.Wall.PositiveFace.BarCount, ["left_face_bars"] = s.Wall.NegativeFace.BarCount,
+                ["right_face_rows"] = s.Wall.PositiveFace.Rows, ["left_face_rows"] = s.Wall.NegativeFace.Rows,
+                ["right_face_axis_mm"] = R(s.Wall.AxisDistanceMm(s.Wall.PositiveFace), 1), ["left_face_axis_mm"] = R(s.Wall.AxisDistanceMm(s.Wall.NegativeFace), 1),
+                ["right_row_pitch_mm"] = R(s.Wall.PositiveFace.RowPitchMm, 1), ["left_row_pitch_mm"] = R(s.Wall.NegativeFace.RowPitchMm, 1),
             };
         else
             element["pile"] = new JsonObject
@@ -75,7 +77,7 @@ public static class RevitExport
             o["note"] = st.Note;
             return (JsonNode)o;
         }).ToArray());
-        double h0 = s.Wall.ThicknessMm - s.Wall.AxisDistanceMm(s.Wall.PositiveFace);
+        double h0 = s.Wall.ThicknessMm - s.Wall.CentroidMm(s.Wall.PositiveFace);
         double minArea = wall ? set.MinPercent / 100 * s.Wall.WidthMm * h0 : set.MinPercent / 100 * Math.PI * s.Pile.DiameterMm * s.Pile.DiameterMm / 4;
         return new JsonObject
         {
@@ -110,6 +112,14 @@ public static class RevitExport
                 ["crack_limits_mm"] = c.CrackCategory == CrackCategory.NoCracks ? null
                     : new JsonObject { ["long"] = c.CrackLimitLongMm, ["short"] = c.CrackLimitShortMm },
                 ["crack_method"] = c.CrackMethod == CrackMethod.Refined ? "refined" : "conservative",
+                ["ignore_axial_force"] = set.IgnoreAxialForce,
+                ["peak_cuts"] = new JsonArray(set.PeakCuts.Select(k => (JsonNode)new JsonObject
+                {
+                    ["top_level_m"] = k.TopLevel, ["bottom_level_m"] = k.BottomLevel, ["moment"] = k.Moment, ["shear"] = k.Shear,
+                    ["method"] = k.Method == PeakCutMethod.Limit ? "limit" : "chord",
+                    ["moment_limit_knm"] = k.Method == PeakCutMethod.Limit && k.Moment ? k.MomentLimit : null,
+                    ["shear_limit_kn"] = k.Method == PeakCutMethod.Limit && k.Shear ? k.ShearLimit : null,
+                }).ToArray()),
                 ["shear_check"] = c.ShearCheck,
                 ["shear_pitch_mm"] = c.ShearCheck ? c.ShearPitchMm : null,
             },

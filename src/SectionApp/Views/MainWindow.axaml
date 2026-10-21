@@ -72,17 +72,19 @@
                   <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Ø навивки, мм" /><TextBox Text="{Binding PileSpiral}" /></StackPanel>
                   <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
                 </Grid>
-                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsVisible="{Binding IsWall}">
+                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsVisible="{Binding IsWall}">
                   <StackPanel><TextBlock Classes="label" Text="Ширина b, мм" /><TextBox Text="{Binding WallWidth}" /></StackPanel>
                   <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Толщина h, мм" /><TextBox Text="{Binding WallThickness}" /></StackPanel>
                   <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding WallCover}" /></StackPanel>
                   <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø хомута, мм" /><TextBox Text="{Binding WallStirrup}" /></StackPanel>
-                  <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Грань «+»: стержней" /><TextBox Text="{Binding PositiveCount}" /></StackPanel>
+                  <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Грань «+»: стержней в ряду" /><TextBox Text="{Binding PositiveCount}" /></StackPanel>
                   <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Грань «+»: Ø, мм" /><TextBox Text="{Binding PositiveDiameter}" /></StackPanel>
-                  <StackPanel Grid.Row="6"><TextBlock Classes="label" Text="Грань «−»: стержней" /><TextBox Text="{Binding NegativeCount}" /></StackPanel>
+                  <StackPanel Grid.Row="6"><TextBlock Classes="label" Text="Грань «−»: стержней в ряду" /><TextBox Text="{Binding NegativeCount}" /></StackPanel>
                   <StackPanel Grid.Row="6" Grid.Column="2"><TextBlock Classes="label" Text="Грань «−»: Ø, мм" /><TextBox Text="{Binding NegativeDiameter}" /></StackPanel>
-                  <StackPanel Grid.Row="8"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
-                  <TextBlock Grid.Row="8" Grid.Column="2" Classes="hint" VerticalAlignment="Bottom" Text="Грань «+» растянута при Mx &gt; 0." />
+                  <StackPanel Grid.Row="8"><TextBlock Classes="label" Text="Рядов: грань «+»" /><TextBox Text="{Binding PositiveRows}" ToolTip.Tip="1–3 ряда" /></StackPanel>
+                  <StackPanel Grid.Row="8" Grid.Column="2"><TextBlock Classes="label" Text="Рядов: грань «−»" /><TextBox Text="{Binding NegativeRows}" ToolTip.Tip="1–3 ряда" /></StackPanel>
+                  <StackPanel Grid.Row="10"><TextBlock Classes="label" Text="Зазор между рядами, мм" /><TextBox Text="{Binding RowGap}" ToolTip.Tip="В свету" /></StackPanel>
+                  <StackPanel Grid.Row="10" Grid.Column="2"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
                 </Grid>
                 <StackPanel>
                   <TextBlock Classes="label" Text="Защитный слой отсчитывается" />

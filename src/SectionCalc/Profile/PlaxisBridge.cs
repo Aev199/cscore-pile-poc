@@ -47,6 +47,14 @@ public sealed class PlaxisSeries
     public List<double[]> Nodes { get; set; } = [];
 }
 
+/// <summary>+1: positive PLAXIS M stretches the right face (larger x); share of nodes agreeing; phase used.</summary>
+public sealed class MomentSignHint
+{
+    public int Sign { get; set; }
+    public double Agreement { get; set; }
+    public string? Phase { get; set; }
+}
+
 /// <summary>Raw export from PLAXIS Output. Kept in the project so that settings can change without PLAXIS.</summary>
 public sealed class PlaxisExport
 {
@@ -64,6 +72,8 @@ public sealed class PlaxisExport
     public List<string> Selection { get; set; } = [];
     /// <summary>Safety phases left out.</summary>
     [JsonPropertyName("excluded_phases")] public List<PlaxisPhase> ExcludedPhases { get; set; } = [];
+    /// <summary>Plate: which face positive M stretches, found from the deflected shape.</summary>
+    [JsonPropertyName("moment_sign")] public MomentSignHint? MomentSign { get; set; }
     /// <summary>Phases in which the selected structure is not active.</summary>
     [JsonPropertyName("inactive_phases")] public List<string> InactivePhases { get; set; } = [];
 }

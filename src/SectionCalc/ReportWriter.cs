@@ -133,8 +133,10 @@ public static class ReportWriter
             var g = p.Wall;
             rows.Add(("Тип", "стена в грунте, прямоугольное сечение"));
             rows.Add(("Размеры b × h", $"{F(g.WidthMm)} × {F(g.ThicknessMm)} мм"));
-            rows.Add(("Арматура грани «+» (y > 0)", $"{g.PositiveFace.BarCount} Ø{F(g.PositiveFace.BarDiameterMm)} {p.RebarClass}"));
-            rows.Add(("Арматура грани «−» (y < 0)", $"{g.NegativeFace.BarCount} Ø{F(g.NegativeFace.BarDiameterMm)} {p.RebarClass}"));
+            string Face(WallFace f) => (f.Rows > 1 ? $"{f.Rows} ряда × " : "") + $"{f.BarCount} Ø{F(f.BarDiameterMm)} {p.RebarClass}"
+                + (f.Rows > 1 ? $", зазор между рядами {F(f.RowGapMm)} мм" : "");
+            rows.Add(("Арматура грани «+» (y > 0)", Face(g.PositiveFace)));
+            rows.Add(("Арматура грани «−» (y < 0)", Face(g.NegativeFace)));
             rows.Add(("Площадь арматуры", $"As = {F(r.Layout.SteelAreaMm2, "0")} мм², μs = {F(r.Layout.SteelAreaMm2 / (g.WidthMm * g.ThicknessMm) * 100, "0.00")} %"));
             rows.Add(("Хомуты", $"Ø{F(g.StirrupDiameterMm)} {p.TransverseClass}"));
             rows.Add(("Защитный слой", $"{F(g.CoverMm)} мм {CoverText(g.CoverReference, "хомута")}; до оси стержней {F(g.AxisDistanceMm(g.PositiveFace), "0.#")} мм (грань «+»), {F(g.AxisDistanceMm(g.NegativeFace), "0.#")} мм (грань «−»)"));

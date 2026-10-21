@@ -96,8 +96,10 @@
                 <TextBox Text="{Binding PileSpacing}" ToolTip.Tip="Усилия Embedded beam row V22 — на 1 м ряда" />
               </StackPanel>
               <StackPanel IsVisible="{Binding IsWall}">
-                <TextBlock Classes="label" Text="M &gt; 0 в PLAXIS растягивает" />
-                <ComboBox ItemsSource="{Binding MomentSignOptions}" SelectedIndex="{Binding MomentSignIndex}" />
+                <TextBlock Classes="label" Text="Грань, растянутая при M &gt; 0 PLAXIS" />
+                <ComboBox ItemsSource="{Binding MomentSignOptions}" SelectedIndex="{Binding MomentSignIndex}"
+                          ToolTip.Tip="Знак момента в PLAXIS зависит от направления, в котором нарисована линия плиты. От него зависит, на какую грань стены (левую или правую, как в Revit) попадёт требуемая арматура." />
+                <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding MomentSignText}" />
               </StackPanel>
               <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto">
                 <StackPanel><TextBlock Classes="label" Text="Шаг сечений, м" /><TextBox Text="{Binding StationStep}" /></StackPanel>
@@ -105,8 +107,40 @@
                 <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="γf для нормативных" /><TextBox Text="{Binding ServiceDivisor}" ToolTip.Tip="Трещины: нормативные = расчётные / γf" /></StackPanel>
                 <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="kдл" /><TextBox Text="{Binding SustainedShare}" /></StackPanel>
               </Grid>
+              <CheckBox IsChecked="{Binding IgnoreAxialForce}" Content="Не учитывать N (N = 0, в запас при изгибе)" />
               <CheckBox IsChecked="{Binding Confirmed}" Content="Единицы, масштаб и знак M сверены с Output" />
               <TextBlock Classes="hint" Text="{Binding SectionText}" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="cardTitle" Text="Срезка пиков M и Q" Margin="0" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="small" Content="Добавить зону" Command="{Binding AddCutCommand}" />
+              </Grid>
+              <ItemsControl ItemsSource="{Binding PeakCuts}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:PeakCutViewModel">
+                    <Border Classes="tableFrame" Padding="8" Margin="0,0,0,6">
+                      <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="*,6,*,6,110,4,Auto">
+                          <StackPanel><TextBlock Classes="hint" Text="от отм., м" /><TextBox Text="{Binding Top}" /></StackPanel>
+                          <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="до отм., м" /><TextBox Text="{Binding Bottom}" /></StackPanel>
+                          <StackPanel Grid.Column="4"><TextBlock Classes="hint" Text="способ" /><ComboBox ItemsSource="{Binding Methods}" SelectedIndex="{Binding MethodIndex}" /></StackPanel>
+                          <Button Grid.Column="6" Classes="link" VerticalAlignment="Bottom" Content="✕" Command="{Binding RemoveCommand}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,8,*,12,Auto,8,*">
+                          <CheckBox IsChecked="{Binding Moment}" Content="M" VerticalAlignment="Center" />
+                          <TextBox Grid.Column="2" Text="{Binding MomentLimit}" IsVisible="{Binding IsLimit}" Watermark="|M|, кН·м" />
+                          <CheckBox Grid.Column="4" IsChecked="{Binding Shear}" Content="Q" VerticalAlignment="Center" />
+                          <TextBox Grid.Column="6" Text="{Binding ShearLimit}" IsVisible="{Binding IsLimit}" Watermark="|Q|, кН" />
+                        </Grid>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="hint" Text="На ответственность инженера. Значения — на сечение (как на графике); исходная эпюра показана пунктиром." />
             </StackPanel>
           </Border>
         </StackPanel>

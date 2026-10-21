@@ -127,7 +127,8 @@ public static class ProfileChart
         SKFont font, SKFont small, SKPaint text, SKPaint muted, SKPaint axis)
     {
         var pts = f.Envelope.Select(e => (e.Level, panel.Envelope(e))).ToList();
-        double lo = Math.Min(0, pts.Min(p => p.Item2.Lo)), hi = Math.Max(0, pts.Max(p => p.Item2.Hi));
+        var all = f.OriginalEnvelope.Select(panel.Envelope).ToList();
+        double lo = Math.Min(0, all.Min(p => p.Lo)), hi = Math.Max(0, all.Max(p => p.Hi));
         if (hi - lo < 1e-9) hi = lo + 1;
         float X(double v) => (float)(x + (v - lo) / (hi - lo) * w);
         SectionSketch.Label(canvas, panel.Title, x + w / 2, top - font.Size * 1.6f, SKTextAlign.Center, font, text);
@@ -141,6 +142,27 @@ public static class ProfileChart
         using var line = new SKPaint { Color = Envelope, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.4f };
         canvas.DrawPath(path, fill);
         canvas.DrawPath(path, line);
+        // Peak cuts: the envelope before the cut, dashed.
+        var orig = f.OriginalEnvelope.Select(e => (e.Level, panel.Envelope(e))).ToList();
+        if (orig.Count == pts.Count && orig.Zip(pts).Any(z => Math.Abs(z.First.Item2.Lo - z.Second.Item2.Lo) + Math.Abs(z.First.Item2.Hi - z.Second.Item2.Hi) > 1e-6))
+        {
+            using var dash = new SKPaint { Color = Bad, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.2f,
+                PathEffect = SKPathEffect.CreateDash([5, 4], 0) };
+            using var o = new SKPath();
+            // Only where the cut changed the diagram.
+            foreach (var upper in new[] { true, false })
+            {
+                double V((double Lo, double Hi) v) => upper ? v.Hi : v.Lo;
+                bool Changed(int i) => Math.Abs(V(orig[i].Item2) - V(pts[i].Item2)) > 1e-6;
+                for (int i = 1; i < orig.Count; i++)
+                    if (Changed(i) || Changed(i - 1))
+                    {
+                        o.MoveTo(X(V(orig[i - 1].Item2)), Y(orig[i - 1].Level));
+                        o.LineTo(X(V(orig[i].Item2)), Y(orig[i].Level));
+                    }
+            }
+            canvas.DrawPath(o, dash);
+        }
         var ext = new[] { (pts.MinBy(p => p.Item2.Lo), true), (pts.MaxBy(p => p.Item2.Hi), false) };
         foreach (var ((level, (l, h)), isLo) in ext)
         {

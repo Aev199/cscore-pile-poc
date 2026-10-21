@@ -24,8 +24,10 @@
   "element": {
     "type": "wall",                     // "wall" — стена в грунте, "pile" — свая
     "top_level_m": 0.0, "bottom_level_m": -15.0, "length_m": 15.0, "x_m": 5.0,
-    "wall": { "width_mm": 1000, "thickness_mm": 600, "cover_mm": 50, "stirrup_diameter_mm": 10,
-              "right_face_bars": 5, "left_face_bars": 5 }
+    "wall": { "width_mm": 1000, "thickness_mm": 600, "cover_mm": 50, "cover_reference": "bar", "stirrup_diameter_mm": 10,
+              "right_face_rows": 2, "left_face_rows": 1,                 // рядов стержней у граней
+              "right_face_axis_mm": 72.5, "left_face_axis_mm": 72.5,     // от грани до оси первого ряда
+              "right_row_pitch_mm": 50, "left_row_pitch_mm": 50 }        // между осями рядов
     // для сваи: "pile": { "diameter_mm", "cover_mm", "spiral_diameter_mm", "bar_count", "spacing_m" }
   },
   "materials": { "concrete": "B30", "longitudinal": "A500", "transverse": "A240" },
@@ -45,6 +47,9 @@
     "service_divisor": 1.0,             // нормативные = расчётные / service_divisor
     "sustained_share": 1.0,             // kдл
     "crack_limits_mm": { "long": 0.3, "short": 0.4 }, "crack_method": "conservative",
+    "ignore_axial_force": false,        // N = 0 во всех РСУ
+    "peak_cuts": [ { "top_level_m": -4.5, "bottom_level_m": -5.5, "moment": true, "shear": false,
+                     "method": "chord", "moment_limit_knm": null, "shear_limit_kn": null } ],   // method: chord | limit
     "shear_check": true, "shear_pitch_mm": 200
   },
   "units": { "level": "m", "as": "cm2", "asw": "cm2/m", "force": "kN", "moment": "kN*m" },

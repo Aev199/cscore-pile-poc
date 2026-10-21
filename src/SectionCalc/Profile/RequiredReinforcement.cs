@@ -33,6 +33,7 @@ public static class RequiredReinforcement
         section.Conditions.ElementLengthM = Math.Max(0.1, Math.Round(forces.Length, 3));
         // A wall from Plate is a strip of a plane-strain model: it bends only in its own plane.
         section.Conditions.OnePlane = section.Kind == SectionKind.Wall;
+        FixLayout(section);
         var problems = RequestBuilder.Validate(WithLoads(section, [new LoadRow { Name = "проверка", N = -1 }]));
         if (problems.Count > 0) throw new InvalidOperationException("Сечение: " + string.Join("; ", problems));
         var faces = Faces(section, project.Settings);
@@ -48,6 +49,26 @@ public static class RequiredReinforcement
 
     sealed record Face(int Index, int Bars, double Min, double Max);
 
+    /// <summary>Bars of one row of the reference layout of a wall face: about one per 100 mm of the section width.</summary>
+    internal static int ReferenceBars(WallGeometry w) => Math.Max(2, (int)Math.Floor(w.WidthMm / 100));
+
+    /// <summary>
+    /// The required area does not depend on the bars given in the section: the bar axes (cover, reference diameter,
+    /// rows) are fixed, and a reference grid of bars carries the area being searched.
+    /// </summary>
+    static void FixLayout(SectionProject s)
+    {
+        if (s.Kind == SectionKind.Pile) { s.Pile.FixedAxisMm = s.Pile.AxisDistanceMm; return; }
+        var w = s.Wall;
+        int bars = ReferenceBars(w);
+        foreach (var face in new[] { w.PositiveFace, w.NegativeFace })
+        {
+            face.FixedAxisMm = w.AxisDistanceMm(face);
+            face.FixedRowPitchMm = face.RowPitchMm;
+            face.BarCount = bars;
+        }
+    }
+
     /// <summary>Wall: per face, minimum % of b·h0; pile: ring, % of the area. Maximum: the largest bars that fit.</summary>
     static Face[] Faces(SectionProject s, ProfileSettings settings)
     {
@@ -58,9 +79,13 @@ public static class RequiredReinforcement
             return [new Face(0, g.BarCount, pct * Math.PI * g.DiameterMm * g.DiameterMm / 4, Area(g.BarCount, MaxDiameter(s, 0, settings.MaxBarDiameterMm)))];
         }
         var w = s.Wall;
-        double h0 = w.ThicknessMm - w.AxisDistanceMm(w.PositiveFace);
-        return [new Face(0, w.PositiveFace.BarCount, pct * w.WidthMm * h0, Area(w.PositiveFace.BarCount, MaxDiameter(s, 0, settings.MaxBarDiameterMm))),
-                new Face(1, w.NegativeFace.BarCount, pct * w.WidthMm * h0, Area(w.NegativeFace.BarCount, MaxDiameter(s, 1, settings.MaxBarDiameterMm)))];
+        Face For(WallFace face, int index)
+        {
+            double h0 = w.ThicknessMm - w.CentroidMm(face);
+            int bars = face.BarCount * face.Rows;
+            return new Face(index, bars, pct * w.WidthMm * h0, Area(bars, MaxDiameter(s, index, settings.MaxBarDiameterMm)));
+        }
+        return [For(w.PositiveFace, 0), For(w.NegativeFace, 1)];
     }
 
     static double Area(int bars, double d) => bars * Math.PI * d * d / 4;

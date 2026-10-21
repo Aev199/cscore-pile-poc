@@ -241,6 +241,45 @@ class SegmentTests(unittest.TestCase):
         self.assertIn('Output видит (Plate): Plate_1, Plate_2', result['error'])
 
 
+class BentWallOutput(FakeOutputEnvelope):
+    """A cantilever bending towards +x: Ux = c·y² near the top → Ux'' > 0, the left face is stretched;
+    M2D is negative there, so positive M stretches the right face."""
+
+    def __init__(self, m_sign):
+        super().__init__()
+        self.m_sign = m_sign
+        names = vars(self.ResultTypes.Plate).copy()
+        names['Ux'] = 'Ux'
+        self.ResultTypes = SimpleNamespace(Plate=SimpleNamespace(**names))
+
+    def getresults(self, obj, phase, rtype, location):
+        y = [-0.5 * i for i in range(9)] if obj is self.plate else [-4.0 - 0.5 * i for i in range(1, 9)]
+        if rtype == 'Ux':
+            return [0.001 * (v + 8) ** 2 for v in y]
+        if rtype == 'M2D':
+            return [self.m_sign * -10.0 for _ in y]
+        if rtype == 'Y':
+            return y
+        if rtype == 'X':
+            return [5.0] * len(y)
+        return [1.0] * len(y)
+
+
+class MomentSignTests(unittest.TestCase):
+    def test_sign_follows_the_deflected_shape(self):
+        for m_sign in (1, -1):
+            out = io.StringIO()
+            g_i = tree_input([SimpleNamespace(Name=value('Plate_1'), _plx_type='Plate')])
+            output = BentWallOutput(m_sign)
+            output.Phases.append(SimpleNamespace(Name=value('Phase_4'), Identification=value('Phase_4')))
+            with redirect_stdout(out):
+                code = plaxis_export.main(['input', '--port', '10000'], connector=lambda port, program='Output': {10000: g_i, 10002: output}[port])
+            result = json.loads(out.getvalue())
+            self.assertEqual(code, 0, result)
+            self.assertEqual(result['moment_sign']['sign'], m_sign)
+            self.assertGreater(result['moment_sign']['agreement'], 0.9)
+
+
 class EnvelopeTests(unittest.TestCase):
     def run_tree(self, output, g_i):
         out = io.StringIO()

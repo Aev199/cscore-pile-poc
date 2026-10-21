@@ -41,6 +41,56 @@ public partial class PhaseRowViewModel : ObservableObject
     }
 }
 
+/// <summary>One peak cut zone in the editor.</summary>
+public partial class PeakCutViewModel : ObservableObject
+{
+    static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+    readonly Action changed;
+    readonly Action<PeakCutViewModel> remove;
+
+    public PeakCutViewModel(PeakCut c, Action changed, Action<PeakCutViewModel> remove)
+    {
+        this.changed = changed; this.remove = remove;
+        top = c.TopLevel.ToString("0.###", Ru); bottom = c.BottomLevel.ToString("0.###", Ru);
+        moment = c.Moment; shear = c.Shear; methodIndex = c.Method == PeakCutMethod.Limit ? 1 : 0;
+        momentLimit = c.MomentLimit.ToString("0.#", Ru); shearLimit = c.ShearLimit.ToString("0.#", Ru);
+    }
+
+    public static IReadOnlyList<string> MethodOptions { get; } = ["по хорде", "до значения"];
+    public IReadOnlyList<string> Methods => MethodOptions;
+    [ObservableProperty] string top, bottom, momentLimit, shearLimit;
+    [ObservableProperty] bool moment, shear;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsLimit))] int methodIndex;
+    public bool IsLimit => MethodIndex == 1;
+
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.PropertyName != nameof(IsLimit)) changed();
+    }
+
+    [RelayCommand] void Remove() => remove(this);
+
+    public PeakCut? ToModel(List<string> e, int index)
+    {
+        double D(string text, string label)
+        {
+            if (MainViewModel.TryNumber(text, out var v)) return v;
+            e.Add($"Срезка {index}: «{label}» — введите число"); return 0;
+        }
+        var c = new PeakCut
+        {
+            TopLevel = D(Top, "от отметки"), BottomLevel = D(Bottom, "до отметки"), Moment = Moment, Shear = Shear,
+            Method = IsLimit ? PeakCutMethod.Limit : PeakCutMethod.Chord,
+            MomentLimit = IsLimit && Moment ? D(MomentLimit, "предел M") : 0, ShearLimit = IsLimit && Shear ? D(ShearLimit, "предел Q") : 0,
+        };
+        if (!Moment && !Shear) e.Add($"Срезка {index}: отметьте M и/или Q");
+        if (Math.Abs(c.TopLevel - c.BottomLevel) < 1e-6) e.Add($"Срезка {index}: отметки совпадают");
+        if (IsLimit && (Moment && c.MomentLimit < 0 || Shear && c.ShearLimit < 0)) e.Add($"Срезка {index}: предел не может быть отрицательным");
+        return c;
+    }
+}
+
 public sealed class StationRowViewModel(StationResult s, bool wall)
 {
     static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
@@ -109,6 +159,9 @@ public partial class ProfileViewModel : ObservableObject
     [ObservableProperty] string forceUnit = "kN", lengthUnit = "m";
     [ObservableProperty] string pileSpacing = "", stationStep = "", minPercent = "", serviceDivisor = "", sustainedShare = "";
     [ObservableProperty] int momentSignIndex;
+    [ObservableProperty] string momentSignText = "";
+    [ObservableProperty] bool ignoreAxialForce;
+    public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
     [ObservableProperty] bool confirmed;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(IsWall), nameof(RightHeader))] bool isEmbedded;
     public bool IsWall => !IsEmbedded;
@@ -131,7 +184,8 @@ public partial class ProfileViewModel : ObservableObject
     {
         base.OnPropertyChanged(e);
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
-                or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed))
+                or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
+                or nameof(IgnoreAxialForce))
             Changed();
     }
 
@@ -141,7 +195,9 @@ public partial class ProfileViewModel : ObservableObject
         var s = project.Settings;
         ForceUnit = s.ForceUnit; LengthUnit = s.LengthUnit; PileSpacing = S(s.PileSpacingM); StationStep = S(s.StationStepM);
         MinPercent = S(s.MinPercent); ServiceDivisor = S(s.ServiceDivisor); SustainedShare = S(s.SustainedShare);
-        MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed;
+        MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed; IgnoreAxialForce = s.IgnoreAxialForce;
+        PeakCuts.Clear();
+        foreach (var c in s.PeakCuts) PeakCuts.Add(new PeakCutViewModel(c, Changed, RemoveCut));
         loading = false;
     }
 
@@ -160,7 +216,8 @@ public partial class ProfileViewModel : ObservableObject
         s.PileSpacingM = D(PileSpacing, "Шаг свай"); s.StationStepM = D(StationStep, "Шаг сечений");
         s.MinPercent = D(MinPercent, "Минимальное армирование"); s.ServiceDivisor = D(ServiceDivisor, "γf для нормативных");
         s.SustainedShare = D(SustainedShare, "kдл");
-        s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed;
+        s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed; s.IgnoreAxialForce = IgnoreAxialForce;
+        s.PeakCuts = PeakCuts.Select((c, i) => c.ToModel(e, i + 1)).OfType<PeakCut>().ToList();
         if (s.StationStepM <= 0) e.Add("Шаг сечений должен быть больше 0");
         if (s.ServiceDivisor <= 0) e.Add("γf для нормативных усилий должен быть больше 0");
         if (s.MinPercent < 0) e.Add("Минимальное армирование не может быть отрицательным");
@@ -330,6 +387,11 @@ public partial class ProfileViewModel : ObservableObject
         ForceUnit = project.Settings.ForceUnit; LengthUnit = project.Settings.LengthUnit; Confirmed = project.Settings.Confirmed;
         loading = false;
         IsEmbedded = s.Objects.Any(o => o.Kind != "Plate");
+        MomentSignIndex = project.Settings.MomentSign > 0 ? 0 : 1;
+        MomentSignText = s.MomentSign is { } h
+            ? $"По прогибу стены в фазе {h.Phase}: M > 0 растягивает {(h.Sign > 0 ? "правую" : "левую")} грань (совпадение {h.Agreement * 100:0} % узлов)"
+                + (h.Agreement < 0.5 ? " — ненадёжно, проверьте по Output" : "")
+            : "Не определено по прогибу — проверьте по эпюре Output";
         Phases.Clear();
         foreach (var ph in project.Phases)
         {
@@ -429,6 +491,16 @@ public partial class ProfileViewModel : ObservableObject
     }
 
     [RelayCommand] void Cancel() => cancel?.Cancel();
+
+    [RelayCommand]
+    void AddCut()
+    {
+        double top = forces?.TopLevel ?? 0;
+        PeakCuts.Add(new PeakCutViewModel(new PeakCut { TopLevel = Math.Round(top - 1, 2), BottomLevel = Math.Round(top - 2, 2) }, Changed, RemoveCut));
+        Changed();
+    }
+
+    void RemoveCut(PeakCutViewModel c) { PeakCuts.Remove(c); Changed(); }
 
     async Task Busy(string message, Func<CancellationToken, Task> work)
     {

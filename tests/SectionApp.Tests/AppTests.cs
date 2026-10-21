@@ -145,6 +145,9 @@ public class AppTests
         Assert.True(p.HasPhases);
         Assert.NotNull(p.Chart);
         p.StationStep = "3";
+        p.AddCutCommand.Execute(null);
+        var cut = Assert.Single(p.PeakCuts);
+        cut.Top = "-5"; cut.Bottom = "-7"; cut.Shear = true;
         await p.CalculateCommand.ExecuteAsync(null);
         Assert.Contains("Сверьте", p.Errors);
         p.Confirmed = true;

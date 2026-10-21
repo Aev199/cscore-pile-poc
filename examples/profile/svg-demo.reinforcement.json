@@ -1,7 +1,7 @@
 {
   "format": "section-app/reinforcement-profile",
   "version": 1,
-  "created": "2026-10-20T13:43:51",
+  "created": "2026-10-21T09:01:23",
   "title": "Эпюра армирования",
   "element": {
     "type": "wall",
@@ -12,10 +12,15 @@
     "wall": {
       "width_mm": 1000,
       "thickness_mm": 600,
-      "cover_mm": 50,
+      "cover_mm": 60,
+      "cover_reference": "bar",
       "stirrup_diameter_mm": 10,
-      "right_face_bars": 5,
-      "left_face_bars": 5
+      "right_face_rows": 1,
+      "left_face_rows": 1,
+      "right_face_axis_mm": 72.5,
+      "left_face_axis_mm": 72.5,
+      "right_row_pitch_mm": 50,
+      "left_row_pitch_mm": 50
     }
   },
   "materials": {
@@ -31,6 +36,7 @@
     "program": "PLAXIS 2D",
     "version": "22.01",
     "project": "Демо",
+    "forces": "phases",
     "objects": [
       "Plate_1"
     ],
@@ -38,18 +44,21 @@
       {
         "name": "Phase_1",
         "title": "Выемка 1",
+        "covers": [],
         "kind": "main",
         "short_term": false
       },
       {
         "name": "Phase_2",
         "title": "Выемка 2",
+        "covers": [],
         "kind": "main",
         "short_term": false
       },
       {
         "name": "Phase_3",
         "title": "Дно",
+        "covers": [],
         "kind": "main",
         "short_term": false
       }
@@ -62,7 +71,7 @@
     "moment_sign": 1,
     "station_step_m": 3,
     "min_percent": 0.1,
-    "as_min_cm2": 5.3,
+    "as_min_cm2": 5.28,
     "service_divisor": 1,
     "sustained_share": 1,
     "crack_limits_mm": {
@@ -70,6 +79,18 @@
       "short": 0.4
     },
     "crack_method": "conservative",
+    "ignore_axial_force": false,
+    "peak_cuts": [
+      {
+        "top_level_m": -5,
+        "bottom_level_m": -7,
+        "moment": true,
+        "shear": true,
+        "method": "chord",
+        "moment_limit_knm": null,
+        "shear_limit_kn": null
+      }
+    ],
     "shear_check": false,
     "shear_pitch_mm": null
   },
@@ -86,8 +107,8 @@
       "depth_m": 0,
       "from_level_m": -0,
       "to_level_m": -1.5,
-      "as_right_cm2": 5.3,
-      "as_left_cm2": 5.3,
+      "as_right_cm2": 5.28,
+      "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
       "status": "minimum",
       "governing": {
@@ -102,14 +123,14 @@
       "depth_m": 3,
       "from_level_m": -1.5,
       "to_level_m": -4.5,
-      "as_right_cm2": 21.68,
-      "as_left_cm2": 5.3,
+      "as_right_cm2": 21.72,
+      "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
       "status": "ok",
       "governing": {
         "check": "Ширина раскрытия трещин, продолжительное",
         "combination": "Phase_3: Mmax, Nmin",
-        "k": 0.996
+        "k": 0.997
       },
       "note": null
     },
@@ -118,8 +139,24 @@
       "depth_m": 6,
       "from_level_m": -4.5,
       "to_level_m": -7.5,
-      "as_right_cm2": 22.67,
-      "as_left_cm2": 5.3,
+      "as_right_cm2": 22.48,
+      "as_left_cm2": 5.28,
+      "asw_cm2_per_m": null,
+      "status": "ok",
+      "governing": {
+        "check": "Ширина раскрытия трещин, продолжительное",
+        "combination": "Phase_3: Mmax",
+        "k": 0.997
+      },
+      "note": null
+    },
+    {
+      "level_m": -9,
+      "depth_m": 9,
+      "from_level_m": -7.5,
+      "to_level_m": -10.5,
+      "as_right_cm2": 18.82,
+      "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
       "status": "ok",
       "governing": {
@@ -130,34 +167,18 @@
       "note": null
     },
     {
-      "level_m": -9,
-      "depth_m": 9,
-      "from_level_m": -7.5,
-      "to_level_m": -10.5,
-      "as_right_cm2": 18.74,
-      "as_left_cm2": 5.3,
-      "asw_cm2_per_m": null,
-      "status": "ok",
-      "governing": {
-        "check": "Ширина раскрытия трещин, продолжительное",
-        "combination": "Phase_3: Mmax",
-        "k": 0.994
-      },
-      "note": null
-    },
-    {
       "level_m": -12,
       "depth_m": 12,
       "from_level_m": -10.5,
       "to_level_m": -13.5,
-      "as_right_cm2": 5.3,
-      "as_left_cm2": 5.3,
+      "as_right_cm2": 5.28,
+      "as_left_cm2": 5.28,
       "asw_cm2_per_m": null,
       "status": "minimum",
       "governing": {
         "check": "Прочность нормального сечения с учётом прогиба",
         "combination": "Phase_3: Mmin, Nmin",
-        "k": 0.638
+        "k": 0.647
       },
       "note": null
     },
@@ -166,8 +187,8 @@
       "depth_m": 15,
       "from_level_m": -13.5,
       "to_level_m": -15,
-      "as_right_cm2": 5.3,
-      "as_left_cm2": 12.45,
+      "as_right_cm2": 5.28,
+      "as_left_cm2": 12.58,
       "asw_cm2_per_m": null,
       "status": "ok",
       "governing": {
@@ -351,57 +372,57 @@
       "level_m": -5.25,
       "n_min_kn": -131.2,
       "n_max_kn": -87.5,
-      "m_min_knm": 92.4,
-      "m_max_knm": 277.2,
+      "m_min_knm": 90.9,
+      "m_max_knm": 272.7,
       "q_abs_max_kn": 10.7
     },
     {
       "level_m": -5.5,
       "n_min_kn": -137.5,
       "n_max_kn": -91.7,
-      "m_min_knm": 93.1,
-      "m_max_knm": 279.2,
+      "m_min_knm": 90.5,
+      "m_max_knm": 271.5,
       "q_abs_max_kn": 5.6
     },
     {
       "level_m": -5.75,
       "n_min_kn": -143.8,
       "n_max_kn": -95.8,
-      "m_min_knm": 93.3,
-      "m_max_knm": 280,
-      "q_abs_max_kn": 0.4
+      "m_min_knm": 90.1,
+      "m_max_knm": 270.3,
+      "q_abs_max_kn": 0.5
     },
     {
       "level_m": -6,
       "n_min_kn": -150,
       "n_max_kn": -100,
-      "m_min_knm": 93.1,
-      "m_max_knm": 279.4,
-      "q_abs_max_kn": 4.8
+      "m_min_knm": 89.7,
+      "m_max_knm": 269.2,
+      "q_abs_max_kn": 4.6
     },
     {
       "level_m": -6.25,
       "n_min_kn": -156.2,
       "n_max_kn": -104.2,
-      "m_min_knm": 92.5,
-      "m_max_knm": 277.6,
-      "q_abs_max_kn": 10
+      "m_min_knm": 89.3,
+      "m_max_knm": 268,
+      "q_abs_max_kn": 9.7
     },
     {
       "level_m": -6.5,
       "n_min_kn": -162.5,
       "n_max_kn": -108.3,
-      "m_min_knm": 91.5,
-      "m_max_knm": 274.5,
-      "q_abs_max_kn": 15.1
+      "m_min_knm": 88.9,
+      "m_max_knm": 266.8,
+      "q_abs_max_kn": 14.8
     },
     {
       "level_m": -6.75,
       "n_min_kn": -168.8,
       "n_max_kn": -112.5,
-      "m_min_knm": 90,
-      "m_max_knm": 270.1,
-      "q_abs_max_kn": 20.1
+      "m_min_knm": 88.5,
+      "m_max_knm": 265.6,
+      "q_abs_max_kn": 20
     },
     {
       "level_m": -7,

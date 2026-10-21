@@ -17,6 +17,8 @@ public sealed class ForceProfile
 {
     public required IReadOnlyList<ForceSample> Samples { get; init; }
     public required IReadOnlyList<EnvelopePoint> Envelope { get; init; }
+    /// <summary>Envelope before the peak cuts (equal to <see cref="Envelope"/> without cuts).</summary>
+    public required IReadOnlyList<EnvelopePoint> OriginalEnvelope { get; init; }
     public required double TopLevel { get; init; }
     public required double BottomLevel { get; init; }
     public required double X { get; init; }
@@ -67,14 +69,60 @@ public sealed class ForceProfile
         if (samples.Count == 0) throw new InvalidOperationException("В выгрузке нет результатов выбранных фаз");
         if (xs.Max() - xs.Min() > 0.01) throw new InvalidOperationException("Выбранные элементы не лежат на одной вертикали (разброс X более 10 мм)");
 
-        var envelope = samples.GroupBy(x => Math.Round(x.Level, 4)).OrderByDescending(g => g.Key)
-            .Select(g => new EnvelopePoint(g.Key, g.Min(x => x.N), g.Max(x => x.N), g.Min(x => x.M), g.Max(x => x.M), g.Max(x => Math.Abs(x.Q))))
-            .ToList();
+        var original = EnvelopeOf(samples);
+        foreach (var cut in s.PeakCuts) samples = Cut(samples, cut);
         return new ForceProfile
         {
-            Samples = samples, Envelope = envelope, TopLevel = samples.Max(x => x.Level), BottomLevel = samples.Min(x => x.Level),
+            Samples = samples, Envelope = EnvelopeOf(samples), OriginalEnvelope = original,
+            TopLevel = samples.Max(x => x.Level), BottomLevel = samples.Min(x => x.Level),
             X = xs.Average(), ElementKind = kind, ForceScale = f * width, IsEnvelope = src.IsEnvelope,
         };
+    }
+
+    static List<EnvelopePoint> EnvelopeOf(List<ForceSample> samples) =>
+        samples.GroupBy(x => Math.Round(x.Level, 4)).OrderByDescending(g => g.Key)
+            .Select(g => new EnvelopePoint(g.Key, g.Min(x => x.N), g.Max(x => x.N), g.Min(x => x.M), g.Max(x => x.M), g.Max(x => Math.Abs(x.Q))))
+            .ToList();
+
+    /// <summary>Peak cut on every curve (phase, envelope corner): chord between the interval ends, or a limit.</summary>
+    internal static List<ForceSample> Cut(List<ForceSample> samples, PeakCut cut)
+    {
+        double top = Math.Max(cut.TopLevel, cut.BottomLevel), bottom = Math.Min(cut.TopLevel, cut.BottomLevel);
+        var result = new List<ForceSample>(samples.Count);
+        foreach (var curve in samples.GroupBy(x => (x.Phase, x.Corner)))
+        {
+            var nodes = curve.OrderByDescending(x => x.Level).ToList();
+            (double M, double Q)? At(double level)
+            {
+                for (int i = 0; i + 1 < nodes.Count; i++)
+                {
+                    var a = nodes[i]; var b = nodes[i + 1];
+                    if (level > a.Level + 1e-9 || level < b.Level - 1e-9) continue;
+                    double t = a.Level - b.Level < 1e-9 ? 0 : (a.Level - level) / (a.Level - b.Level);
+                    return (a.M + t * (b.M - a.M), a.Q + t * (b.Q - a.Q));
+                }
+                return null;
+            }
+            var (upper, lower) = (At(top), At(bottom));
+            foreach (var n in nodes)
+            {
+                if (n.Level >= top - 1e-9 || n.Level <= bottom + 1e-9) { result.Add(n); continue; }
+                double m = n.M, q = n.Q;
+                if (cut.Method == PeakCutMethod.Limit)
+                {
+                    if (cut.Moment) m = Math.Clamp(m, -cut.MomentLimit, cut.MomentLimit);
+                    if (cut.Shear) q = Math.Clamp(q, -cut.ShearLimit, cut.ShearLimit);
+                }
+                else if (upper is { } u && lower is { } l)
+                {
+                    double t = (top - n.Level) / (top - bottom);
+                    if (cut.Moment) m = u.M + t * (l.M - u.M);
+                    if (cut.Shear) q = u.Q + t * (l.Q - u.Q);
+                }
+                result.Add(n with { M = m, Q = q });
+            }
+        }
+        return result;
     }
 
     /// <summary>
@@ -118,7 +166,7 @@ public sealed class ForceProfile
                     var ph = phases[sample.Phase];
                     var row = Row(ph);
                     row.Name = $"{ph.Name}: {string.Join(", ", same.Select(x => x.Label))}";
-                    row.N = sample.N; row.Q = Math.Abs(sample.Q);
+                    row.N = p.Settings.IgnoreAxialForce ? 0 : sample.N; row.Q = Math.Abs(sample.Q);
                     // Wall: Mx > 0 stretches the positive (right) face.
                     row.Mx = p.Section.Kind == SectionKind.Wall ? p.Settings.MomentSign * sample.M : Math.Abs(sample.M);
                     row.LoadFactor = p.Settings.ServiceDivisor; row.SustainedShare = p.Settings.SustainedShare;
@@ -137,6 +185,7 @@ public sealed class ForceProfile
     static IEnumerable<LoadRow> EnvelopeRows(ProfileProject p, List<ForceSample> c, Dictionary<int, PhaseSetting> phases)
     {
         double mMax = c.Max(x => x.M), mMin = c.Min(x => x.M), nMax = c.Max(x => x.N), nMin = c.Min(x => x.N), q = c.Max(x => Math.Abs(x.Q));
+        if (p.Settings.IgnoreAxialForce) nMax = nMin = 0;
         var ph = phases[c[0].Phase];
         string source = string.Join(", ", c.Select(x => phases[x.Phase].Name).Distinct());
         var seen = new HashSet<(double, double)>();

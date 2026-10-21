@@ -4,6 +4,29 @@ using System.Text.Unicode;
 
 namespace SectionCalc.Profile;
 
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum PeakCutMethod
+{
+    /// <summary>Inside the interval the diagram is replaced by the straight line between its values at the ends.</summary>
+    Chord,
+    /// <summary>Values above the limit are cut down to it.</summary>
+    Limit,
+}
+
+/// <summary>Peak of M and/or Q cut by the engineer (on his responsibility), between two levels.</summary>
+public sealed class PeakCut
+{
+    public double TopLevel { get; set; }
+    public double BottomLevel { get; set; }
+    public bool Moment { get; set; } = true;
+    public bool Shear { get; set; }
+    public PeakCutMethod Method { get; set; } = PeakCutMethod.Chord;
+    /// <summary>Limit method: |M|, kN·m per element (section width / pile).</summary>
+    public double MomentLimit { get; set; }
+    /// <summary>Limit method: |Q|, kN per element.</summary>
+    public double ShearLimit { get; set; }
+}
+
 /// <summary>Combination kind and inclusion of one PLAXIS phase.</summary>
 public sealed class PhaseSetting
 {
@@ -32,6 +55,9 @@ public sealed class ProfileSettings
     /// <summary>The PLAXIS forces are design values; normative (cracks) = design / this factor.</summary>
     public double ServiceDivisor { get; set; } = 1;
     public double SustainedShare { get; set; } = 1;
+    /// <summary>Axial force not taken into account (N = 0): on the safe side for bending when N is uncertain.</summary>
+    public bool IgnoreAxialForce { get; set; }
+    public List<PeakCut> PeakCuts { get; set; } = [];
     /// <summary>Upper bound of the search: bar diameter of the adopted layout, mm.</summary>
     public double MaxBarDiameterMm { get; set; } = 40;
 }
@@ -70,6 +96,8 @@ public sealed class ProfileProject
             : new PhaseSetting { Id = ph.Id, Name = ph.Name }).ToList();
         if (Unit.Force(export.Info.UnitForce) is not null) Settings.ForceUnit = export.Info.UnitForce!;
         if (Unit.Length(export.Info.UnitLength) is not null) Settings.LengthUnit = export.Info.UnitLength!;
+        // The deflected shape tells which face positive M stretches.
+        if (export.MomentSign is { Sign: 1 or -1, Agreement: >= 0.5 } hint) Settings.MomentSign = hint.Sign;
         Settings.Confirmed = false;
     }
 }

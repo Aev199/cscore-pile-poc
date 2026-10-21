@@ -46,16 +46,23 @@ public static class RequestBuilder
         foreach (var (face, sign) in new[] { (g.NegativeFace, -1), (g.PositiveFace, 1) })
         {
             double inset = g.StirrupDiameterMm + face.BarDiameterMm / 2;
-            double depth = g.ThicknessMm / 2 - g.AxisDistanceMm(face);
             if (face.BarCount < 2) { problem ??= "На каждой грани нужно не менее 2 стержней"; continue; }
+            if (face.Rows is < 1 or > 3) { problem ??= "Рядов стержней у грани — от 1 до 3"; continue; }
             double pitch = (cage - 2 * inset) / (face.BarCount - 1);
             clear.Add(pitch - face.BarDiameterMm);
+            if (face.Rows > 1) clear.Add(face.RowGapMm);
+            double depth = g.ThicknessMm / 2 - g.AxisDistanceMm(face);
             if (depth <= face.BarDiameterMm / 2 || pitch - face.BarDiameterMm < g.MinClearSpacingMm)
                 problem ??= $"Стержни грани {(sign > 0 ? "«+»" : "«−»")} не помещаются с просветом {g.MinClearSpacingMm:0} мм";
-            for (int i = 0; i < face.BarCount; i++)
-                bars.Add(new BarPoint(-cage / 2 + inset + i * pitch, sign * depth, face.BarDiameterMm));
+            for (int row = 0; row < face.Rows; row++)
+            {
+                double y = g.ThicknessMm / 2 - g.RowAxisMm(face, row);
+                for (int i = 0; i < face.BarCount; i++)
+                    bars.Add(new BarPoint(-cage / 2 + inset + i * pitch, sign * y, face.BarDiameterMm));
+            }
         }
-        double through = g.ThicknessMm - g.AxisDistanceMm(g.PositiveFace) - g.AxisDistanceMm(g.NegativeFace)
+        // Clear distance between the inner rows of the two faces.
+        double through = g.ThicknessMm - g.RowAxisMm(g.PositiveFace, g.PositiveFace.Rows - 1) - g.RowAxisMm(g.NegativeFace, g.NegativeFace.Rows - 1)
             - g.PositiveFace.BarDiameterMm / 2 - g.NegativeFace.BarDiameterMm / 2;
         clear.Add(through);
         if (through < g.MinClearSpacingMm) problem ??= "Недостаточный просвет между гранями";

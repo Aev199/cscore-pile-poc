@@ -138,6 +138,40 @@ def matches(output_name, input_name):
             or input_name.startswith(output_name + '_'))
 
 
+def moment_sign(output, objects, phase):
+    """
+    Which face positive M stretches, from the deflected shape: x = x0 + Ux(y); where Ux'' > 0 the wall bends
+    towards +x and its left (smaller x) face is stretched. +1: M > 0 stretches the right face (larger x).
+    Returns {'sign', 'agreement' 0…1, 'phase'} or None.
+    """
+    group, _ = first(output.g.ResultTypes, ('Plate',))
+    ux_type, _ = first(group, ('Ux',)) if group is not None else (None, None)
+    if ux_type is None:
+        return None
+    rows = {}
+    for _, obj, types in objects:
+        try:
+            ys = output.g.getresults(obj, phase, types['y'], 'node')
+            us = output.g.getresults(obj, phase, ux_type, 'node')
+            ms = output.g.getresults(obj, phase, types['m'], 'node')
+        except Exception:
+            continue
+        for y, u, m in zip(ys, us, ms):
+            rows.setdefault(round(float(y), 4), []).append((float(u), float(m)))
+    pts = sorted((y, sum(u for u, _ in v) / len(v), sum(m for _, m in v) / len(v)) for y, v in rows.items())
+    score = total = 0.0
+    for i in range(1, len(pts) - 1):
+        (y0, u0, _), (y1, u1, m1), (y2, u2, _) = pts[i - 1], pts[i], pts[i + 1]
+        if y1 - y0 <= 0 or y2 - y1 <= 0:
+            continue
+        curvature = 2 * ((u2 - u1) / (y2 - y1) - (u1 - u0) / (y1 - y0)) / (y2 - y0)
+        score += m1 * -curvature
+        total += abs(m1 * curvature)
+    if total <= 0:
+        return None
+    return {'sign': 1 if score > 0 else -1, 'agreement': round(abs(score) / total, 3), 'phase': name_of(phase)}
+
+
 def select_objects(output, kind, names):
     """Output objects of the selection: exact names if Output lists them, otherwise parents or segments."""
     same_kind = [(i, obj, t) for i, (k, obj, t) in enumerate(output.objects) if k == kind]
@@ -262,6 +296,8 @@ def from_input(g_i, connector, output_port=None):
     phase_ids = [i for i, p in enumerate(output.phases) if name_of(p) in wanted and not is_safety(p)]
     result = output.extract(object_ids, phase_ids, skip_inactive=True)
     with_data = {d['phase'] for d in result['data']}
+    if selected[0][0] == 'Plate' and with_data:
+        result['moment_sign'] = moment_sign(output, [output.objects[i] for i in object_ids], output.phases[max(with_data)])
     types = {name_of(p): calc_type(p) for p in phases}
     for ph in result['phases']:
         ph['calc_type'] = types.get(ph['name'])
@@ -332,7 +368,9 @@ def envelope_from_input(output, phases, used, selected):
             inactive.append(name_of(phase))
     if not data:
         raise ExportError('Выбранные элементы не активны в конечных фазах расчёта')
+    sign = moment_sign(output, objects, out_phases[phase_rows[0]['name']][1]) if kind == 'Plate' else None
     return {
+        'moment_sign': sign,
         'info': output.info(),
         'mode': 'envelope',
         'objects': [{'id': i, 'kind': kind, 'name': name_of(obj)} for i, obj, _ in objects],
