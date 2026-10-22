@@ -260,6 +260,8 @@ public partial class ProfileViewModel : ObservableObject
     bool syncing;
     [ObservableProperty] string momentSignText = "";
     [ObservableProperty] bool ignoreAxialForce;
+    [ObservableProperty] bool skipInactiveZeroN = true;
+    [ObservableProperty] string zeroNText = "";
     public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
     [ObservableProperty] bool confirmed;
     public bool IsWall => Scenario == ProfileScenario.Wall;
@@ -301,7 +303,7 @@ public partial class ProfileViewModel : ObservableObject
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
                 or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
                 or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads) or nameof(PanelWidth) or nameof(ModeIndex)
-                or nameof(TypeCount))
+                or nameof(TypeCount) or nameof(SkipInactiveZeroN))
             Changed();
     }
 
@@ -312,7 +314,7 @@ public partial class ProfileViewModel : ObservableObject
         ForceUnit = s.ForceUnit; LengthUnit = s.LengthUnit; PileSpacing = S(s.PileSpacingM); StationStep = S(s.StationStepM);
         MinPercent = S(s.MinPercent); ServiceDivisor = S(s.ServiceDivisor); SustainedShare = S(s.SustainedShare);
         MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed; IgnoreAxialForce = s.IgnoreAxialForce;
-        ExcavationIndex = Excavation(s.ExcavationSide); AlignPileHeads = s.AlignPileHeads;
+        ExcavationIndex = Excavation(s.ExcavationSide); AlignPileHeads = s.AlignPileHeads; SkipInactiveZeroN = s.SkipInactiveZeroN;
         ScenarioIndex = (int)s.Scenario; ModeIndex = (int)s.Mode; TypeCount = s.TypeCount.ToString(CultureInfo.InvariantCulture);
         PanelWidth = S(s.PanelWidthM > 0 ? s.PanelWidthM : project.Section.Wall.WidthMm / 1000);
         PeakCuts.Clear();
@@ -346,7 +348,7 @@ public partial class ProfileViewModel : ObservableObject
         s.MinPercent = D(MinPercent, "Минимальное армирование"); s.ServiceDivisor = D(ServiceDivisor, "γf для нормативных");
         s.SustainedShare = D(SustainedShare, "kдл");
         s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed; s.IgnoreAxialForce = IgnoreAxialForce;
-        s.ExcavationSide = ExcavationIndex switch { 1 => 1, 2 => -1, _ => 0 }; s.AlignPileHeads = AlignPileHeads;
+        s.ExcavationSide = ExcavationIndex switch { 1 => 1, 2 => -1, _ => 0 }; s.AlignPileHeads = AlignPileHeads; s.SkipInactiveZeroN = SkipInactiveZeroN;
         s.Scenario = Scenario; s.Mode = (ProfileMode)ModeIndex;
         if (IsTyping)
         {
@@ -385,6 +387,8 @@ public partial class ProfileViewModel : ObservableObject
         {
             forces = ForceProfile.Build(project);
             Errors = "";
+            ZeroNText = forces.InactiveZeroN.Count == 0 ? ""
+                : $"Nmax огибающей = 0 по всей длине: {forces.InactiveZeroN.Count} (свая, ветка) — стадии до устройства сваи; угол «N = 0 с Mmax» не учтён";
             var extremes = ForceProfile.PhaseExtremes(project);
             foreach (var row in Phases)
                 row.Extremes = extremes.TryGetValue(row.Setting.Id, out var x)

@@ -42,8 +42,10 @@
     <div class="row"><select id="typeFilter"></select></div>
     <label class="row"><input type="checkbox" id="overlay" checked> наложить несущую способность</label>
     <label class="row"><input type="checkbox" id="labels" checked> подписи свай</label>
+    <label class="row"><input type="checkbox" id="solid"> объём свай (иначе — ось)</label>
     <div class="legend" id="legend"></div>
     <div class="hint">Левая кнопка — вращение, правая — сдвиг, колесо — масштаб.<br>Щелчок по свае — её эпюра материалов и зоны.<br>
+      Наведение на эпюру — значения на этой отметке: усилия, требуемое и принятое армирование, несущая способность.<br>
       Эпюры развёрнуты к наблюдателю. N: сжатие — влево (минус), растяжение — вправо.<br>
       Несущая способность (эпюра материалов) — зелёная линия по зонам каркаса типа: Mult и Qult при наименее выгодном N зоны,
       Nult сжатия и растяжения, As принятая; красные точки — усилие больше неё.</div>
@@ -113,11 +115,17 @@ const piles = P.map((p, i) => {
     new THREE.MeshLambertMaterial({ color: new THREE.Color(p.color) }));
   const base = at(p.x, p.y, (p.head + p.tip) / 2);
   mesh.position.copy(base); mesh.userData.index = i; scene.add(mesh);
+  // By default the pile is its axis (a bar of no thickness); the solid is kept for picking.
+  const axis = new THREE.Line(new THREE.BufferGeometry().setFromPoints([at(p.x, p.y, p.head), at(p.x, p.y, p.tip)]),
+    new THREE.LineBasicMaterial({ color: new THREE.Color(p.color) }));
+  scene.add(axis);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(Math.min(p.d / 2, spacing * 0.05), 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(p.color) }));
+  head.position.copy(at(p.x, p.y, p.head)); scene.add(head);
   const group = new THREE.Group(); group.position.copy(at(p.x, p.y, zc)); scene.add(group);
   const label = textSprite(p.type ? `Т${p.type}` : shortName(p.name), p.color);
   label.position.copy(at(p.x, p.y, p.head + Math.max(0.6, p.d)));
   scene.add(label);
-  return { data: p, mesh, group, label };
+  return { data: p, mesh, axis, head, group, label, shown: true };
 });
 
 function shortName(n) { return n.replace(/^EmbeddedBeam_/, '').replace(/^Beam_/, ''); }
@@ -147,7 +155,13 @@ function maxOf(q) {
   return m || 1;
 }
 
-function clear(group) { while (group.children.length) { const c = group.children.pop(); c.geometry?.dispose(); c.material?.dispose(); } }
+function clear(group) {
+  for (const c of [...group.children]) {
+    group.remove(c);
+    // The hover tick is shared: it moves from pile to pile.
+    if (c !== marker) { c.geometry?.dispose(); c.material?.dispose(); }
+  }
+}
 
 function polygon(group, pts, color, opacity) {
   const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
@@ -175,7 +189,7 @@ function rebuild() {
   for (const pile of piles) {
     clear(pile.group);
     // The diagram starts at the surface of the pile, not at its axis hidden inside.
-    const o = pile.data.d / 2 + 0.05;
+    const o = solid() ? pile.data.d / 2 + 0.05 : 0;
     const st = pile.data.stations.filter(s => q.get(s) != null).sort((a, b) => b.z - a.z);
     if (st.length < 2) continue;
     const y = s => s.z - zc;
@@ -200,6 +214,8 @@ function rebuild() {
       dots(pile.group, withCap.filter(q.over).map(s => [x(q.get(s)), y(s)]));
     }
   }
+  // The diagrams are picked for the values at the pointer.
+  piles.forEach((pile, i) => pile.group.children.forEach(c => { if (c.isMesh) c.userData.pile = i; }));
   if (selected) showDetail(selected);
 }
 
@@ -219,13 +235,19 @@ const filter = document.getElementById('typeFilter');
 filter.innerHTML = '<option value="">все сваи</option>' + DATA.types.map(t => `<option value="${t.number}">тип Т${t.number} (${t.members.length})</option>`).join('');
 filter.onchange = applyFilter;
 document.getElementById('labels').onchange = applyFilter;
+const solid = () => document.getElementById('solid').checked;
+document.getElementById('solid').onchange = () => { applyFilter(); rebuild(); };
 document.getElementById('legend').innerHTML = DATA.types.map(t => `<span data-t="${t.number}"><i style="background:${t.color}"></i>Т${t.number}</span>`).join('');
 document.querySelectorAll('#legend span').forEach(s => s.onclick = () => { filter.value = s.dataset.t; applyFilter(); });
 function applyFilter() {
   const t = filter.value, labels = document.getElementById('labels').checked;
   for (const p of piles) {
     const show = !t || String(p.data.type) === t;
-    p.mesh.visible = p.group.visible = show; p.label.visible = show && labels;
+    p.shown = show;
+    p.group.visible = show; p.label.visible = show && labels;
+    p.axis.visible = p.head.visible = show && !solid();
+    p.mesh.visible = show;
+    p.mesh.material.visible = solid();
   }
 }
 
@@ -246,10 +268,63 @@ function pick(ev) {
   const r = renderer.domElement.getBoundingClientRect();
   mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(mouse, camera);
-  const hit = raycaster.intersectObjects(piles.filter(p => p.mesh.visible).map(p => p.mesh))[0];
+  // The solid is picked also when only the axis is drawn (a thin line is hard to hit).
+  const hit = raycaster.intersectObjects(piles.filter(p => p.shown).map(p => p.mesh))[0];
   return hit ? piles[hit.object.userData.index] : null;
 }
+// Values of a pile at a level: forces interpolated between the nodes, the cage of the zone as it is.
+function valuesAt(d, z) {
+  const st = d.stations.slice().sort((a, b) => b.z - a.z);
+  let i = st.findIndex(s => s.z <= z);
+  if (i <= 0) i = i < 0 ? st.length - 1 : 0;
+  const a = st[Math.max(0, i - 1)], b = st[i];
+  const t = Math.abs(a.z - b.z) < 1e-9 ? 0 : (a.z - z) / (a.z - b.z);
+  const lerp = k => a[k] == null || b[k] == null ? (a[k] ?? b[k]) : a[k] + (b[k] - a[k]) * Math.min(1, Math.max(0, t));
+  const near = Math.abs(a.z - z) <= Math.abs(b.z - z) ? a : b;
+  // The required area belongs to the station of the search (a step), the capacity to the zone of the cage.
+  const type = DATA.types.find(t => t.number === d.type);
+  const zone = type?.zones.find(zz => z <= zz.top + 1e-6 && z >= zz.bottom - 1e-6);
+  const step = d.steps?.find(st => z <= st.top + 1e-6 && z > st.bottom + 1e-6) ?? d.steps?.[d.steps.length - 1];
+  return { z, nmin: lerp('nmin'), nmax: lerp('nmax'), m: lerp('m'), q: lerp('q'), as: step?.as ?? near.as, asw: step?.asw ?? near.asw, zone,
+           asp: zone?.as, mult: zone?.mult, qult: zone?.qult, nultc: zone?.nultc, nultt: zone?.nultt };
+}
+const marker = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0.004), new THREE.Vector3(1, 0, 0.004)]),
+  new THREE.LineBasicMaterial({ color: 0x263640 }));
+marker.visible = false;
+
+function hoverDiagram(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+  const meshes = piles.filter(p => p.shown).flatMap(p => p.group.children.filter(c => c.isMesh && c.userData.pile != null));
+  const hit = raycaster.intersectObjects(meshes)[0];
+  if (!hit) return null;
+  const pile = piles[hit.object.userData.pile];
+  const local = pile.group.worldToLocal(hit.point.clone());
+  return { pile, local, v: valuesAt(pile.data, local.y + zc) };
+}
+
 renderer.domElement.addEventListener('mousemove', ev => {
+  const h = hoverDiagram(ev);
+  if (h) {
+    // The pointer on a diagram: the values at its level.
+    const { pile, v } = h, d = pile.data;
+    const zone = v.zone;
+    let text = `${d.name}${d.type ? ' · Т' + d.type : ''} · отм. ${ru(v.z, 2)}\n`
+      + `N ${ru(v.nmin)}…${ru(v.nmax)} кН · |M| ${ru(v.m)} кН·м · |Q| ${ru(v.q)} кН`;
+    if (v.as != null) text += `\nAs треб. ${ru(v.as, 1)} см²` + (v.asw != null ? ` · Asw/sw ${ru(v.asw, 2)} см²/м` : '');
+    if (zone) text += `\nКаркас: ${zone.bars} (${ru(zone.as, 1)} см²)` + (zone.spiral ? `, спираль Ø${zone.spiral}` : '') + (zone.k != null ? ` · K ${ru(zone.k, 2)}` : '');
+    if (v.mult != null) text += `\nMult ${ru(v.mult)} кН·м` + (v.qult != null ? ` · Qult ${ru(v.qult)} кН` : '') + ` · Nult −${ru(v.nultc)} / +${ru(v.nultt)} кН`;
+    tip.textContent = text;
+    tip.style.display = 'block'; tip.style.left = ev.clientX + 14 + 'px'; tip.style.top = ev.clientY + 14 + 'px';
+    // A tick across the diagram at the level.
+    if (marker.parent !== pile.group) pile.group.add(marker);
+    const span = Math.max(1, ...pile.group.children.filter(c => c.isMesh).map(c => { c.geometry.computeBoundingBox(); return Math.max(Math.abs(c.geometry.boundingBox.max.x), Math.abs(c.geometry.boundingBox.min.x)); }));
+    marker.geometry.setFromPoints([new THREE.Vector3(-span, h.local.y, 0.004), new THREE.Vector3(span, h.local.y, 0.004)]);
+    marker.visible = true;
+    return;
+  }
+  marker.visible = false;
   const p = pick(ev);
   if (!p) { tip.style.display = 'none'; return; }
   const s = p.data.stations;

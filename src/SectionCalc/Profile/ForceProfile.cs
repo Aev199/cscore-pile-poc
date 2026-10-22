@@ -36,6 +36,8 @@ public sealed class ForceProfile
     public IReadOnlyList<PileInfo> Piles { get; init; } = [];
     public bool Is3D { get; init; }
     public bool IsGroup => Piles.Count > 1;
+    /// <summary>Element (and branch) whose envelope Nmax = 0 along all its length was taken as a phase before it was made.</summary>
+    public IReadOnlyList<string> InactiveZeroN { get; init; } = [];
     /// <summary>A wall: M has a sign (faces); a pile: the bending moment is taken by its magnitude.</summary>
     public bool IsWall { get; init; }
     public double Length => TopLevel - BottomLevel;
@@ -97,11 +99,23 @@ public sealed class ForceProfile
         double nf = f / l * width, mf = f * width;
         if (is3D) (nf, mf) = (f, f * l); // per pile: F and F·L
         static double Abs2(double a, double b) => Math.Max(Math.Abs(a), Math.Abs(b));
+        // Envelopes with Nmax = 0 along the whole element: a phase before it was made; use Nmin for both corners.
+        int nMinAt = is3D ? 3 : 2, nMaxAt = is3D ? 4 : 3;
+        var zeroN = new List<string>();
         foreach (var series in used)
         {
             int pile = pileIndex[pileOf[series.Object]];
-            foreach (var n in series.Nodes)
+            bool inactiveZero = src.IsEnvelope && s.SkipInactiveZeroN && series.Nodes.Count > 0
+                && series.Nodes.All(n => Math.Abs(n[nMaxAt]) < 1e-9) && series.Nodes.Any(n => n[nMinAt] < -1e-9);
+            if (inactiveZero)
             {
+                string name = $"{piles[pile].Name} ({p.Phases.FirstOrDefault(x => x.Id == series.Phase)?.Name})";
+                if (!zeroN.Contains(name)) zeroN.Add(name);
+            }
+            foreach (var raw in series.Nodes)
+            {
+                var n = raw;
+                if (inactiveZero) { n = (double[])raw.Clone(); n[nMaxAt] = n[nMinAt]; }
                 double level = n[zi] * l + piles[pile].Shift;
                 if (is3D && !src.IsEnvelope)
                 {
@@ -142,7 +156,7 @@ public sealed class ForceProfile
             Samples = samples, Envelope = EnvelopeOf(samples), OriginalEnvelope = original,
             TopLevel = samples.Max(x => x.Level), BottomLevel = samples.Min(x => x.Level),
             X = piles.Average(x => x.X), ElementKind = kind, ForceScale = f * width, IsEnvelope = src.IsEnvelope,
-            Piles = piles, Is3D = is3D, IsWall = scenario == ProfileScenario.Wall,
+            Piles = piles, Is3D = is3D, IsWall = scenario == ProfileScenario.Wall, InactiveZeroN = zeroN,
         };
     }
 

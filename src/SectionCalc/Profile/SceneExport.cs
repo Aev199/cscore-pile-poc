@@ -129,7 +129,7 @@ public static class SceneExport
                 };
                 if (demand is not null)
                 {
-                    int k = Nearest(demand.Stations, e.Level);
+                    int k = Containing(demand.Stations, e.Level);
                     o["as"] = R(demand.As[k] / 100, 2);
                     o["asw"] = double.IsFinite(demand.Asw[k]) ? R(demand.Asw[k], 2) : null;
                 }
@@ -155,6 +155,12 @@ public static class SceneExport
                 ["name"] = info.Name, ["x"] = R(info.X, 3), ["y"] = R(info.Y, 3), ["head"] = R(info.Head, 3), ["tip"] = R(info.Tip, 3),
                 ["type"] = type?.Number, ["color"] = type is null ? "#9aa7b0" : Hex(type.Number), ["d"] = diameter,
                 ["stations"] = stations,
+                // The intervals of the search: the required area holds over each of them.
+                ["steps"] = demand is null ? null : new JsonArray(demand.Stations.Select((st, k) => (JsonNode)new JsonObject
+                {
+                    ["top"] = R(st.Top, 3), ["bottom"] = R(st.Bottom, 3), ["as"] = R(demand.As[k] / 100, 2),
+                    ["asw"] = double.IsFinite(demand.Asw[k]) ? R(demand.Asw[k], 2) : null,
+                }).ToArray()),
             });
         }
         var types = new JsonArray((r?.Types ?? []).Select(t => (JsonNode)new JsonObject
@@ -180,6 +186,14 @@ public static class SceneExport
                 : $"СВГ {p.Section.Wall.WidthMm:0}×{p.Section.Wall.ThicknessMm:0}",
             ["piles"] = piles, ["types"] = types,
         };
+    }
+
+    /// <summary>The station whose interval holds the level (the upper one at a boundary); the nearest otherwise.</summary>
+    static int Containing(IReadOnlyList<Station> st, double level)
+    {
+        for (int i = 0; i < st.Count; i++)
+            if (level <= st[i].Top + 1e-6 && level > st[i].Bottom + 1e-6) return i;
+        return Nearest(st, level);
     }
 
     static int Nearest(IReadOnlyList<Station> st, double level)

@@ -660,4 +660,23 @@ public class ProfileTests(ITestOutputHelper output)
         }
         finally { (PileTyping.GridN, PileTyping.GridM) = (gn, gm); }
     }
+
+    [Fact]
+    public void EnvelopeZeroNmaxOfAnInactivePhaseIsLeftOut()
+    {
+        // Pile 1: the envelope of its branch includes phases before the pile was made — Nmax = 0 along all of it.
+        var e = GroupExport(envelope: true);
+        foreach (var series in e.Data.Where(d => d.Object is 0 or 1))
+            foreach (var n in series.Nodes) n[4] = 0;
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(e);
+        var f = ForceProfile.Build(p);
+        Assert.Contains(f.InactiveZeroN, x => x.StartsWith("EmbeddedBeam_1"));
+        Assert.DoesNotContain(f.Samples, x => x.Pile == 0 && x.N == 0);
+        // Switched off: the corner N = 0 with Mmax is kept.
+        p.Settings.SkipInactiveZeroN = false;
+        var g = ForceProfile.Build(p);
+        Assert.Empty(g.InactiveZeroN);
+        Assert.Contains(g.Samples, x => x.Pile == 0 && x.N == 0);
+    }
 }

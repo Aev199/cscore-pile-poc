@@ -51,6 +51,8 @@
               <ComboBox ItemsSource="{Binding ModeOptions}" SelectedIndex="{Binding ModeIndex}" HorizontalAlignment="Stretch"
                         ToolTip.Tip="Подбор — требуемая As по длине (для Revit). Проверка — сечение из режима «Сечение» (стержни, ряды, хомуты) по всей длине. Типизация (3D) — каждая свая отдельно, затем объединение в заданное число типов каркасов." />
               <StackPanel IsVisible="{Binding IsTyping}">
+                <TextBlock Classes="hint" Margin="0,0,0,6" TextWrapping="Wrap"
+                           Text="Точнее — «Усилия выбранных стадий»: N, M и Q одновременны; огибающие сочетают экстремумы разных стадий (растяжение с Mmax), в запас." />
                 <TextBlock Classes="label" Text="Число типов" />
                 <TextBox Text="{Binding TypeCount}" Width="90" HorizontalAlignment="Left"
                          ToolTip.Tip="Сваи одного типа совпадают по отметкам оголовка и низа; типов не меньше, чем таких групп. Таблицы требуемой арматуры считаются один раз — смена числа типов пересчитывает быстро." />
@@ -146,6 +148,9 @@
                 <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="kдл" /><TextBox Text="{Binding SustainedShare}" /></StackPanel>
               </Grid>
               <CheckBox IsChecked="{Binding IgnoreAxialForce}" Content="Не учитывать N (N = 0)" ToolTip.Tip="В запас при изгибе, когда N ограждения не определено" />
+              <CheckBox IsChecked="{Binding SkipInactiveZeroN}" Content="Nmax = 0 огибающей — свая ещё не устроена"
+                        ToolTip.Tip="Огибающая ветки охватывает и стадии до устройства сваи (N = 0). Если Nmax = 0 по всей длине при сжатии в Nmin, пара «N = 0 с Mmax» не учитывается — иначе изгиб без сжатия завышает армирование" />
+              <TextBlock Classes="hint" Text="{Binding ZeroNText}" TextWrapping="Wrap" IsVisible="{Binding ZeroNText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               <CheckBox IsChecked="{Binding ShearCheck}" Content="Поперечная арматура (проверка Q)" ToolTip.Tip="Подбор Asw/sw при заданном шаге и числе ветвей (свая — спираль); в проверке — проверка заданных хомутов" />
               <StackPanel IsVisible="{Binding ShearCheck}" Margin="26,0,0,0" Spacing="4">
                 <CheckBox IsChecked="{Binding ShearConfirmed}" Content="Конструктивные требования выполнены" ToolTip.Tip="Без подтверждения программа Q не проверяет" />

@@ -93,6 +93,11 @@ public sealed class ProfileSettings
     public double SustainedShare { get; set; } = 1;
     /// <summary>Axial force not taken into account (N = 0): on the safe side for bending when N is uncertain.</summary>
     public bool IgnoreAxialForce { get; set; }
+    /// <summary>
+    /// Envelopes: Nmax = 0 along the whole element with compression in Nmin is a phase of the branch before the element
+    /// was made (inactive, no force); the corner «N = 0 with Mmax» is then left out.
+    /// </summary>
+    public bool SkipInactiveZeroN { get; set; } = true;
     public List<PeakCut> PeakCuts { get; set; } = [];
     /// <summary>Upper bound of the search: bar diameter of the adopted layout, mm.</summary>
     public double MaxBarDiameterMm { get; set; } = 40;
