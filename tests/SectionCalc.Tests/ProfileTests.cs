@@ -588,4 +588,19 @@ public class ProfileTests(ITestOutputHelper output)
         }
         finally { (PileTyping.GridN, PileTyping.GridM) = (gn, gm); }
     }
+
+    [Fact]
+    public void RowsOfOneNameAreCheckedTogether()
+    {
+        // Rows of several stations of a pile share the name of the envelope corner.
+        var section = SectionProject.Example(SectionKind.Pile);
+        var rows = new List<LoadRow>
+        {
+            new() { Name = "огибающая Phase_13: Mmax, Nmin", N = -1500, Mx = 300 },
+            new() { Name = "огибающая Phase_13: Mmax, Nmin", N = -1200, Mx = 350 },
+        };
+        var (k, governing) = RequiredReinforcement.KFor(section, rows, default);
+        Assert.NotNull(k);
+        Assert.DoesNotContain("повторяются", governing ?? "");
+    }
 }

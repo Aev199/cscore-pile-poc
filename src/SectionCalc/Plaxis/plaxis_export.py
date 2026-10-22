@@ -19,6 +19,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 import threading
 import time
 
@@ -399,13 +400,7 @@ class Output:
             if phase is None:
                 # No lookup by name: read the names of the Output phases (slow in a large model), once.
                 if by_name is None:
-                    log('Output: фазы по имени недоступны — чтение списка фаз')
-                    by_name = {}
-                    for i, p in enumerate(self.phases):
-                        try:
-                            by_name[limited(lambda: name_of(p), 60, f'имя фазы Output №{i}')] = p
-                        except TimeoutError:
-                            raise ExportError(f'PLAXIS Output не отвечает на чтение фазы №{i}')
+                    by_name = self.phase_names()
                 phase = by_name.get(row.name)
             if phase is None:
                 log(f'Фаза {row.name} не найдена в Output (не рассчитана?)')
@@ -413,6 +408,41 @@ class Output:
             phases.append(phase)
             labels.append((row.name, row.title))
         self.phases, self.phase_labels = phases, labels
+
+    PHASE_CACHE = os.path.join(tempfile.gettempdir(), 'section-app-plaxis-phases.json')
+
+    def cache_key(self):
+        title = text(getattr(self.g, 'GeneralInfo', None), 'Title') if getattr(self.g, 'GeneralInfo', None) is not None else ''
+        return f'{getattr(self, "port", None)}|{len(self.phases)}|{len(self.objects)}|{title}'
+
+    def phase_names(self):
+        """
+        {name: phase} of all Output phases. Reading a name loads every property of the phase (seconds each in a large
+        3D model), so the names of an Output left open are remembered: the same Output (port, model, number of phases
+        and structures) is not read again.
+        """
+        key = self.cache_key()
+        try:
+            with open(self.PHASE_CACHE, encoding='utf-8') as f:
+                cached = json.load(f)
+            if cached.get('key') == key and len(cached.get('names', [])) == len(self.phases):
+                log('Output: имена фаз — из запомненного для этого Output')
+                return dict(zip(cached['names'], self.phases))
+        except (OSError, ValueError):
+            pass
+        log('Output: фазы по имени недоступны — чтение списка фаз')
+        names = []
+        for i, p in enumerate(self.phases):
+            try:
+                names.append(limited(lambda: name_of(p), 60, f'имя фазы Output №{i}'))
+            except TimeoutError:
+                raise ExportError(f'PLAXIS Output не отвечает на чтение фазы №{i}')
+        try:
+            with open(self.PHASE_CACHE, 'w', encoding='utf-8') as f:
+                json.dump({'key': key, 'names': names}, f, ensure_ascii=False)
+        except OSError:
+            pass
+        return dict(zip(names, self.phases))
 
     def phase_label(self, i):
         if self.phase_labels is not None:
@@ -531,6 +561,7 @@ def from_input(g_i, connector, output_port=None, per_phase=False, reuse_port=Non
                               'либо откройте Output вручную и укажите его порт.')
     if output is None:
         output = Output(connector(output_port))
+    output.port = output_port
     log(f'Output: {"3D" if output.is3d else "2D"}, конструкций {len(output.objects)}, фаз {len(output.phases)}')
     envelope = None if per_phase else envelope_from_input(output, rows, selected)
     if envelope is not None:

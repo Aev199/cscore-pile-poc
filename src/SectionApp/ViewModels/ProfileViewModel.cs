@@ -975,6 +975,12 @@ public partial class ProfileViewModel : ObservableObject
             Status = "Остановлено";
             if (lastStep is not null) Errors = $"Остановлено на шаге: {lastStep}\nЖурнал: {PlaxisBridge.LogPath}";
         }
+        catch (AggregateException ex)
+        {
+            // Parallel work: the distinct messages of the failed parts.
+            Status = "Ошибка";
+            Errors = string.Join("\n", ex.Flatten().InnerExceptions.Select(x => x.Message).Distinct());
+        }
         catch (Exception ex) { Status = "Ошибка"; Errors = ex.Message; }
         finally { IsBusy = false; cancel.Dispose(); cancel = null; }
     }

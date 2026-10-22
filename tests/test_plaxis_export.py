@@ -582,6 +582,25 @@ class Group3DTests(unittest.TestCase):
         self.assertEqual(code, 0, out.getvalue())
         self.assertIsNotNone(g_i.viewed)
 
+    def test_phase_names_of_an_open_output_are_remembered(self):
+        cache = os.path.join(tempfile.mkdtemp(), 'phases.json')
+        old = plaxis_export.Output.PHASE_CACHE
+        plaxis_export.Output.PHASE_CACHE = cache
+        try:
+            output = Fake3DOutput()            # no lookup of phases by name: the names are read
+            code, result = self.run_tree(output, self.selection())
+            self.assertEqual(code, 0, result)
+            self.assertTrue(os.path.exists(cache))
+            # The same Output again: the names come from the cache.
+            err = io.StringIO()
+            from contextlib import redirect_stderr
+            with redirect_stderr(err):
+                code, result = self.run_tree(Fake3DOutput(), self.selection())
+            self.assertEqual(code, 0, result)
+            self.assertIn('из запомненного', err.getvalue())
+        finally:
+            plaxis_export.Output.PHASE_CACHE = old
+
     def test_walls_are_not_supported_in_3d(self):
         output = Fake3DOutput()
         output.Plates = [SimpleNamespace(Name=value('Plate_1'))]

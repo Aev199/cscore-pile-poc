@@ -403,8 +403,14 @@ public static class RequiredReinforcement
     static SectionProject WithLoads(SectionProject p, IEnumerable<LoadRow> loads)
     {
         var q = Clone(p);
-        q.Loads = loads.Select(l => new LoadRow { Name = l.Name, N = l.N, Mx = l.Mx, My = l.My, Q = l.Q, LoadFactor = l.LoadFactor,
-            SustainedShare = l.SustainedShare, ShortTerm = l.ShortTerm, Seismic = l.Seismic, Special = l.Special }).ToList();
+        // The engine needs distinct names: rows of several stations or piles may share one ("огибающая …: Mmax").
+        var seen = new Dictionary<string, int>();
+        q.Loads = loads.Select(l =>
+        {
+            int n = seen[l.Name] = seen.GetValueOrDefault(l.Name) + 1;
+            return new LoadRow { Name = n == 1 ? l.Name : $"{l.Name} ({n})", N = l.N, Mx = l.Mx, My = l.My, Q = l.Q, LoadFactor = l.LoadFactor,
+                SustainedShare = l.SustainedShare, ShortTerm = l.ShortTerm, Seismic = l.Seismic, Special = l.Special };
+        }).ToList();
         return q;
     }
 }
