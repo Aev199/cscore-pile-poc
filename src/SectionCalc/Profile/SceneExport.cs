@@ -4,8 +4,11 @@ using System.Text.Json.Nodes;
 
 namespace SectionCalc.Profile;
 
-/// <summary>Ultimate moment of a zone of a type for the least favourable axial force of its piles.</summary>
-public sealed record ZoneCapacity(double N, double Mult);
+/// <summary>
+/// Capacity of a zone of a type: ultimate moment and shear for the least favourable axial force N of its piles,
+/// ultimate compression and tension; Qult is null when Q is not checked (no Q check or model not confirmed).
+/// </summary>
+public sealed record ZoneCapacity(double N, double Mult, double? Qult = null, double NultCompression = 0, double NultTension = 0);
 
 /// <summary>
 /// 3D view of the piles in a browser window (three.js inside the page, no internet needed): the piles at their
@@ -17,22 +20,27 @@ public static class SceneExport
     static double R(double v, int digits = 2) => Math.Round(v, digits);
 
     /// <summary>
-    /// Ultimate moment Mult of a section with the given axial force, kN·m: the moment at which the strength of the
-    /// normal section (without the stability factor) reaches K = 1; 0 if N alone is too much.
+    /// The largest value t of a load ray row(t) the section takes: the given checks reach K = 1 (bisection, the engine
+    /// on the coarse mesh). 0 if even t = 1 fails; NaN if the checks are not evaluated.
     /// </summary>
-    public static double Mult(SectionProject section, double n, CancellationToken cancel = default)
+    static double Limit(SectionProject section, Func<double, LoadRow> row, string[] checks, bool shear, CancellationToken cancel)
     {
-        double K(double m)
+        double K(double t)
         {
             var q = ProjectStore.Deserialize(ProjectStore.Serialize(section));
-            q.Conditions.ShearCheck = false;
+            q.Conditions.ShearCheck = shear;
             q.Conditions.CoarseMesh = true;
-            q.Loads = [new LoadRow { Name = "Mult", N = n, Mx = m }];
-            return Engine.Check(q, cancel).Rows.Where(x => x.CheckId == "normal_strength").Select(x => x.Utilization ?? double.NaN).DefaultIfEmpty(double.NaN).Max();
+            var r = row(t);
+            r.Name = "предел";
+            q.Loads = [r];
+            return Engine.Check(q, cancel).Rows.Where(x => checks.Contains(x.CheckId) && x.Utilization is not null)
+                .Select(x => x.Utilization!.Value).DefaultIfEmpty(double.NaN).Max();
         }
-        if (!(K(1) <= 1)) return 0;
+        double first = K(1);
+        if (double.IsNaN(first)) return double.NaN;
+        if (first > 1) return 0;
         double lo = 1, hi = 400;
-        while (K(hi) <= 1 && hi < 1e5) { lo = hi; hi *= 2; }
+        while (K(hi) <= 1 && hi < 1e6) { lo = hi; hi *= 2; }
         for (int i = 0; i < 8; i++)
         {
             double mid = (lo + hi) / 2;
@@ -40,6 +48,26 @@ public static class SceneExport
         }
         return lo;
     }
+
+    /// <summary>
+    /// Ultimate moment Mult of a section with the given axial force, kN·m: the strength of the normal section (without
+    /// the stability factor) reaches K = 1.
+    /// </summary>
+    public static double Mult(SectionProject section, double n, CancellationToken cancel = default) =>
+        Limit(section, m => new LoadRow { N = n, Mx = m }, ["normal_strength"], false, cancel);
+
+    /// <summary>Ultimate shear of the inclined section and strip with the given N, kN; null if Q is not checked.</summary>
+    public static double? Qult(SectionProject section, double n, CancellationToken cancel = default)
+    {
+        if (!section.Conditions.ShearCheck) return null;
+        double q = Limit(section, v => new LoadRow { N = n, Q = v }, ["shear_inclined", "shear_strip"], true, cancel);
+        return double.IsNaN(q) ? null : q;
+    }
+
+    /// <summary>Ultimate axial compression and tension (with the accidental eccentricity of the engine), kN.</summary>
+    public static (double Compression, double Tension) Nult(SectionProject section, CancellationToken cancel = default) =>
+        (Limit(section, c => new LoadRow { N = -c }, ["normal_strength"], false, cancel),
+         Limit(section, t => new LoadRow { N = t }, ["normal_strength"], false, cancel));
 
     /// <summary>Mult of every zone of every type: N is the least compression (or the largest tension) of its piles in the zone.</summary>
     public static Dictionary<(int Type, int Zone), ZoneCapacity> Capacities(TypingResult r, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default)
@@ -57,7 +85,8 @@ public static class SceneExport
             section.Conditions.ElementLengthM = w.Type.Head - w.Type.Tip;
             section.Pile.BarCount = w.Zone.Bars.Count; section.Pile.BarDiameterMm = w.Zone.Bars.DiameterMm;
             if (w.Zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
-            result[(w.Type.Number, w.Index)] = new ZoneCapacity(n, Mult(section, n, cancel));
+            var (nc, nt) = Nult(section, cancel);
+            result[(w.Type.Number, w.Index)] = new ZoneCapacity(n, Mult(section, n, cancel), Qult(section, n, cancel), nc, nt);
             progress?.Report((Interlocked.Increment(ref done), work.Count));
         });
         return new Dictionary<(int, int), ZoneCapacity>(result);
@@ -110,7 +139,13 @@ public static class SceneExport
                     if (zi >= 0)
                     {
                         o["asp"] = R(type.Zones[zi].Bars.AreaMm2 / 100, 2);
-                        if (capacities?.TryGetValue((type.Number, zi), out var cap) == true) o["mult"] = R(cap.Mult, 1);
+                        if (capacities?.TryGetValue((type.Number, zi), out var cap) == true)
+                        {
+                            o["mult"] = R(cap.Mult, 1);
+                            o["qult"] = cap.Qult is double qu ? R(qu, 1) : null;
+                            o["nultc"] = R(cap.NultCompression, 0);
+                            o["nultt"] = R(cap.NultTension, 0);
+                        }
                     }
                 }
                 stations.Add(o);
@@ -132,6 +167,9 @@ public static class SceneExport
                 ["spiral"] = z.SpiralMm, ["k"] = z.K is double k ? R(k, 3) : null, ["governing"] = z.Governing,
                 ["mult"] = capacities?.TryGetValue((t.Number, i), out var c) == true ? R(c.Mult, 1) : null,
                 ["n"] = capacities?.TryGetValue((t.Number, i), out var c2) == true ? R(c2.N, 1) : null,
+                ["qult"] = capacities?.TryGetValue((t.Number, i), out var c3) == true && c3.Qult is double qz ? R(qz, 1) : null,
+                ["nultc"] = capacities?.TryGetValue((t.Number, i), out var c4) == true ? R(c4.NultCompression, 0) : null,
+                ["nultt"] = capacities?.TryGetValue((t.Number, i), out var c5) == true ? R(c5.NultTension, 0) : null,
             }).ToArray()),
         }).ToArray());
         return new JsonObject

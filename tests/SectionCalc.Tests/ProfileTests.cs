@@ -626,6 +626,16 @@ public class ProfileTests(ITestOutputHelper output)
         double large = SceneExport.Mult(section, -1000);
         output.WriteLine($"Mult 12Ø20 {small:0}, 12Ø32 {large:0} kN·m");
         Assert.True(small > 100 && large > small * 1.5);
+        // Qult grows with the spiral; none without the Q check.
+        Assert.Null(SceneExport.Qult(section, -1000));
+        section.Conditions.ShearCheck = true; section.Conditions.ShearModelConfirmed = true;
+        section.Pile.SpiralDiameterMm = 8;
+        double q8 = SceneExport.Qult(section, -1000)!.Value;
+        section.Pile.SpiralDiameterMm = 16;
+        double q16 = SceneExport.Qult(section, -1000)!.Value;
+        output.WriteLine($"Qult spiral Ø8 {q8:0}, Ø16 {q16:0} kN");
+        Assert.True(q16 > q8 && q8 > 100);
+        section.Conditions.ShearCheck = false;
 
         var (gn, gm) = (PileTyping.GridN, PileTyping.GridM);
         (PileTyping.GridN, PileTyping.GridM) = (3, 4);
@@ -637,6 +647,11 @@ public class ProfileTests(ITestOutputHelper output)
             var data = SceneExport.Data(p, typing, caps);
             var station = data["piles"]![0]!["stations"]![0]!;
             Assert.NotNull(station["as"]); Assert.NotNull(station["asp"]); Assert.NotNull(station["mult"]);
+            Assert.NotNull(station["nultc"]); Assert.NotNull(station["nultt"]);
+            // No Q check in the example section: no Qult.
+            Assert.Null(station["qult"]);
+            var cap = caps.Values.First();
+            Assert.True(cap.NultCompression > 5000 && cap.NultTension > 500, $"{cap.NultCompression} {cap.NultTension}");
             Assert.NotNull(data["types"]![0]!["zones"]![0]!["mult"]);
             string html = SceneExport.Html(data);
             Assert.DoesNotContain("/*DATA*/", html);
