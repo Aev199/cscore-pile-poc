@@ -63,7 +63,7 @@ def prepare_request(section: str, reference: dict) -> dict:
         "short_materials": SERVICE_PARAMS.copy(),
         "long_materials": SERVICE_PARAMS.copy(),
         "phi2": 0.5,
-        "preliminary_method": "arbat_conservative",
+        "preliminary_method": "native_refined",
         "review_band": 0.03,
         "acrc_ult_long_mm": 0.3,
         "acrc_ult_short_mm": 0.4,

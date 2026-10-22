@@ -1,0 +1,20 @@
+{
+  "source": "Independent ARBAT 21.1.9.3 RTF/SAV versus CScore experimental",
+  "coverage": {
+    "total": 70,
+    "arbat_printed": 27,
+    "cscore_numeric": 62,
+    "preliminarily_comparable": 9,
+    "classes": {
+      "ARBAT_NOT_REPORTED": 43,
+      "GEOMETRY_UNVERIFIED": 14,
+      "N_LONG_NOT_MATCHED_T10": 3,
+      "PRELIMINARILY_COMPARABLE": 9,
+      "SHORT_ONLY_RECONSTRUCTION_UNVERIFIED": 1
+    }
+  },
+  "comparable_long_mape_percent": 4.9293615798177,
+  "comparable_short_mape_percent": 3.985966542221263,
+  "methodology": "Percent deviations are only research diagnostics; geometry axes must be independently verified. Native method remains unchanged.",
+  "not_design_approved": true
+}

@@ -141,10 +141,10 @@ class WallTests(unittest.TestCase):
                 'sls_gate':'calculated_uls_pass','sls_probe':[{
                     'id':'S1','status':'research_calculated','error':None,
                     'verified_for_design':False,'preliminary_is_final_approval':False,
-                    'preliminary_method':'arbat_conservative',
+                    'preliminary_method':req['sls_probe']['preliminary_method'],'preliminary_basis':'native_refined_postcrack',
                     'preliminary_decision':'preliminary_below_limit',
-                    'preliminary_utilization_long':.6,'utilization_long':.5,
-                    'preliminary_utilization_short':.7,'utilization_short':.6,
+                    'preliminary_utilization_long':.6,'utilization_long':.6,
+                    'preliminary_utilization_short':.7,'utilization_short':.7,
                     'preliminary_governing_utilization':.7}]}]}
         result=w.calculate(d,engine)
         chosen='3c_neg5d25_pos5d25'

@@ -1,0 +1,3 @@
+# Preserve patch bytes for the pinned SHA-256 on Windows as well as Linux.
+# Unified-diff context lines legitimately contain a single space.
+patches/*.patch -text whitespace=-blank-at-eol

@@ -1,0 +1,181 @@
+diff --git a/CScore.Tests/Sp63Shear/PhiNAmendment2Tests.cs b/CScore.Tests/Sp63Shear/PhiNAmendment2Tests.cs
+new file mode 100644
+index 00000000..8f790043
+--- /dev/null
++++ b/CScore.Tests/Sp63Shear/PhiNAmendment2Tests.cs
+@@ -0,0 +1,42 @@
++using CScore.Sp63Shear;
++using Xunit;
++
++namespace CScore.Tests.Sp63Shear;
++
++public class PhiNAmendment2Tests
++{
++    // Independent values from SP63.13330.2018 amendment 2, 8.1.34.
++    [Theory]
++    [InlineData(0, 1)]
++    [InlineData(-100, 1.1)]
++    [InlineData(-250, 1.25)]
++    [InlineData(-250.001, 1.25)]
++    [InlineData(-500, 1.25)]
++    [InlineData(-500.001, 1.2499975)]
++    [InlineData(-750, .625)]
++    [InlineData(-900, .25)]
++    [InlineData(-1000, 0)]
++    [InlineData(-1100, 0)]
++    [InlineData(50, .75)]
++    [InlineData(100, .5)]
++    [InlineData(200, 0)]
++    [InlineData(300, 0)]
++    public void CoefficientMatchesNormativeBranches(double n, double expected)
++    {
++        var g = new InclinedSectionGeometry(1,1,0,0,1000,100,1,0,
++            30000000,.002,.0001,ShearPlane.Vy,true,[]);
++        var actual = PhiNCalculator.Compute(ElementKind.Other,n,g);
++        Assert.Equal(expected, actual.Value, 10);
++        Assert.Equal(n<0,actual.AppliesToStrip);
++    }
++
++    [Theory]
++    [InlineData(.4)]
++    [InlineData(1.25)]
++    public void SimplifiedStirrupTermDoesNotReceiveConcretePhiN(double phi)
++    {
++        var input = new ShearInclinedInput(.3,.55,14500,1050,200,.15,435,
++            ElementKind.Other,1,0,0,0,[],false,null);
++        Assert.Equal(55,ShearFormulas.MinStirrupShear(input,.275,out _,200,phi),10);
++    }
++}
+diff --git a/CScore.Tests/Sp63Shear/PhiNCalculatorTests.cs b/CScore.Tests/Sp63Shear/PhiNCalculatorTests.cs
+index 5466edd0..af068af8 100644
+--- a/CScore.Tests/Sp63Shear/PhiNCalculatorTests.cs
++++ b/CScore.Tests/Sp63Shear/PhiNCalculatorTests.cs
+@@ -19,14 +19,13 @@ public sealed class PhiNCalculatorTests
+     [Fact]
+     public void Compute_CompressionForOtherElement_UsesNormativeReducedArea()
+     {
+-        // Сила подобрана так, чтобы отсечка 2,25 не срабатывала и проверялась сама формула:
+-        // при N = 800 кН φn = 2,559 и результат определялся бы отсечкой.
++        // First normative branch: sigma/Rb < 0.25.
+         var geometry = Geometry();
+-        var result = PhiNCalculator.Compute(ElementKind.Other, -300.0, geometry);
++        var result = PhiNCalculator.Compute(ElementKind.Other, -100.0, geometry);
+ 
+         double nuB = geometry.Rb / (geometry.Eb0 * geometry.Eb);
+         double aRed = geometry.Ab + geometry.Es / geometry.Eb / nuB * geometry.AsTotal;
+-        double expected = 1.0 + 300.0 / aRed / geometry.Rb;
++        double expected = 1.0 + 100.0 / aRed / geometry.Rb;
+ 
+         Assert.True(expected < PhiNCalculator.MaxCompression);
+         Assert.Equal(expected, result.Value, 9);
+@@ -34,11 +33,11 @@ public sealed class PhiNCalculatorTests
+     }
+ 
+     [Fact]
+-    public void Compute_LargeCompression_IsCappedAt225()
++    public void Compute_LargeCompression_DescendingBranchReachesZero()
+     {
+         var result = PhiNCalculator.Compute(ElementKind.Other, -100_000.0, Geometry());
+ 
+-        Assert.Equal(2.25, result.Value, 12);
++        Assert.Equal(0.0, result.Value, 12);
+     }
+ 
+     [Fact]
+diff --git a/CScore.Tests/Sp63Shear/ShearFormulasTests.cs b/CScore.Tests/Sp63Shear/ShearFormulasTests.cs
+index d9176c8e..5b875778 100644
+--- a/CScore.Tests/Sp63Shear/ShearFormulasTests.cs
++++ b/CScore.Tests/Sp63Shear/ShearFormulasTests.cs
+@@ -179,12 +179,12 @@ public sealed class ShearFormulasTests
+     }
+ 
+     [Fact]
+-    public void MinStirrupShear_AppliesPhiNToWholeRightSideOf861()
++    public void MinStirrupShear_DoesNotApplyPhiNTo862()
+     {
+         double value = ShearFormulas.MinStirrupShear(
+             Input(), supportDistance: 2.0, out _, appliedShear: 150.0, phiN: 1.4);
+ 
+-        Assert.Equal(1.4 * 200.0 * H0, value, 6);
++        Assert.Equal(200.0 * H0, value, 6);
+     }
+ 
+     [Fact]
+diff --git a/CScore.Tests/Sp63Shear/ShearInclinedCheckerTests.cs b/CScore.Tests/Sp63Shear/ShearInclinedCheckerTests.cs
+index da261d61..34c0408c 100644
+--- a/CScore.Tests/Sp63Shear/ShearInclinedCheckerTests.cs
++++ b/CScore.Tests/Sp63Shear/ShearInclinedCheckerTests.cs
+@@ -88,14 +88,18 @@ public sealed class ShearInclinedCheckerTests
+     }
+ 
+     [Fact]
+-    public void Check_TensionPhiNNonPositive_GivesInfiniteUtilization()
++    public void Check_TensionZeroConcretePhiN_PreservesStirrupResistance()
+     {
+         var input = Input() with { Kind = ElementKind.Other };
+         var profile = new ConstantProfile(q: 150.0, m: 0.0, n: 500_000.0, supportDistance: 0.0);
+ 
+         var result = ShearInclinedChecker.Check(input, profile, Geometry(), direction: -1);
+ 
+-        Assert.True(double.IsPositiveInfinity(result.Utilization));
++        var station = Assert.Single(result.Stations);
++        Assert.Equal(0.0,station.PhiN,12);
++        Assert.Equal(0.0,station.Qb,12);
++        Assert.True(station.Qsw>0);
++        Assert.Equal(station.Q/station.Qsw,station.Eta,10);
+     }
+ 
+     [Fact]
+diff --git a/CScore/Sp63Shear/PhiNCalculator.cs b/CScore/Sp63Shear/PhiNCalculator.cs
+index d2c5217e..61a88cac 100644
+--- a/CScore/Sp63Shear/PhiNCalculator.cs
++++ b/CScore/Sp63Shear/PhiNCalculator.cs
+@@ -13,7 +13,7 @@ public readonly record struct PhiNResult(double Value, bool AppliesToStrip, stri
+ public static class PhiNCalculator
+ {
+     /// <summary>Предельное значение φn при сжатии.</summary>
+-    public const double MaxCompression = 2.25;
++    public const double MaxCompression = 1.25;
+ 
+     /// <summary>Вычисляет φn для заданных типа элемента и продольной силы (сжатие — «минус»).</summary>
+     public static PhiNResult Compute(ElementKind kind, double n, InclinedSectionGeometry geometry)
+@@ -40,14 +40,20 @@ public static class PhiNCalculator
+ 
+         if (compression)
+         {
+-            double value = Math.Min(1.0 + sigma / geometry.Rb, MaxCompression);
++            double relative = sigma / geometry.Rb;
++            // SP 63.13330.2018, amendment 2: transitions at 0.25 and 0.5 Rb.
++            double value = relative <= 0.25 ? 1.0 + relative
++                : relative <= 0.5 ? MaxCompression
++                : Math.Max(2.5 * (1.0 - relative), 0.0);
+             return new PhiNResult(value, true,
+-                $"φn = 1 + σcp/Rb = {value:F3} по п. 8.1.34 (сжатие, σcp = {sigma:F1} кПа).");
++                $"φn = {value:F3} по п. 8.1.34 СП 63.13330.2018, изм. №2 "
++                + $"(сжатие, σcp/Rb = {relative:F4}; ветви 0,25/0,5 Rb).");
+         }
+ 
+-        double tensionValue = 1.0 - sigma / geometry.Rbt;
++        double tensionValue = Math.Max(1.0 - 0.5 * sigma / geometry.Rbt, 0.0);
+         return new PhiNResult(tensionValue, false,
+-            $"φn = 1 − σtp/Rbt = {tensionValue:F3} по п. 8.1.34 (растяжение, σtp = {sigma:F1} кПа); "
++            $"φn = max(1 − 0,5·σtp/Rbt, 0) = {tensionValue:F3} по п. 8.1.34 "
++            + $"СП 63.13330.2018, изм. №2 (растяжение, σtp = {sigma:F1} кПа); "
+             + "к условию (8.55) не применяется.");
+     }
+ }
+diff --git a/CScore/Sp63Shear/ShearFormulas.cs b/CScore/Sp63Shear/ShearFormulas.cs
+index 32931e9a..761e26a1 100644
+--- a/CScore/Sp63Shear/ShearFormulas.cs
++++ b/CScore/Sp63Shear/ShearFormulas.cs
+@@ -124,7 +124,9 @@ public static class ShearFormulas
+         double value = input.Qsw * input.H0;
+         if (supportDistance > 0.0 && supportDistance < input.H0)
+             value *= supportDistance / input.H0;
+-        return phiN * value;
++        // Amendment 2 applies phiN to concrete (8.61), not stirrups (8.62).
++        // Keep the optional argument for source compatibility.
++        return value;
+     }
+ 
+     /// <summary>Проверяет ограничение шага хомутов из п. 8.1.33 для заданной Q.</summary>

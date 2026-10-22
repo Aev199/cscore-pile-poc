@@ -35,7 +35,7 @@ def scaled_loads(rows, width_m, sls=False):
         raise InputError('loads: требуется 1–1000 сочетаний')
     result, seen = [], set()
     for row in rows:
-        exact_keys(row, {'id', *mapping}, 'loads')
+        exact_keys(row, {'id', *mapping, 'n_long_kn_per_m'} if sls else {'id', *mapping, 'q_kn_per_m'}, 'loads')
         name = row.get('id')
         if not isinstance(name, str) or not name.strip() or name in seen:
             raise InputError('loads: пустой или повторный ID')
@@ -44,6 +44,10 @@ def scaled_loads(rows, width_m, sls=False):
         for key, dest in mapping.items():
             converted[dest] = finite_number(row.get(key), key) * width_m
             finite_number(converted[dest], dest)
+        if sls and row.get('n_long_kn_per_m') is not None:
+            converted['n_long_kn'] = finite_number(row['n_long_kn_per_m'], 'n_long_kn_per_m') * width_m
+        if not sls and 'q_kn_per_m' in row:
+            converted['q_kn'] = finite_number(row['q_kn_per_m'], 'q_kn_per_m') * width_m
         converted.update({'my_total_knm': 0, 'my_long_knm': 0} if sls else {'my_knm': 0})
         result.append(converted)
     return result
@@ -51,7 +55,7 @@ def scaled_loads(rows, width_m, sls=False):
 
 def validate_input(data):
     exact_keys(data, {'schema_version','wall','search','materials','loads','sls_probe',
-                      'force_basis','eccentricity'}, 'input')
+                      'force_basis','eccentricity','transverse'}, 'input')
     if type(data.get('schema_version')) is not int or data['schema_version'] != 1:
         raise InputError('schema_version должен быть 1')
     wall = data.get('wall')
@@ -103,6 +107,22 @@ def validate_input(data):
     if data.get('force_basis') not in (expected, {'uls':'design','sls':'normative'}):
         raise InputError('force_basis: ULS design, SLS normative')
     scaled_loads(data.get('loads'), wall['panel_width_mm']/1000)
+    transverse = data.get('transverse')
+    if transverse is not None:
+        exact_keys(transverse, {'mode','diameter_mm','spacing_mm','effective_legs_per_cage',
+                                'rsw_kpa','constructive_confirmed'}, 'transverse')
+        if transverse.get('mode') not in ('off', 'screen'):
+            raise InputError('transverse.mode: off либо screen')
+        if transverse['mode'] == 'screen':
+            for key in ('diameter_mm','spacing_mm','rsw_kpa'):
+                positive(transverse.get(key), key)
+            integer(transverse.get('effective_legs_per_cage'), 1, 30, 'Рабочих ветвей в каркасе')
+            if transverse['rsw_kpa'] > 300000:
+                raise InputError('Rsw выше 300 МПа: проверьте расчётное сопротивление поперечной арматуры')
+            if type(transverse.get('constructive_confirmed')) is not bool:
+                raise InputError('Подтверждение конструктивных требований 10.3 должно быть логическим')
+            if any('q_kn_per_m' not in load for load in data['loads']):
+                raise InputError('При расчёте Q требуется q_kn_per_m в каждом ULS сочетании')
     if 'sls_probe' in data:
         if not isinstance(data['sls_probe'],dict): raise InputError('sls_probe должен быть объектом')
         probe = copy.deepcopy(data['sls_probe'])
@@ -178,6 +198,17 @@ def build_engine_request(data, candidate):
                    'id','bar_count','bar_diameter_mm','rotation_deg',
                    'bar_axis_radius_mm','steel_area_mm2','clearance_mm')}],
                'sls_execution_policy':'uls_pass_only'}
+    transverse = data.get('transverse')
+    if transverse and transverse['mode'] == 'screen':
+        request['shear_screening'] = {
+            'enabled': True,
+            'diameter_mm': transverse['diameter_mm'],
+            'spacing_mm': transverse['spacing_mm'],
+            'effective_legs_per_cage': transverse['effective_legs_per_cage'],
+            'cage_count': wall['cage_count'],
+            'rsw_kpa': transverse['rsw_kpa'],
+            'constructive_confirmed': transverse['constructive_confirmed']
+        }
     if 'sls_probe' in data:
         request['sls_probe'] = copy.deepcopy(data['sls_probe'])
         request['sls_probe']['loads'] = scaled_loads(data['sls_probe']['loads'],width/1000,True)
@@ -217,9 +248,11 @@ def calculate(data, engine):
             'selected_uls_candidate':passes[0]['id'] if passes and can_select else None,
             'selected_preliminary_uls_sls_research_candidate':prelim[0]['id'] if prelim and can_select else None,
             'cases':calculated, 'rejected_geometry':rejected,
+            'shear_scope':'local_constant_profile_research_screen_only' if data.get('transverse',{}).get('mode')=='screen' else 'not_evaluated',
             'design_status':'NOT_VERIFIED',
             'limitations':['SLS experimental; no local crack checks between cages',
-                           'No shear, anchorage, stability or full code detailing checks']}
+                           'Shear screening is local only, not a complete inclined-section check',
+                           'No verified shear, anchorage, stability or full code detailing checks']}
 
 
 def read_json(path):

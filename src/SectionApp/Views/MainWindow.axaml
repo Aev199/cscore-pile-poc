@@ -1,0 +1,402 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SectionApp.ViewModels"
+        xmlns:views="using:SectionApp.Views"
+        x:Class="SectionApp.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Сечения БНС и СВГ"
+        Icon="avares://SectionApp/Assets/app.ico"
+        Width="1440" Height="900" MinWidth="1180" MinHeight="720"
+        WindowStartupLocation="CenterScreen">
+  <DockPanel>
+    <!-- Title bar (.titlebar) -->
+    <Border DockPanel.Dock="Top" Height="44" Background="{StaticResource GbTitlebarBg}" BorderBrush="#1D2930" BorderThickness="0,0,0,1" Padding="22,0">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" VerticalAlignment="Center">
+        <TextBlock Text="Сечения БНС и СВГ" Foreground="#F4F7F8" FontSize="15" FontWeight="Bold" />
+        <Border Grid.Column="1" Width="1" Height="17" Background="#62727B" Margin="11,0" />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+          <Button Classes="mode" Classes.active="{Binding IsSectionMode}" Content="Сечение" Command="{Binding ShowSectionCommand}" />
+          <Button Classes="mode" Classes.active="{Binding IsProfileMode}" Content="Эпюры PLAXIS" Command="{Binding ShowProfileCommand}" />
+        </StackPanel>
+        <TextBlock Grid.Column="4" Text="СП 63.13330.2018" Foreground="#AEBBC0" FontSize="10.5" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <Panel>
+    <Panel IsVisible="{Binding IsProfileMode}">
+      <views:ProfileView DataContext="{Binding Profile}" />
+    </Panel>
+    <DockPanel IsVisible="{Binding IsSectionMode}">
+    <!-- Command panel (.command-panel) -->
+    <Border DockPanel.Dock="Top" Classes="card" Margin="12,12,12,0" Padding="16,10">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto">
+        <StackPanel Orientation="Horizontal">
+          <Button Classes="seg first" Classes.selected="{Binding IsPile}" Command="{Binding SetPileCommand}" Content="БНС · круглое" />
+          <Button Classes="seg last" Classes.selected="{Binding IsWall}" Command="{Binding SetWallCommand}" Content="СВГ · прямоугольное" />
+        </StackPanel>
+        <TextBox Grid.Column="1" Text="{Binding Title}" Width="250" Margin="18,0,0,0" Watermark="Название расчёта" />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0">
+          <Button Content="Новый" Command="{Binding NewCommand}" />
+          <Button Content="Открыть…" Command="{Binding OpenCommand}" />
+          <Button Content="Сохранить…" Command="{Binding SaveCommand}" />
+        </StackPanel>
+        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="9" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0">
+          <ProgressBar Width="150" Value="{Binding Progress}" IsVisible="{Binding ShowProgress}" IsIndeterminate="{Binding !Progress}" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{StaticResource GbMuted}" VerticalAlignment="Center" MaxWidth="360" TextTrimming="CharacterEllipsis" />
+          <Button Classes="small" Content="Остановить" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
+        </StackPanel>
+        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6">
+          <Button Classes="primary" Content="Проверить" Command="{Binding CheckCommand}" HotKey="F5" ToolTip.Tip="F5" />
+          <Button Content="Подобрать армирование" Command="{Binding SelectCommand}" />
+          <Button Classes="apply" Content="Отчёт Word…" Command="{Binding ExportReportCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border DockPanel.Dock="Top" Classes="notice bad" Margin="12,8,12,0" IsVisible="{Binding HasInputErrors}">
+      <TextBlock Text="{Binding InputErrors}" TextWrapping="Wrap" FontSize="11.5" />
+    </Border>
+
+    <Grid ColumnDefinitions="392,*,312" Margin="12">
+      <!-- Inputs: ARBAT-like tabs -->
+      <Border Grid.Column="0" Classes="card" Padding="0" Margin="0,0,12,0">
+        <TabControl Classes="inputs" SelectedIndex="{Binding InputTab}" Margin="10,2,10,0">
+          <TabItem Header="Сечение">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="12" Margin="4,10,4,14">
+                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto" IsVisible="{Binding IsPile}">
+                  <StackPanel><TextBlock Classes="label" Text="Диаметр D, мм" /><TextBox Text="{Binding PileDiameter}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding PileCover}" /></StackPanel>
+                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Число стержней" /><TextBox Text="{Binding PileBarCount}" /></StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø стержней, мм" /><TextBox Text="{Binding PileBarDiameter}" /></StackPanel>
+                  <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Ø навивки, мм" /><TextBox Text="{Binding PileSpiral}" /></StackPanel>
+                  <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsVisible="{Binding IsWall}">
+                  <StackPanel><TextBlock Classes="label" Text="Ширина b, мм" /><TextBox Text="{Binding WallWidth}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Толщина h, мм" /><TextBox Text="{Binding WallThickness}" /></StackPanel>
+                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Защитный слой, мм" /><TextBox Text="{Binding WallCover}" /></StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="Ø хомута, мм" /><TextBox Text="{Binding WallStirrup}" /></StackPanel>
+                  <StackPanel Grid.Row="4"><TextBlock Classes="label" Text="Грань «+»: стержней в ряду" /><TextBox Text="{Binding PositiveCount}" /></StackPanel>
+                  <StackPanel Grid.Row="4" Grid.Column="2"><TextBlock Classes="label" Text="Грань «+»: Ø, мм" /><TextBox Text="{Binding PositiveDiameter}" /></StackPanel>
+                  <StackPanel Grid.Row="6"><TextBlock Classes="label" Text="Грань «−»: стержней в ряду" /><TextBox Text="{Binding NegativeCount}" /></StackPanel>
+                  <StackPanel Grid.Row="6" Grid.Column="2"><TextBlock Classes="label" Text="Грань «−»: Ø, мм" /><TextBox Text="{Binding NegativeDiameter}" /></StackPanel>
+                  <StackPanel Grid.Row="8"><TextBlock Classes="label" Text="Рядов: грань «+»" /><TextBox Text="{Binding PositiveRows}" ToolTip.Tip="1–3 ряда" /></StackPanel>
+                  <StackPanel Grid.Row="8" Grid.Column="2"><TextBlock Classes="label" Text="Рядов: грань «−»" /><TextBox Text="{Binding NegativeRows}" ToolTip.Tip="1–3 ряда" /></StackPanel>
+                  <StackPanel Grid.Row="10"><TextBlock Classes="label" Text="Зазор между рядами, мм" /><TextBox Text="{Binding RowGap}" ToolTip.Tip="В свету" /></StackPanel>
+                  <StackPanel Grid.Row="10" Grid.Column="2"><TextBlock Classes="label" Text="Мин. просвет, мм" /><TextBox Text="{Binding MinClearSpacing}" /></StackPanel>
+                </Grid>
+                <StackPanel>
+                  <TextBlock Classes="label" Text="Защитный слой отсчитывается" />
+                  <ComboBox ItemsSource="{Binding CoverReferenceOptions}" SelectedIndex="{Binding CoverReferenceIndex}" />
+                  <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding AxisText}" />
+                </StackPanel>
+                <Border Classes="divider" />
+                <CheckBox IsChecked="{Binding ShearCheck}" FontWeight="Medium" Content="Проверять поперечную силу Q" />
+                <StackPanel Spacing="8" IsVisible="{Binding ShearCheck}">
+                  <Grid ColumnDefinitions="*,12,*">
+                    <StackPanel><TextBlock Classes="label" Text="Шаг, мм" /><TextBox Text="{Binding ShearPitch}" ToolTip.Tip="Шаг хомутов или полный шаг витка навивки" /></StackPanel>
+                    <StackPanel Grid.Column="2" IsVisible="{Binding IsWall}"><TextBlock Classes="label" Text="Рабочих ветвей" /><TextBox Text="{Binding StirrupLegs}" /></StackPanel>
+                    <StackPanel Grid.Column="2" IsVisible="{Binding IsPile}"><TextBlock Classes="label" Text="a для h0, мм" /><TextBox Text="{Binding PileShearA}" ToolTip.Tip="От грани приведённого сечения до центра растянутых стержней: b = 0,885D, h0 = b − a. Не шаг спирали." /></StackPanel>
+                  </Grid>
+                  <CheckBox IsChecked="{Binding ShearConfirmed}" Content="Конструктивные требования выполнены" />
+                  <CheckBox IsChecked="{Binding InclinedMoment}" Content="Момент в наклонном сечении (8.63)" />
+                  <Grid ColumnDefinitions="*,8,*,8,*" IsVisible="{Binding InclinedMoment}">
+                    <StackPanel><TextBlock Classes="label" Text="k анкеровки" /><TextBox Text="{Binding AnchorageFactor}" /></StackPanel>
+                    <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="До опоры ↓, м" /><TextBox Text="{Binding SupportDown}" /></StackPanel>
+                    <StackPanel Grid.Column="4"><TextBlock Classes="label" Text="До опоры ↑, м" /><TextBox Text="{Binding SupportUp}" /></StackPanel>
+                  </Grid>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Материалы">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="10" Margin="4,10,4,14">
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="label" Text="Бетон (тяжёлый)" /><ComboBox ItemsSource="{Binding ConcreteClasses}" SelectedItem="{Binding ConcreteClass}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="Коэф. упрочнения (к Eb)" /><TextBox Text="{Binding Hardening}" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="label" Text="Коэффициенты условий работы бетона" />
+                <Grid ColumnDefinitions="*,8,*,8,*,8,*">
+                  <StackPanel><TextBlock Classes="hint" Text="γb1" /><TextBox Text="{Binding Gb1}" ToolTip.Tip="В кратковременных сочетаниях γb1 = 1" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="γb2" /><TextBox Text="{Binding Gb2}" /></StackPanel>
+                  <StackPanel Grid.Column="4"><TextBlock Classes="hint" Text="γb3" /><TextBox Text="{Binding Gb3}" ToolTip.Tip="Бетонирование в вертикальном положении: 0,85" /></StackPanel>
+                  <StackPanel Grid.Column="6"><TextBlock Classes="hint" Text="γb5" /><TextBox Text="{Binding Gb5}" /></StackPanel>
+                </Grid>
+                <Border Classes="divider" />
+                <Grid ColumnDefinitions="*,12,*" RowDefinitions="Auto,8,Auto">
+                  <StackPanel><TextBlock Classes="label" Text="Продольная арматура" /><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding RebarClass}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="γs продольной" /><TextBox Text="{Binding GammaS}" /></StackPanel>
+                  <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Поперечная арматура" /><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding TransverseClass}" /></StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="γs поперечной" /><TextBox Text="{Binding GammaSw}" /></StackPanel>
+                </Grid>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Расчёт">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8" Margin="4,10,4,14">
+                <Grid ColumnDefinitions="*,8,*,8,*">
+                  <StackPanel><TextBlock Classes="label" Text="Длина L, м" /><TextBox Text="{Binding ElementLength}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="μ в пл. Mx" /><TextBox Text="{Binding MuX}" ToolTip.Tip="Плоскость XoZ" /></StackPanel>
+                  <StackPanel Grid.Column="4"><TextBlock Classes="label" Text="μ в пл. My" /><TextBox Text="{Binding MuY}" ToolTip.Tip="Плоскость XoY" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="hint" Text="{Binding L0Text}" />
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="label" Text="Предельная гибкость" /><TextBox Text="{Binding SlendernessLimit}" /></StackPanel>
+                  <CheckBox Grid.Column="2" VerticalAlignment="Bottom" IsChecked="{Binding StaticallyDeterminate}" Content="Статически определимая" />
+                </Grid>
+                <TextBlock Classes="label" Text="Случайный эксцентриситет" Margin="0,6,0,0" />
+                <RadioButton IsChecked="{Binding EccentricitySp63}" Content="Учитывать" />
+                <RadioButton IsChecked="{Binding !EccentricitySp63}" Content="Уже включён в заданные моменты" />
+                <Grid ColumnDefinitions="*,12,*" IsVisible="{Binding EccentricitySp63}">
+                  <StackPanel><TextBlock Classes="hint" Text="ea в пл. Mx, мм" /><TextBox Text="{Binding EaX}" Watermark="0 — по СП 63" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="ea в пл. My, мм" /><TextBox Text="{Binding EaY}" Watermark="0 — по СП 63" /></StackPanel>
+                </Grid>
+                <TextBlock Classes="label" Text="Влияние прогиба (η)" Margin="0,6,0,0" />
+                <ComboBox ItemsSource="{Binding SecondOrderOptions}" SelectedIndex="{Binding SecondOrderIndex}" />
+                <TextBlock Classes="label" Text="Коэффициент надёжности по ответственности γn" Margin="0,6,0,0" />
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="hint" Text="по прочности" /><TextBox Text="{Binding ReliabilityUls}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="по трещиностойкости" /><TextBox Text="{Binding ReliabilitySls}" /></StackPanel>
+                </Grid>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Трещины">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8" Margin="4,10,4,14">
+                <TextBlock Classes="label" Text="Категория трещиностойкости" />
+                <ComboBox ItemsSource="{Binding CrackCategoryOptions}" SelectedIndex="{Binding CrackCategoryIndex}" />
+                <StackPanel Spacing="8" IsVisible="{Binding LimitedWidth}">
+                  <TextBlock Classes="label" Text="Требование" Margin="0,6,0,0" />
+                  <ComboBox ItemsSource="{Binding CrackRequirementOptions}" SelectedIndex="{Binding CrackRequirementIndex}" />
+                  <TextBlock Classes="label" Text="Предельная ширина раскрытия, мм" Margin="0,6,0,0" />
+                  <Grid ColumnDefinitions="*,12,*">
+                    <StackPanel><TextBlock Classes="hint" Text="непродолжительное" /><TextBox Text="{Binding CrackLimitShort}" /></StackPanel>
+                    <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="продолжительное" /><TextBox Text="{Binding CrackLimitLong}" /></StackPanel>
+                  </Grid>
+                  <TextBlock Classes="label" Text="Расчёт ψs (п. 8.2.15)" Margin="0,6,0,0" />
+                  <ComboBox ItemsSource="{Binding CrackMethodOptions}" SelectedIndex="{Binding CrackMethodIndex}"
+                            ToolTip.Tip="Консервативный: σs,crc по сечению без трещин, в запас (сверено с Арбатом). Уточнённый: σs,crc по сечению с трещиной." />
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Сейсмика">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="8" Margin="4,10,4,14">
+                <TextBlock Classes="label" Text="Сейсмические сочетания (СП 14.13330)" />
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="hint" Text="m_tr, нормальные сечения" /><TextBox Text="{Binding SeismicNormal}" ToolTip.Tip="Табл. 5.4" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="m_tr, наклонные сечения" /><TextBox Text="{Binding SeismicInclined}" ToolTip.Tip="Табл. 5.4" /></StackPanel>
+                </Grid>
+                <CheckBox IsChecked="{Binding SeismicCracks}" Content="Проверять трещины при сейсмике (п. 5.18)" />
+                <Border Classes="divider" />
+                <TextBlock Classes="label" Text="Особые сочетания (СП 296.1325800)" />
+                <RadioButton IsChecked="{Binding SpecialNormative}" Content="Нормативные характеристики материалов" />
+                <RadioButton IsChecked="{Binding SpecialDesign}" Content="Расчётные характеристики" />
+                <TextBlock Classes="hint" Text="Коэффициенты условий работы" />
+                <Grid ColumnDefinitions="*,8,*,8,*">
+                  <StackPanel><TextBlock Classes="hint" Text="бетон" /><TextBox Text="{Binding SpecialGb}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="hint" Text="продольная" /><TextBox Text="{Binding SpecialGs}" /></StackPanel>
+                  <StackPanel Grid.Column="4"><TextBlock Classes="hint" Text="поперечная" /><TextBox Text="{Binding SpecialGsw}" /></StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="*,12,*">
+                  <StackPanel><TextBlock Classes="hint" Text="Понижающий коэффициент" /><TextBox Text="{Binding SpecialAdditional}" /></StackPanel>
+                </Grid>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+        </TabControl>
+      </Border>
+
+      <!-- Loads and results -->
+      <Grid Grid.Column="1" RowDefinitions="Auto,12,*">
+        <Border Classes="card">
+          <StackPanel>
+            <Grid ColumnDefinitions="Auto,*">
+              <TextBlock Classes="cardTitle" Text="Расчётные усилия" VerticalAlignment="Center" Margin="0,0,0,8" />
+              <WrapPanel Grid.Column="1" HorizontalAlignment="Right" Orientation="Horizontal" Margin="0,0,0,8" ItemSpacing="6">
+                <Button Classes="small primary" Content="Добавить" Command="{Binding AddLoadCommand}" />
+                <Button Classes="small" Content="Дублировать" Command="{Binding DuplicateLoadCommand}" />
+                <Button Classes="small" Content="Удалить" Command="{Binding RemoveLoadCommand}" />
+                <Button Classes="small" Content="Вставить из Excel" Command="{Binding PasteLoadsCommand}" ToolTip.Tip="Ctrl+V. Столбцы: № N Mx My Q γf kдл" />
+                <Button Classes="small" Content="Mx ⇄ My" Command="{Binding SwapPlaneCommand}" ToolTip.Tip="Изменить силовую плоскость" />
+                <Button Classes="small link" Content="Очистить" Command="{Binding ClearLoadsCommand}" />
+              </WrapPanel>
+            </Grid>
+            <DataGrid x:Name="LoadsGrid" Classes="loads" ItemsSource="{Binding Loads}" SelectedItem="{Binding SelectedLoad}"
+                      AutoGenerateColumns="False" CanUserSortColumns="False" CanUserReorderColumns="False" CanUserResizeColumns="True"
+                      SelectionMode="Single" GridLinesVisibility="All" HeadersVisibility="Column" Height="196">
+              <DataGrid.Columns>
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="№" Binding="{Binding Name}" Width="1.3*" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="N, кН" Binding="{Binding N}" Width="*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="Mx, кН·м" Binding="{Binding Mx}" Width="*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="My, кН·м" Binding="{Binding My}" Width="*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="Q, кН" Binding="{Binding Q}" Width="0.85*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="γf" Binding="{Binding LoadFactor}" Width="0.7*" CellStyleClasses="num" />
+                <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="kдл" Binding="{Binding SustainedShare}" Width="0.7*" CellStyleClasses="num" />
+                <DataGridTemplateColumn Header="Кратк." Width="58">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate x:DataType="vm:LoadRowViewModel"><CheckBox Classes="cell" IsChecked="{Binding ShortTerm}" ToolTip.Tip="γb1 = 1" /></DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Сейсм." Width="58">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate x:DataType="vm:LoadRowViewModel"><CheckBox Classes="cell" IsChecked="{Binding Seismic}" ToolTip.Tip="СП 14.13330" /></DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Особ." Width="58">
+                  <DataGridTemplateColumn.CellTemplate>
+                    <DataTemplate x:DataType="vm:LoadRowViewModel"><CheckBox Classes="cell" IsChecked="{Binding Special}" ToolTip.Tip="СП 296.1325800" /></DataTemplate>
+                  </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+              </DataGrid.Columns>
+            </DataGrid>
+            <TextBlock Classes="hint" Margin="0,6,0,0" Text="N &lt; 0 — сжатие." />
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Classes="card" Padding="0">
+          <TabControl SelectedIndex="{Binding SelectedTab}" Margin="16,4,16,12">
+            <TabItem Header="Результаты проверок">
+              <StackPanel Spacing="8" Margin="0,8,0,0">
+                <Border Classes="notice warn" IsVisible="{Binding ResultIsStale}">
+                  <TextBlock FontSize="11.5" Text="Исходные данные изменены, результаты устарели." />
+                </Border>
+                <Border Classes="tableFrame" IsVisible="{Binding HasResult}">
+                  <StackPanel>
+                    <Border Classes="thead">
+                      <Grid ColumnDefinitions="1.6*,*,*,*,*,*">
+                        <TextBlock Classes="th" Text="Сочетание" />
+                        <TextBlock Classes="th" Grid.Column="1" Text="{Binding CombinationHeaders[0]}" TextAlignment="Right" Margin="0,0,14,0" />
+                        <TextBlock Classes="th" Grid.Column="2" Text="{Binding CombinationHeaders[1]}" TextAlignment="Right" Margin="0,0,14,0" />
+                        <TextBlock Classes="th" Grid.Column="3" Text="{Binding CombinationHeaders[2]}" TextAlignment="Right" Margin="0,0,14,0" />
+                        <TextBlock Classes="th" Grid.Column="4" Text="{Binding CombinationHeaders[3]}" TextAlignment="Right" Margin="0,0,14,0" />
+                        <TextBlock Classes="th" Grid.Column="5" Text="{Binding CombinationHeaders[4]}" TextAlignment="Right" Margin="0,0,14,0" />
+                      </Grid>
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding CombinationRows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CombinationRowViewModel">
+                          <Border Classes="trow">
+                            <Grid ColumnDefinitions="1.6*,*,*,*,*,*">
+                              <TextBlock Classes="td" Text="{Binding Name}" TextAlignment="Left" Margin="0" />
+                              <TextBlock Classes="td" Grid.Column="1" Text="{Binding C0}" Classes.over="{Binding B0}" />
+                              <TextBlock Classes="td" Grid.Column="2" Text="{Binding C1}" Classes.over="{Binding B1}" />
+                              <TextBlock Classes="td" Grid.Column="3" Text="{Binding C2}" Classes.over="{Binding B2}" />
+                              <TextBlock Classes="td" Grid.Column="4" Text="{Binding C3}" Classes.over="{Binding B3}" />
+                              <TextBlock Classes="td" Grid.Column="5" Text="{Binding C4}" Classes.over="{Binding B4}" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Border>
+                <TextBlock Classes="hint" IsVisible="{Binding HasResult}" Text="«нет» — трещины не образуются, «—» — не проверялось." />
+              </StackPanel>
+            </TabItem>
+            <TabItem Header="Подбор армирования">
+              <StackPanel Spacing="10" Margin="0,8,0,0">
+                <Grid ColumnDefinitions="Auto,8,Auto,8,Auto,16,*,16,Auto" >
+                  <StackPanel><TextBlock Classes="label" Text="Стержней: от" /><TextBox Width="70" Text="{Binding SelectionCountMin}" /></StackPanel>
+                  <StackPanel Grid.Column="2"><TextBlock Classes="label" Text="до" /><TextBox Width="70" Text="{Binding SelectionCountMax}" /></StackPanel>
+                  <StackPanel Grid.Column="4" IsVisible="{Binding IsPile}"><TextBlock Classes="label" Text="шаг" /><TextBox Width="60" Text="{Binding SelectionCountStep}" /></StackPanel>
+                  <CheckBox Grid.Column="4" IsVisible="{Binding IsWall}" VerticalAlignment="Bottom" IsChecked="{Binding SelectionSymmetric}" Content="Одинаково на обеих гранях" />
+                  <StackPanel Grid.Column="6"><TextBlock Classes="label" Text="Диаметры, мм (через запятую)" /><TextBox Text="{Binding SelectionDiameters}" /></StackPanel>
+                  <Button Grid.Column="8" VerticalAlignment="Bottom" Classes="primary" Content="Подобрать" Command="{Binding SelectCommand}" />
+                </Grid>
+                <Border Classes="notice info" IsVisible="{Binding HasSelection}">
+                  <TextBlock FontSize="11.5" TextWrapping="Wrap" Text="{Binding SelectionSummary}" />
+                </Border>
+                <Border Classes="tableFrame" IsVisible="{Binding HasSelection}">
+                  <StackPanel>
+                    <Border Classes="thead">
+                      <Grid ColumnDefinitions="1.6*,80,2*,70,130,100">
+                        <TextBlock Classes="th" Text="Вариант" />
+                        <TextBlock Classes="th" Grid.Column="1" Text="As, мм²" TextAlignment="Right" Margin="0,0,14,0" />
+                        <TextBlock Classes="th" Grid.Column="2" Text="Определяющая проверка" />
+                        <TextBlock Classes="th" Grid.Column="3" Text="K" TextAlignment="Right" Margin="0,0,14,0" />
+                        <TextBlock Classes="th" Grid.Column="4" Text="Результат" />
+                      </Grid>
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding SelectionRows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SelectionRowViewModel">
+                          <Border Classes="trow">
+                            <Grid ColumnDefinitions="1.6*,80,2*,70,130,100">
+                              <TextBlock Text="{Binding Description}" FontSize="11.5" FontWeight="{Binding IsBest, Converter={x:Static vm:Converters.BoldIf}}" VerticalAlignment="Center" />
+                              <TextBlock Grid.Column="1" Text="{Binding Area}" FontSize="11.5" TextAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" />
+                              <TextBlock Grid.Column="2" Text="{Binding Governing}" FontSize="11.5" Foreground="{StaticResource GbMuted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Grid.Column="3" Text="{Binding KText}" FontSize="11.5" TextAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" />
+                              <Border Grid.Column="4" Classes="pill" Classes.ok="{Binding IsOk}" Classes.bad="{Binding IsBad}" Classes.warn="{Binding IsWarn}">
+                                <TextBlock Text="{Binding Result}" />
+                              </Border>
+                              <Button Grid.Column="5" Classes="small" Classes.primary="{Binding IsBest}" Content="Принять" IsVisible="{Binding CanApply}" Command="{Binding ApplyCommand}" HorizontalAlignment="Right" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </TabItem>
+          </TabControl>
+        </Border>
+      </Grid>
+
+      <!-- Section sketch and verdict -->
+      <ScrollViewer Grid.Column="2" Margin="12,0,0,0" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="12">
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Classes="cardTitle" Text="Сечение" />
+              <Border Background="White" BorderBrush="{StaticResource GbBorder}" BorderThickness="1" CornerRadius="3">
+                <Image Source="{Binding Sketch}" Stretch="Uniform" Height="240" />
+              </Border>
+              <TextBlock Classes="hint" Margin="0,6,0,0" Text="{Binding SteelText}" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="cardTitle" Text="Итог" Margin="0" />
+              <Border Classes="notice" Classes.ok="{Binding VerdictOk}" Classes.bad="{Binding VerdictBad}" Classes.warn="{Binding VerdictWarn}" Classes.info="{Binding VerdictInfo}">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="{Binding VerdictText}" FontSize="13" FontWeight="Medium" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding GoverningText}" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding HasGoverning}" />
+                </StackPanel>
+              </Border>
+              <ItemsControl ItemsSource="{Binding SummaryRows}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CheckRowViewModel">
+                    <Border BorderBrush="{StaticResource GbSectionBg}" BorderThickness="0,0,0,1" Padding="0,7">
+                      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                        <TextBlock Text="{Binding Title}" FontSize="11" Foreground="{StaticResource GbGrey}" TextWrapping="Wrap" Margin="0,0,8,0" />
+                        <TextBlock Grid.Column="1" Text="{Binding KText}" FontSize="12" FontWeight="Medium" />
+                        <Grid Grid.Row="1" Grid.ColumnSpan="2" ColumnDefinitions="64,*" Margin="0,4,0,0">
+                          <Border Classes="bar" Width="64" />
+                          <Border Classes="fill" Classes.ok="{Binding IsOk}" Classes.bad="{Binding IsBad}" Classes.warn="{Binding IsWarn}" Classes.muted="{Binding IsMuted}" Width="{Binding FillWidth}" />
+                          <TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="10.5" Foreground="{StaticResource GbGrey}" Margin="8,-4,0,0" />
+                        </Grid>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+    </DockPanel>
+    </Panel>
+  </DockPanel>
+</Window>

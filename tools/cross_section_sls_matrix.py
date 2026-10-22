@@ -104,7 +104,7 @@ def section_definitions(layout: str = "original") -> list[dict]:
 
 def loads() -> list[dict]:
     # One force tuple is kept intact; N in kN, M in kN.m.
-    # Long and total N are identical (the pinned upstream solver accepts only one).
+    # ARBAT's sustained fraction applies to N too: T10 has N_long = 0.5 N.
     cases = [
         ("T01_pure_Mx", 0, 60, 0, 60, 0),
         ("T02_high_Mx", 0, 180, 0, 180, 0),
@@ -117,9 +117,11 @@ def loads() -> list[dict]:
         ("T09_partial_sustained", 0, 160, 0, 80, 0),
         ("T10_partial_biax", -250, 140, 80, 70, 40),
     ]
+    sustained_n = {"T10_partial_biax": -125}
     return [
         {"id": name, "n_kn": n, "mx_total_knm": mx, "my_total_knm": my,
-         "mx_long_knm": mlx, "my_long_knm": mly}
+         "mx_long_knm": mlx, "my_long_knm": mly,
+         **({"n_long_kn": sustained_n[name]} if name in sustained_n else {})}
         for name, n, mx, my, mlx, mly in cases
     ]
 
@@ -289,7 +291,7 @@ def check_fully_sustained_width_identity(rows: list[dict]) -> int:
     count = 0
     for row in rows:
         if (row["cscore_status"] != "research_calculated"
-            or row["method"] != "arbat_conservative"
+            or row["method"] not in METHODS
             or row["Mx_total_kNm"] != row["Mx_long_kNm"]
             or row["My_total_kNm"] != row["My_long_kNm"]):
             continue

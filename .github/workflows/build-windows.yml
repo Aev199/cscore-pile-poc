@@ -30,6 +30,8 @@ jobs:
           git clone https://github.com/rumata-ap/OpenCS.git vendor/OpenCS
           git -C vendor/OpenCS checkout --detach $pin
           if ((git -C vendor/OpenCS rev-parse HEAD).Trim() -ne $pin) { throw 'Wrong upstream commit' }
+          python tools/apply_opencs_patches.py
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned CScore patch failed' }
       - name: Python contract tests (no calculated numbers)
         run: python -m unittest discover -s tests -v
       - name: CScore upstream tests (ULS + geometry + cracks)
@@ -38,6 +40,12 @@ jobs:
           dotnet test vendor/OpenCS/CScore.Tests/CScore.Tests.csproj -c Release `
             --filter 'FullyQualifiedName~Sp63Normal|FullyQualifiedName~CrackWidthSolver|FullyQualifiedName~Sp63Shear' `
             --logger 'console;verbosity=normal'
+      - name: CScore adapter material integration tests
+        shell: pwsh
+        run: |
+          dotnet test tests/CScorePileRunner.Tests/CScorePileRunner.Tests.csproj -c Release `
+            --logger 'console;verbosity=normal'
+          if ($LASTEXITCODE -ne 0) { throw 'CScore adapter integration tests failed' }
       - name: Publish portable Windows runner
         shell: pwsh
         run: |
@@ -45,6 +53,38 @@ jobs:
             -r win-x64 --self-contained true `
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
             -o publish
+      - name: Section application tests (Python parity, engine, Word report, headless UI)
+        shell: pwsh
+        run: |
+          dotnet test tests/SectionCalc.Tests/SectionCalc.Tests.csproj -c Release --logger 'console;verbosity=normal'
+          if ($LASTEXITCODE -ne 0) { throw 'SectionCalc tests failed' }
+          $env:SECTION_APP_SCREENSHOTS = Join-Path (Get-Location) 'results/section-app'
+          dotnet test tests/SectionApp.Tests/SectionApp.Tests.csproj -c Release --logger 'console;verbosity=normal'
+          if ($LASTEXITCODE -ne 0) { throw 'SectionApp UI tests failed' }
+      - name: Publish desktop application
+        shell: pwsh
+        run: |
+          dotnet publish src/SectionApp/SectionApp.csproj -c Release `
+            -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true -o publish-app
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop application publish failed' }
+          New-Item -ItemType Directory release-app -Force | Out-Null
+          Copy-Item publish-app/SectionApp.exe release-app/
+          Copy-Item docs/section-app.md release-app/
+          Copy-Item examples/section-app/*.section.json release-app/
+          Copy-Item results/section-app/*.png release-app/
+          Compress-Archive -Path release-app/* -DestinationPath section-app-windows.zip -Force
+      - name: Desktop application archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: section-app-windows
+          path: section-app-windows.zip
+          retention-days: 14
+      - name: Agreed crack method numeric and product-report regression
+        run: python tools/verify_agreed_crack_method.py --runner publish/CScorePileRunner.exe
+      - name: Two-plane member eccentricity and source shear regression
+        run: python tools/verify_member_eccentricity.py --runner publish/CScorePileRunner.exe
       - name: End-to-end numerical run (real CScore, no mocks)
         shell: pwsh
         env:
@@ -143,7 +183,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Experimental crack probe failed to complete' }
           python -c "import csv; p='results/crack_probe/crack_width_comparison.csv'; r=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); assert len(r)==16; assert all(x['design_status']=='NOT_VERIFIED' for x in r); print('crack probe records',len(r),'research only')"
           if ($LASTEXITCODE -ne 0) { throw 'Incomplete or unsafe crack probe output' }
-      - name: Conservative SLS default available in regular pile_rebar workflow
+      - name: Native CScore SLS available in regular pile_rebar workflow
         shell: pwsh
         env:
           PYTHONIOENCODING: utf-8
@@ -185,10 +225,8 @@ jobs:
         run: |
           python tools/cross_section_sls_matrix.py --runner publish/CScorePileRunner.exe --layout arbat_stated --out results/sls_matrix_aligned
           if ($LASTEXITCODE -ne 0) { throw 'ARBAT-stated geometry matrix failed' }
-          python -c "import csv; p='results/sls_matrix_aligned/cross_section_sls_matrix.csv'; rows=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); bad=[x for x in rows if x['cscore_status']=='indeterminate']; assert len(bad)==8, len(bad); statuses=[x['secondary_equilibrium_status'] for x in bad]; assert all(x and x!='not_necessary' for x in statuses), statuses; assert all(x['final_design_status']=='NOT_VERIFIED' for x in bad); print('Eight post-threshold zero-return diagnostic statuses:',statuses)"
-          if ($LASTEXITCODE -ne 0) { throw 'Missing independent equilibrium diagnostics for unresolved SLS cases' }
-          python -c "import csv; p='results/sls_matrix_aligned/cross_section_sls_matrix.csv'; r=list(csv.DictReader(open(p,encoding='utf-8-sig'),delimiter=';')); z=[x for x in r if x['crack_solver_path']=='supplemental_full_load_Acrc2']; print('Experimental short-only recovered:',len(z)); assert z, 'No short-only cases were numerically recovered'; assert all(x['preliminary_status'] in ('engineering_review','preliminary_exceeds_limit') and x['final_design_status']=='NOT_VERIFIED' for x in z); print('Unresolved crack results:',sum(x['cscore_status']!='research_calculated' for x in r))"
-          if ($LASTEXITCODE -ne 0) { throw 'Short-only recovery must remain research-only; see diagnostics' }
+          python -c "import csv; r=list(csv.DictReader(open('results/sls_matrix_aligned/cross_section_sls_matrix.csv',encoding='utf-8-sig'),delimiter=';')); assert len(r)==70; assert all(x['final_design_status']=='NOT_VERIFIED' for x in r); assert all(x['method']=='arbat_conservative' for x in r); print('CScore-based conservative SLS, unresolved:',sum(x['cscore_status']!='research_calculated' for x in r))"
+          if ($LASTEXITCODE -ne 0) { throw 'Native CScore SLS provenance failed' }
           python tools/compare_arbat70_crackwidth.py --csv results/sls_matrix_aligned/cross_section_sls_matrix.csv --out results/arbat70_verification
           if ($LASTEXITCODE -ne 0) { throw 'Independent crack-width comparison failed' }
           python -c "import json; j=json.load(open('results/arbat70_verification/arbat70_aligned_metrics.json',encoding='utf-8')); c=j['coverage']; assert c['total']==70 and c['arbat_printed']==27 and c['preliminarily_comparable']>=1; assert j['not_design_approved']; print('ARBAT crack width: printed',c['arbat_printed'],'preliminarily comparable',c['preliminarily_comparable'])"
@@ -202,6 +240,41 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Wall cage selection failed' }
           python tools/wall_smoke.py --runner publish/CScorePileRunner.exe
           if ($LASTEXITCODE -ne 0) { throw 'Wall numerical scaling or ULS gate failed' }
+      - name: Workbench real-engine project checks
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tools/workbench_smoke.py --runner publish/CScorePileRunner.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Workbench selection or edited reinforcement failed' }
+      - name: Native CScore connection cycle on adopted sections
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tools/connection_smoke.py --runner publish/CScorePileRunner.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native CScore connection cycle failed' }
+          python tools/circular_shear_smoke.py --runner publish/CScorePileRunner.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Circular equivalent spiral checks failed' }
+      - name: Workbench browser interaction checks
+        shell: pwsh
+        run: |
+          npm install --prefix .ui-qa playwright@1.51.1 --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Browser test dependency failed' }
+          node .ui-qa/node_modules/playwright/cli.js install chromium --only-shell
+          if ($LASTEXITCODE -ne 0) { throw 'Browser test runtime failed' }
+          $env:NODE_PATH = Join-Path (Get-Location) '.ui-qa/node_modules'
+          $env:SCREENSHOT = Join-Path (Get-Location) 'results/workbench-preview.png'
+          $env:NATIVE_SCREENSHOT = Join-Path (Get-Location) 'results/workbench-native-checks.png'
+          $env:SPIRAL_SCREENSHOT = Join-Path (Get-Location) 'results/workbench-spiral-checks.png'
+          $env:CSCORE_RUNNER = Join-Path (Get-Location) 'publish/CScorePileRunner.exe'
+          node tools/workbench_browser_check.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Workbench browser interaction failed' }
+          $env:SECTION_SCREENSHOT = Join-Path (Get-Location) 'results/section-manual.png'
+          node tools/section_browser_check.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Single-section browser interaction failed' }
+          node tools/member_browser_check.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Member eccentricity browser interaction failed' }
       - name: Pack deliverables
         shell: pwsh
         run: |
@@ -209,6 +282,23 @@ jobs:
           Copy-Item publish/* release/ -Recurse
           Copy-Item pile_rebar.py release/
           Copy-Item wall_rebar.py release/
+          Copy-Item workbench_app.py release/
+          Copy-Item start_workbench.bat release/
+          New-Item -ItemType Directory release/workbench -Force | Out-Null
+          Copy-Item workbench/*.py release/workbench/
+          Copy-Item web release/ -Recurse
+          Copy-Item docs/workbench-guide.md release/
+          Copy-Item examples/verification/member_length15_manual.json release/
+          Copy-Item docs/cscore-connection-cycle.md release/
+          New-Item -ItemType Directory release/research -Force | Out-Null
+          Copy-Item docs/research/circular-shear-equivalent-section-2026-10-18.md release/research/
+          Copy-Item results/workbench release/workbench_results -Recurse
+          Copy-Item results/connection release/connection_results -Recurse
+          Copy-Item results/circular-shear release/circular_shear_results -Recurse
+          Copy-Item results/workbench-preview.png release/
+          Copy-Item results/workbench-native-checks.png release/
+          Copy-Item results/workbench-spiral-checks.png release/
+          Copy-Item results/section-manual.png release/
           Copy-Item examples/wall_cages.json release/
           Copy-Item docs/wall-cage-selection.md release/
           Copy-Item results/wall_smoke release/ -Recurse
@@ -222,6 +312,9 @@ jobs:
           Copy-Item tools/compare_arbat70_crackwidth.py release/
           New-Item -ItemType Directory release/config -Force | Out-Null
           Copy-Item config/opencs.lock.json release/config/
+          Copy-Item patches release/ -Recurse
+          Copy-Item docs/research/phi-n-fix-2026-10-18.md release/research/
+          Copy-Item docs/research/phi-fix-data release/research/ -Recurse
           Copy-Item examples/demo_bns.json release/
           Copy-Item examples/geometry_preview.csv release/
           Copy-Item README.md release/
@@ -254,6 +347,8 @@ jobs:
         with:
           name: cscore-diagnostic-results
           path: |
+            results/connection/*
+            results/workbench/*
             results/wall_results.*
             results/wall_smoke/*
             results/pile_results.json
