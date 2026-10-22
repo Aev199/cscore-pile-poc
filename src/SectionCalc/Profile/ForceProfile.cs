@@ -174,6 +174,9 @@ public sealed class ForceProfile
     /// Envelope over every curve (phase, corner, pile) at the union of their node levels. Piles of a group have their
     /// nodes at different levels: each curve is interpolated, otherwise the envelope would jump between the piles.
     /// </summary>
+    /// <summary>Envelope of one pile of a group (its own samples).</summary>
+    public List<EnvelopePoint> EnvelopeOfPile(int pile) => EnvelopeOf(Samples.Where(x => x.Pile == pile).ToList());
+
     static List<EnvelopePoint> EnvelopeOf(List<ForceSample> samples)
     {
         var curves = samples.GroupBy(x => (x.Phase, x.Corner, x.Pile)).Select(g => g.OrderByDescending(x => x.Level).ToList()).ToList();

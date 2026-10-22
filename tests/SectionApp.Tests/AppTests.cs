@@ -195,6 +195,14 @@ public class AppTests
             p.SelectedPiles = [pile];
             p.SelectedTypeNumber = p.Types.Last().Type.Number;
             Snapshot(window, "14-profile-typing");
+            // The 3D view with the material diagram: the page is written, not opened in a test.
+            string? opened = null;
+            p.OpenFile = path => { opened = path; return true; };
+            await p.Open3DCommand.ExecuteAsync(null);
+            Assert.True(opened is not null, p.Errors);
+            string html = File.ReadAllText(opened!);
+            Assert.Contains("THREE", html);
+            Assert.Contains("\"mult\"", html);
         }
         finally { (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM) = (gn, gm); }
     }

@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сваи 3D</title>
+<style>
+  :root { --text: #263640; --muted: #7a8a94; --line: #dfe5e8; --accent: #2f6ed8; --bad: #d32f2f; --ok: #2e9e5b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 13px/1.4 "Segoe UI", Inter, Arial, sans-serif; color: var(--text); background: #f4f6f7; }
+  #app { display: grid; grid-template-columns: 270px 1fr auto; height: 100%; }
+  #panel { padding: 14px; overflow: auto; background: #fff; border-right: 1px solid var(--line); }
+  #panel h1 { font-size: 15px; margin: 0 0 2px; }
+  #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+  .muted { color: var(--muted); }
+  .choice label { display: block; padding: 3px 0; cursor: pointer; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  select, input[type=range] { width: 100%; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; margin: 0 10px 4px 0; cursor: pointer; }
+  .legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .hint { color: var(--muted); font-size: 11.5px; margin-top: 16px; }
+  #view { position: relative; overflow: hidden; }
+  #tip { position: fixed; pointer-events: none; background: #fff; border: 1px solid var(--line); border-radius: 4px;
+         padding: 5px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; white-space: pre; }
+  #detail { width: 380px; background: #fff; border-left: 1px solid var(--line); padding: 12px 14px; overflow: auto; display: none; }
+  #detail h2 { margin: 0 0 2px; font-size: 15px; }
+  #detail button { float: right; border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--muted); }
+  #zones table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  #zones td, #zones th { border-bottom: 1px solid var(--line); padding: 3px 4px; text-align: left; }
+  .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <h1 id="title"></h1>
+    <div id="section" class="muted"></div>
+    <h2>Эпюра на сваях</h2>
+    <div class="choice" id="quantity"></div>
+    <div class="row"><span class="muted">Масштаб</span><input type="range" id="scale" min="0.2" max="4" step="0.1" value="1"></div>
+    <h2>Показать</h2>
+    <div class="row"><select id="typeFilter"></select></div>
+    <label class="row"><input type="checkbox" id="labels" checked> подписи свай</label>
+    <div class="legend" id="legend"></div>
+    <div class="hint">Левая кнопка — вращение, правая — сдвиг, колесо — масштаб.<br>Щелчок по свае — её эпюра материалов и зоны.<br>
+      Эпюры развёрнуты к наблюдателю. N: сжатие — влево (минус), растяжение — вправо.</div>
+  </div>
+  <div id="view"></div>
+  <div id="detail">
+    <button id="close" title="Закрыть">×</button>
+    <h2 id="dname"></h2>
+    <div id="dinfo" class="muted"></div>
+    <canvas id="chart" width="700" height="1000" style="width:350px;height:500px"></canvas>
+    <div id="zones"></div>
+  </div>
+</div>
+<div id="tip"></div>
+<script>/*THREE*/</script>
+<script>/*ORBIT*/</script>
+<script>
+const DATA = /*DATA*/;
+const ru = (v, d = 0) => (v ?? 0).toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
+const typed = DATA.types.length > 0;
+const QUANTITIES = [
+  { id: 'n', label: 'N, кН', two: true, color: 0x7b4fc9, get: s => [s.nmin, s.nmax] },
+  { id: 'm', label: '|M|, кН·м', color: 0x2f6ed8, get: s => s.m },
+  { id: 'q', label: '|Q|, кН', color: 0x1fa3b8, get: s => s.q },
+  { id: 'as', label: 'As требуемая, см²', color: 0xe07a1f, get: s => s.as, needs: 'as' },
+  { id: 'asp', label: 'As принятая (тип), см²', color: 0x2e9e5b, get: s => s.asp, needs: 'asp' },
+  { id: 'mat', label: 'Эпюра материалов: M и Mult', color: 0x2f6ed8, get: s => s.m, needs: 'mult' },
+];
+document.getElementById('title').textContent = DATA.title || 'Сваи';
+document.getElementById('section').textContent = `${DATA.section} · свай: ${DATA.piles.length}` + (typed ? ` · типов: ${DATA.types.length}` : '');
+
+// ---- scene ----
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0xf7f9fa);
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 5000);
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(1, 2, 1.5); scene.add(sun);
+
+const P = DATA.piles;
+const cx = P.reduce((a, p) => a + p.x, 0) / P.length, cy = P.reduce((a, p) => a + p.y, 0) / P.length;
+const zTop = Math.max(...P.map(p => p.head)), zBottom = Math.min(...P.map(p => p.tip)), zc = (zTop + zBottom) / 2;
+const at = (x, y, z) => new THREE.Vector3(x - cx, z - zc, -(y - cy));
+// Spacing of the piles: the diagrams take about half of it.
+let spacing = Infinity;
+for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++)
+  spacing = Math.min(spacing, Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y));
+if (!isFinite(spacing) || spacing < 0.5) spacing = Math.max(2, (zTop - zBottom) / 4);
+const extent = Math.max(...P.map(p => Math.hypot(p.x - cx, p.y - cy)), zTop - zBottom, 5);
+
+const grid = new THREE.GridHelper(extent * 2.6, 26, 0xc9d2d7, 0xe3e8ea);
+grid.position.y = zTop - zc; scene.add(grid);
+
+const piles = P.map((p, i) => {
+  const len = Math.max(0.1, p.head - p.tip);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(p.d / 2, p.d / 2, len, 24),
+    new THREE.MeshLambertMaterial({ color: new THREE.Color(p.color) }));
+  const base = at(p.x, p.y, (p.head + p.tip) / 2);
+  mesh.position.copy(base); mesh.userData.index = i; scene.add(mesh);
+  const group = new THREE.Group(); group.position.copy(at(p.x, p.y, zc)); scene.add(group);
+  const label = textSprite(p.type ? `Т${p.type}` : shortName(p.name), p.color);
+  label.position.copy(at(p.x, p.y, p.head + Math.max(0.6, p.d)));
+  scene.add(label);
+  return { data: p, mesh, group, label };
+});
+
+function shortName(n) { return n.replace(/^EmbeddedBeam_/, '').replace(/^Beam_/, ''); }
+
+function textSprite(text, color) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const g = c.getContext('2d');
+  g.font = 'bold 52px Segoe UI, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 10; g.strokeStyle = '#ffffff'; g.strokeText(text, 128, 48);
+  g.fillStyle = color; g.fillText(text, 128, 48);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(spacing * 0.9, spacing * 0.34, 1);
+  return s;
+}
+
+// ---- diagrams ----
+let quantity = QUANTITIES[1];
+function available(q) { return !q.needs || P.some(p => p.stations.some(s => s[q.needs] != null)); }
+function maxOf(q) {
+  let m = 0;
+  for (const p of P) for (const s of p.stations) {
+    const v = q.get(s); if (v == null) continue;
+    if (Array.isArray(v)) m = Math.max(m, Math.abs(v[0] ?? 0), Math.abs(v[1] ?? 0)); else m = Math.max(m, Math.abs(v));
+    if (q.id === 'mat' && s.mult != null) m = Math.max(m, s.mult);
+  }
+  return m || 1;
+}
+
+function clear(group) { while (group.children.length) { const c = group.children.pop(); c.geometry?.dispose(); c.material?.dispose(); } }
+
+function polygon(group, pts, color, opacity) {
+  const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+  group.add(new THREE.Mesh(new THREE.ShapeGeometry(shape),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false })));
+  const line = new THREE.BufferGeometry().setFromPoints(pts.map(([x, y]) => new THREE.Vector3(x, y, 0.001)));
+  group.add(new THREE.Line(line, new THREE.LineBasicMaterial({ color })));
+}
+
+function line(group, pts, color) {
+  const g = new THREE.BufferGeometry().setFromPoints(pts.map(([x, y]) => new THREE.Vector3(x, y, 0.002)));
+  group.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color, linewidth: 2 })));
+}
+
+function rebuild() {
+  const scale = spacing * 0.7 * parseFloat(document.getElementById('scale').value) / maxOf(quantity);
+  for (const pile of piles) {
+    clear(pile.group);
+    // The diagram starts at the surface of the pile, not at its axis hidden inside.
+    const o = pile.data.d / 2 + 0.05;
+    const st = pile.data.stations.filter(s => quantity.get(s) != null).sort((a, b) => b.z - a.z);
+    if (st.length < 2) continue;
+    const y = s => s.z - zc;
+    if (quantity.two) {
+      // N: compression (minus) on the left of the pile, tension on the right.
+      const side = v => v < 0 ? -o + v * scale : o + v * scale;
+      const pts = st.map(s => [side(s.nmin), y(s)]).concat(st.slice().reverse().map(s => [side(s.nmax), y(s)]));
+      polygon(pile.group, pts, quantity.color, 0.45);
+      continue;
+    }
+    const pts = [[o, y(st[0])], ...st.map(s => [o + quantity.get(s) * scale, y(s)]), [o, y(st[st.length - 1])]];
+    polygon(pile.group, pts, quantity.color, quantity.id === 'mat' ? 0.3 : 0.5);
+    if (quantity.id === 'mat') {
+      // Mult of the zones: green, red where the design moment is larger.
+      const withMult = st.filter(s => s.mult != null);
+      line(pile.group, withMult.map(s => [o + s.mult * scale, y(s)]), 0x2e9e5b);
+      const bad = withMult.filter(s => s.m > s.mult);
+      for (const s of bad) {
+        const dot = new THREE.Mesh(new THREE.CircleGeometry(spacing * 0.03, 10), new THREE.MeshBasicMaterial({ color: 0xd32f2f, side: THREE.DoubleSide }));
+        dot.position.set(o + s.m * scale, y(s), 0.003); pile.group.add(dot);
+      }
+    }
+  }
+}
+
+// ---- controls of the page ----
+const qBox = document.getElementById('quantity');
+for (const q of QUANTITIES) {
+  if (!available(q)) continue;
+  const l = document.createElement('label');
+  l.innerHTML = `<input type="radio" name="q" value="${q.id}" ${q === quantity ? 'checked' : ''}> ${q.label}`;
+  l.querySelector('input').onchange = () => { quantity = q; rebuild(); };
+  qBox.appendChild(l);
+}
+document.getElementById('scale').oninput = rebuild;
+const filter = document.getElementById('typeFilter');
+filter.innerHTML = '<option value="">все сваи</option>' + DATA.types.map(t => `<option value="${t.number}">тип Т${t.number} (${t.members.length})</option>`).join('');
+filter.onchange = applyFilter;
+document.getElementById('labels').onchange = applyFilter;
+document.getElementById('legend').innerHTML = DATA.types.map(t => `<span data-t="${t.number}"><i style="background:${t.color}"></i>Т${t.number}</span>`).join('');
+document.querySelectorAll('#legend span').forEach(s => s.onclick = () => { filter.value = s.dataset.t; applyFilter(); });
+function applyFilter() {
+  const t = filter.value, labels = document.getElementById('labels').checked;
+  for (const p of piles) {
+    const show = !t || String(p.data.type) === t;
+    p.mesh.visible = p.group.visible = show; p.label.visible = show && labels;
+  }
+}
+
+// ---- camera ----
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+camera.position.set(extent * 1.4, extent * 0.9, extent * 1.6);
+controls.target.set(0, 0, 0); controls.update();
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+// ---- picking ----
+const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2(), tip = document.getElementById('tip');
+function pick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+  const hit = raycaster.intersectObjects(piles.filter(p => p.mesh.visible).map(p => p.mesh))[0];
+  return hit ? piles[hit.object.userData.index] : null;
+}
+renderer.domElement.addEventListener('mousemove', ev => {
+  const p = pick(ev);
+  if (!p) { tip.style.display = 'none'; return; }
+  const s = p.data.stations;
+  tip.textContent = `${p.data.name}${p.data.type ? ' · Т' + p.data.type : ''}\n|M| до ${ru(Math.max(...s.map(x => x.m)))} кН·м, |Q| до ${ru(Math.max(...s.map(x => x.q)))} кН\n`
+    + `N ${ru(Math.min(...s.map(x => x.nmin)))}…${ru(Math.max(...s.map(x => x.nmax)))} кН · отм. ${ru(p.data.head, 2)}…${ru(p.data.tip, 2)}`;
+  tip.style.display = 'block'; tip.style.left = ev.clientX + 14 + 'px'; tip.style.top = ev.clientY + 14 + 'px';
+});
+let down = null;
+renderer.domElement.addEventListener('pointerdown', ev => down = [ev.clientX, ev.clientY]);
+renderer.domElement.addEventListener('pointerup', ev => {
+  if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 4) return;
+  const p = pick(ev); if (p) showDetail(p);
+});
+document.getElementById('close').onclick = () => { document.getElementById('detail').style.display = 'none'; resize(); };
+
+// ---- material diagram of one pile ----
+function showDetail(p) {
+  const d = p.data, panel = document.getElementById('detail');
+  panel.style.display = 'block'; resize();
+  document.getElementById('dname').textContent = d.name + (d.type ? ` · тип Т${d.type}` : '');
+  const st = d.stations.slice().sort((a, b) => b.z - a.z);
+  const hasMult = st.some(s => s.mult != null);
+  document.getElementById('dinfo').textContent = hasMult
+    ? 'Эпюра материалов: синяя заливка — |M| от нагрузки, зелёная линия — Mult зон каркаса (при наименее выгодном N зоны).'
+    : '|M| от нагрузки по длине сваи' + (typed ? '' : ' (типизация не выполнена — Mult нет)');
+  const c = document.getElementById('chart'), g = c.getContext('2d'), W = c.width, H = c.height;
+  g.clearRect(0, 0, W, H); g.font = '22px Segoe UI, Arial';
+  const left = 90, right = W - 30, top = 30, bottom = H - 50;
+  const mMax = Math.max(...st.map(s => Math.max(s.m, s.mult ?? 0)), 1) * 1.1;
+  const X = v => left + v / mMax * (right - left), Y = z => top + (d.head - z) / Math.max(d.head - d.tip, 1e-6) * (bottom - top);
+  g.strokeStyle = '#dfe5e8'; g.fillStyle = '#7a8a94';
+  const step = niceStep((d.head - d.tip) / 8);
+  for (let z = Math.ceil(d.tip / step) * step; z <= d.head + 1e-9; z += step) {
+    g.beginPath(); g.moveTo(left, Y(z)); g.lineTo(right, Y(z)); g.stroke();
+    g.textAlign = 'right'; g.fillText(ru(z, 1), left - 8, Y(z) + 7);
+  }
+  // Zones of the type.
+  const type = DATA.types.find(t => t.number === d.type);
+  if (type) type.zones.forEach((z, i) => {
+    g.fillStyle = i % 2 ? 'rgba(46,158,91,0.06)' : 'rgba(46,158,91,0.12)';
+    g.fillRect(left, Y(z.top), right - left, Y(z.bottom) - Y(z.top));
+  });
+  g.beginPath(); g.moveTo(X(0), Y(st[0].z));
+  for (const s of st) g.lineTo(X(s.m), Y(s.z));
+  g.lineTo(X(0), Y(st[st.length - 1].z)); g.closePath();
+  g.fillStyle = 'rgba(47,110,216,0.30)'; g.fill(); g.strokeStyle = '#2f6ed8'; g.lineWidth = 2; g.stroke();
+  if (hasMult) {
+    g.beginPath(); let first = true;
+    for (const s of st) { if (s.mult == null) continue; if (first) { g.moveTo(X(s.mult), Y(s.z)); first = false; } else g.lineTo(X(s.mult), Y(s.z)); }
+    g.strokeStyle = '#2e9e5b'; g.lineWidth = 4; g.stroke();
+    g.fillStyle = '#d32f2f';
+    for (const s of st) if (s.mult != null && s.m > s.mult) { g.beginPath(); g.arc(X(s.m), Y(s.z), 6, 0, 7); g.fill(); }
+  }
+  if (type) type.zones.forEach(z => {
+    g.fillStyle = '#263640'; g.textAlign = 'right';
+    g.fillText(z.bars + (z.mult != null ? `  Mult ${ru(z.mult)}` : ''), right - 6, (Y(z.top) + Y(z.bottom)) / 2 + 7);
+  });
+  g.fillStyle = '#7a8a94'; g.textAlign = 'left'; g.fillText('0', left, bottom + 32);
+  g.textAlign = 'right'; g.fillText(ru(mMax / 1.1) + ' кН·м', right, bottom + 32);
+  document.getElementById('zones').innerHTML = type ? '<table><tr><th>Отметки, м</th><th>Стержни</th><th>Спираль</th><th>Mult</th><th>K</th></tr>'
+    + type.zones.map(z => `<tr><td>${ru(z.top, 2)}…${ru(z.bottom, 2)}</td><td>${z.bars}</td><td>${z.spiral ? 'Ø' + z.spiral : '—'}</td>`
+      + `<td>${z.mult != null ? ru(z.mult) : '—'}</td><td class="${z.k > 1 ? 'bad' : ''}" title="${z.governing ?? ''}">${z.k != null ? ru(z.k, 2) : '—'}</td></tr>`).join('') + '</table>'
+    + `<div class="muted" style="margin-top:6px">Сваи типа: ${type.members.join(', ')}</div>` : '';
+}
+function niceStep(v) { const e = Math.pow(10, Math.floor(Math.log10(v))); return [1, 2, 2.5, 5, 10].map(k => k * e).find(k => k >= v); }
+
+// ---- run ----
+function animate() {
+  requestAnimationFrame(animate);
+  // Diagrams face the viewer.
+  for (const p of piles) p.group.rotation.y = Math.atan2(camera.position.x - p.group.position.x, camera.position.z - p.group.position.z);
+  controls.update();
+  renderer.render(scene, camera);
+}
+resize(); rebuild(); applyFilter(); animate();
+window.viewerReady = true;
+</script>
+</body>
+</html>

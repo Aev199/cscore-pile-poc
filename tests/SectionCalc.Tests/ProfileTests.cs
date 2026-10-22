@@ -603,4 +603,46 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.NotNull(k);
         Assert.DoesNotContain("повторяются", governing ?? "");
     }
+
+    [Fact]
+    public void SceneWithMaterialDiagram()
+    {
+        string root = AppContext.BaseDirectory;
+        while (!Directory.Exists(Path.Combine(root, "examples", "profile"))) root = Path.GetDirectoryName(root)!;
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(PlaxisBridge.Parse(File.ReadAllText(Path.Combine(root, "examples", "profile", "pile-group-3d.plaxis.json"))));
+        p.Settings.StationStepM = 3;
+        // Forces only: no types yet.
+        var plain = SceneExport.Data(p, null, null);
+        Assert.Equal(4, plain["piles"]!.AsArray().Count);
+        Assert.Empty(plain["types"]!.AsArray());
+        Assert.Contains("THREE", SceneExport.Html(plain)[..2000] + SceneExport.Html(plain));
+
+        // Mult grows with the bars.
+        var section = SectionProject.Example(SectionKind.Pile);
+        section.Pile.BarCount = 12; section.Pile.BarDiameterMm = 20;
+        double small = SceneExport.Mult(section, -1000);
+        section.Pile.BarDiameterMm = 32;
+        double large = SceneExport.Mult(section, -1000);
+        output.WriteLine($"Mult 12Ø20 {small:0}, 12Ø32 {large:0} kN·m");
+        Assert.True(small > 100 && large > small * 1.5);
+
+        var (gn, gm) = (PileTyping.GridN, PileTyping.GridM);
+        (PileTyping.GridN, PileTyping.GridM) = (3, 4);
+        try
+        {
+            var typing = PileTyping.Verify(PileTyping.Group(PileTyping.Demand(p), 3));
+            var caps = SceneExport.Capacities(typing);
+            Assert.Equal(typing.Types.Sum(t => t.Zones.Count), caps.Count);
+            var data = SceneExport.Data(p, typing, caps);
+            var station = data["piles"]![0]!["stations"]![0]!;
+            Assert.NotNull(station["as"]); Assert.NotNull(station["asp"]); Assert.NotNull(station["mult"]);
+            Assert.NotNull(data["types"]![0]!["zones"]![0]!["mult"]);
+            string html = SceneExport.Html(data);
+            Assert.DoesNotContain("/*DATA*/", html);
+            if (Environment.GetEnvironmentVariable("SECTION_APP_SCREENSHOTS") is { Length: > 0 } dir)
+                File.WriteAllText(Path.Combine(dir, "piles-3d.html"), html);
+        }
+        finally { (PileTyping.GridN, PileTyping.GridM) = (gn, gm); }
+    }
 }

@@ -11,6 +11,8 @@
           <ToggleButton Content="Параметры" IsChecked="{Binding ShowSettings}" IsVisible="{Binding HasTyping}" ToolTip.Tip="Показать или скрыть панель задачи, усилий и параметров" />
           <Button Content="Открыть…" Command="{Binding OpenExportCommand}" ToolTip.Tip="Сохранённая эпюра или выгрузка PLAXIS (*.json)" />
           <Button Content="Сохранить…" Command="{Binding SaveProjectCommand}" />
+          <Button Content="3D-вид" Command="{Binding Open3DCommand}" IsVisible="{Binding Is3D}"
+                  ToolTip.Tip="Сваи в 3D в окне браузера: эпюры N, M, Q и армирования; после типизации — эпюра материалов (Mult зон против M)" />
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="9" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0">
           <ProgressBar Width="150" Value="{Binding Progress}" IsVisible="{Binding IsBusy}" VerticalAlignment="Center" />

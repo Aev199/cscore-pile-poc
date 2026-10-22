@@ -281,7 +281,7 @@ public partial class ProfileViewModel : ObservableObject
     // ---- state ----
     [ObservableProperty] Bitmap? chart;
     public ObservableCollection<StationRowViewModel> Stations { get; } = [];
-    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(LoadSelectionCommand), nameof(LoadForcesCommand), nameof(CalculateCommand), nameof(ExportRevitCommand), nameof(MovePilesCommand), nameof(NewTypeCommand), nameof(ToggleLockCommand))]
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(LoadSelectionCommand), nameof(LoadForcesCommand), nameof(CalculateCommand), nameof(ExportRevitCommand), nameof(MovePilesCommand), nameof(NewTypeCommand), nameof(ToggleLockCommand), nameof(Open3DCommand))]
     bool isBusy;
     [ObservableProperty] double progress;
     [ObservableProperty] string status = "";
@@ -964,6 +964,52 @@ public partial class ProfileViewModel : ObservableObject
     }
 
     string? lastStep;
+
+    /// <summary>Opens a file in its program (the 3D view in the browser); replaced in tests.</summary>
+    public Func<string, bool> OpenFile { get; set; } = path =>
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); return true; }
+        catch (Exception) { return false; }
+    };
+    (TypingResult Typing, Dictionary<(int Type, int Zone), ZoneCapacity> Caps)? capacities;
+
+    /// <summary>
+    /// 3D view of the piles in the browser: diagrams of N, M, Q and reinforcement along each pile; with the typing —
+    /// the material diagram (Mult of the cage zones against M).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    async Task Open3D()
+    {
+        if (project.Source is null || forces is null) { Errors = "Загрузите усилия PLAXIS"; return; }
+        var p = project;
+        var r = HasTyping && !ResultIsStale ? typing : null;
+        await Busy("3D-вид…", async token =>
+        {
+            Dictionary<(int Type, int Zone), ZoneCapacity>? caps = null;
+            if (r is not null)
+            {
+                if (capacities is { } known && ReferenceEquals(known.Typing, r)) caps = known.Caps;
+                else
+                {
+                    var progress = new Progress<(int Done, int Total)>(x =>
+                    {
+                        Progress = 100.0 * x.Done / x.Total;
+                        Status = $"Эпюра материалов: Mult зон {x.Done} из {x.Total}";
+                    });
+                    caps = await Task.Run(() => SceneExport.Capacities(r, progress, token), token);
+                    capacities = (r, caps);
+                }
+            }
+            string html = await Task.Run(() => SceneExport.Html(SceneExport.Data(p, r, caps)), token);
+            string path = Path.Combine(Path.GetTempPath(), $"section-app-3d-{DateTime.Now:yyyyMMdd-HHmmss}.html");
+            await File.WriteAllTextAsync(path, html, token);
+            LastScene = path;
+            Status = OpenFile(path) ? "3D-вид открыт в браузере" : $"Откройте в браузере: {path}";
+        });
+    }
+
+    /// <summary>The last 3D page written.</summary>
+    public string? LastScene { get; private set; }
 
     async Task Busy(string message, Func<CancellationToken, Task> work)
     {
