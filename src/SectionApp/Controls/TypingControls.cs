@@ -281,7 +281,7 @@ public sealed class CagesView : Control
                 context.DrawLine(new Pen(Brushes.White, 1.5), rect.TopLeft, rect.TopRight);
                 double mid = (rect.Top + rect.Bottom) / 2;
                 var bars = Paint.Format(z.Bars.ToString(), 11.5, Paint.Text, bold: true);
-                var rest = Paint.Format((z.SpiralMm is double d ? $"сп. Ø{d:0}  " : "") + (z.K is double k ? $"K {k.ToString("0.00", Paint.Ru)}" : z.Governing is null ? "K …" : "K ?"),
+                var rest = Paint.Format((z.SpiralMm is double d ? $"сп. Ø{d:0}  " : "") + (z.K is double k ? $"K {k.ToString("0.00", Paint.Ru)} {PileTyping.Short(z.Governing)}" : z.Governing is null ? "K …" : "K ?"),
                     10, z.K is > 1 || (z.K is null && z.Governing is not null) ? Paint.Bad : Paint.Muted);
                 if (rect.Height >= bars.Height + rest.Height)
                 {

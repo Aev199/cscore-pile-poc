@@ -37,6 +37,8 @@ public sealed class PileDemands
     public int TablePoints { get; init; }
     public bool ShearChecked { get; init; }
     internal double? SeparateSteelKg { get; set; }
+    /// <summary>Bar count of the cages per class of piles.</summary>
+    internal Dictionary<int, int> Counts { get; } = [];
 }
 
 public sealed record TypingResult(PileDemands Demands, IReadOnlyList<PileType> Types, string? Note)
@@ -206,6 +208,16 @@ public static class PileTyping
         };
     }
 
+    static bool IsShear(string governing) => governing.Contains("наклон", StringComparison.OrdinalIgnoreCase)
+        || governing.Contains("поперечн", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Short name of the governing check for the cages: Q, N,M, трещ., уст.</summary>
+    public static string Short(string? governing) => governing is null ? ""
+        : IsShear(governing) ? "Q"
+        : governing.Contains("трещин", StringComparison.OrdinalIgnoreCase) ? "трещ."
+        : governing.Contains("устойч", StringComparison.OrdinalIgnoreCase) ? "уст."
+        : "N,M";
+
     /// <summary>Spiral (pile) diameter for the required Asw/sw, cm²/m: two legs at the adopted pitch.</summary>
     public static double? Spiral(double asw, double pitchMm)
     {
@@ -332,8 +344,8 @@ public static class PileTyping
         var (a, w) = Envelope(members);
         var st = members[0].Stations;
         double pitch = d.Project.Section.Conditions.ShearPitchMm;
-        // One bar count along the cage (from the strongest station); the diameter changes by zones.
-        int count = BarSuggestion.Choose(d.Project.Section, a.Max(), 0).Right.Count;
+        // One bar count for all cages of the class (piles of one length): the types differ by diameters only.
+        int count = ClassCount(d, members[0].Class);
         var bars = a.Select(x => Bars(d, count, x)).ToArray();
         var spiral = w.Select(x => d.ShearChecked ? Spiral(x, pitch) : null).ToArray();
         var zones = new List<(int From, int To, BarSet Bars, double? Spiral)>();
@@ -368,21 +380,38 @@ public static class PileTyping
             ZoneSteel(d, members.Count, typeZones), members.Sum(m => Steel(d, m.Stations, m.As, m.Asw)));
     }
 
-    /// <summary>The smallest standard diameter of the given count covering the area (and fitting the ring).</summary>
+    /// <summary>
+    /// Bar count of the cages of a class: for the largest required area the ring can give (stations where even the
+    /// full ring is not enough — local peaks — do not set it; they stay with K &gt; 1).
+    /// </summary>
+    static int ClassCount(PileDemands d, int cls)
+    {
+        lock (d.Counts)
+        {
+            if (d.Counts.TryGetValue(cls, out int known)) return known;
+            var piles = d.Piles.Where(p => p.Class == cls).ToList();
+            var areas = piles.SelectMany(p => p.As.Where((_, i) => !p.Exceeded[i])).DefaultIfEmpty(d.Prepared[cls].MaxArea);
+            // With a margin over the tables: the check by the engine may ask for a little more, the diameter grows.
+            int count = BarSuggestion.Choose(d.Project.Section, areas.Max() * 1.15, 0).Right.Count;
+            d.Counts[cls] = count;
+            return count;
+        }
+    }
+
+    /// <summary>The smallest standard diameter of the given count covering the area; the largest that fits if none does.</summary>
     static BarSet Bars(PileDemands d, int count, double area)
     {
-        // The count of the type first; more bars only when even Ø40 of that count is not enough.
         var probe = ProjectStore.Deserialize(ProjectStore.Serialize(d.Project.Section));
-        for (int n = count; n < count + 60; n++)
+        probe.Pile.BarCount = count;
+        BarSet? largest = null;
+        foreach (double dia in BarSuggestion.Diameters)
         {
-            probe.Pile.BarCount = n;
-            foreach (double dia in BarSuggestion.Diameters)
-            {
-                probe.Pile.BarDiameterMm = dia;
-                if (n * Math.PI * dia * dia / 4 >= area - 1e-6 && RequestBuilder.Layout(probe).Fits) return new BarSet(1, n, dia);
-            }
+            probe.Pile.BarDiameterMm = dia;
+            if (!RequestBuilder.Layout(probe).Fits) break;
+            largest = new BarSet(1, count, dia);
+            if (count * Math.PI * dia * dia / 4 >= area - 1e-6) return largest;
         }
-        return BarSuggestion.Choose(d.Project.Section, area, 0).Right;
+        return largest ?? new BarSet(1, count, BarSuggestion.Diameters[0]);
     }
 
     /// <summary>Steel of the type as built: the zone bars and spirals, kg for all its piles.</summary>
@@ -435,17 +464,28 @@ public static class PileTyping
                 section.Pile.BarCount = zone.Bars.Count; section.Pile.BarDiameterMm = zone.Bars.DiameterMm;
                 if (zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
                 var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel);
+                double? before = zone.K;
                 zone = zone with { K = k, Governing = gov };
                 if (k is double kk && kk <= 1) break;
-                if (round == 3) break;
-                // Stronger: the spiral for Q, the bars otherwise.
-                bool q = gov is not null && gov.Contains("наклон", StringComparison.OrdinalIgnoreCase);
-                if (q && zone.SpiralMm is double cur && SpiralDiameters.FirstOrDefault(x => x > cur) is double next and > 0)
-                    zone = zone with { SpiralMm = next };
+                // The engine does not converge or nothing helps any more: the section itself does not hold it.
+                string limit = gov is not null && IsShear(gov) ? "Q не обеспечивается сечением сваи (пик усилий? диаметр сваи?)"
+                    : "не хватает и наибольших стержней этого числа";
+                if (k is null || round == 3 || before is double b && k is double now && b - now < 0.01)
+                {
+                    zone = zone with { Governing = $"{gov} — {limit}" };
+                    break;
+                }
+                // Stronger: the spiral for Q, the bars (same count) otherwise.
+                if (IsShear(gov!))
+                {
+                    if (zone.SpiralMm is double cur && SpiralDiameters.FirstOrDefault(x => x > cur) is double next and > 0)
+                        zone = zone with { SpiralMm = next };
+                    else { zone = zone with { Governing = $"{gov} — {limit}" }; break; }
+                }
                 else
                 {
                     var stronger = Bars(d, zone.Bars.Count, zone.Bars.AreaMm2 * Math.Pow(Math.Max(k ?? 1.2, 1.02), 1.3) * 1.02);
-                    if (stronger.AreaMm2 <= zone.Bars.AreaMm2 + 1e-6) break;
+                    if (stronger.AreaMm2 <= zone.Bars.AreaMm2 + 1e-6) { zone = zone with { Governing = $"{gov} — {limit}" }; break; }
                     zone = zone with { Bars = stronger };
                 }
             }

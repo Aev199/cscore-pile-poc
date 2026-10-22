@@ -547,7 +547,7 @@ public partial class ProfileViewModel : ObservableObject
         StationText = $"Тип {t.Number}{(t.Locked ? " (закреплён)" : "")}: {string.Join(", ", t.Members.Select(m => m.Info.Name))}\n"
             + string.Join("\n", t.Zones.Select(z => $"{z.Top.ToString("0.00", Ru)}…{z.Bottom.ToString("0.00", Ru)}: {z.Bars}"
                 + (z.SpiralMm is double d ? $", спираль Ø{d:0} шаг {typing.Demands.Project.Section.Conditions.ShearPitchMm:0}" : "")
-                + (z.K is double k ? $", K {ReportWriter.Utilization(k)}" : ", K не определён")));
+                + (z.K is double k ? $", K {ReportWriter.Utilization(k)}" + (k > 1 ? $" ({z.Governing})" : "") : ", K не определён")));
     }
 
     // ---- manual editing of the types ----
