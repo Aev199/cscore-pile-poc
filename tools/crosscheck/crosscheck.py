@@ -373,8 +373,8 @@ def summary(res: dict) -> dict:
             continue
         name = other if mine == 'cscore' else 'rsc_short_effect'
         scale = max(abs(v) for key in ('pos', 'neg') for v in res['nm'][other][key] if v is not None)
-        devs = [deviation(a, b, scale) for key in ('pos', 'neg')
-                for a, b in zip(res['nm'][mine][key], res['nm'][other][key])]
+        devs = [deviation(abs(a), abs(b), scale) for key in ('pos', 'neg')
+                for a, b in zip(res['nm'][mine][key], res['nm'][other][key]) if a is not None and b is not None]
         devs = [d for d in devs if d is not None]
         out[name] = {'max_abs': max(map(abs, devs)) if devs else None,
                       'mean': float(np.mean(devs)) if devs else None, 'count': len(devs)}
@@ -471,7 +471,16 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--out', type=Path, default=ROOT / 'docs/crosscheck')
     ap.add_argument('--only', nargs='*', help='ключи сечений')
+    ap.add_argument('--report-only', action='store_true', help='пересобрать отчёт и графики из results.json')
     args = ap.parse_args(argv)
+    if args.report_only:
+        data = json.loads((args.out / 'results.json').read_text(encoding='utf-8'))
+        for key, res in data['cases'].items():
+            res['summary'] = summary(res)
+            plots(res, key, args.out)
+        (args.out / 'results.json').write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding='utf-8')
+        report(data['cases'], data['tables'], args.out)
+        return
     if not RUNNER.exists():
         sys.exit(f'Нет {RUNNER}: dotnet build src/CScorePileRunner -c Release')
     args.out.mkdir(parents=True, exist_ok=True)
