@@ -278,10 +278,20 @@ def sc_axial(case: Case) -> tuple[float, float]:
 
 
 def sc_curvature(case: Case, chi_max: float) -> dict:
+    """The curvature sign of a moment-curvature run is not tied to the theta of the bending
+    strength: of the two directions the one whose largest moment matches the strength for +Mx
+    (theta = π, see sc_nm) is taken."""
     sec = sc_section(case, tension=True)
+    target = abs(sc_section(case, tension=False).section_calculator
+                 .calculate_bending_strength(theta=math.pi, n=case.n_curvature * 1e3).m_y) / 1e6
     chi = np.linspace(0, chi_max, 120)[1:] / 1e3  # 1/m → 1/mm
-    r = sec.section_calculator.calculate_moment_curvature(theta=math.pi, n=case.n_curvature * 1e3, chi=chi)
-    return {'chi': (np.abs(np.asarray(r.chi_y)) * 1e3).tolist(), 'm': (np.abs(np.asarray(r.m_y)) / 1e6).tolist()}
+    best = None
+    for theta in (math.pi, 0.0):
+        r = sec.section_calculator.calculate_moment_curvature(theta=theta, n=case.n_curvature * 1e3, chi=chi)
+        c = {'chi': (np.abs(np.asarray(r.chi_y)) * 1e3).tolist(), 'm': (np.abs(np.asarray(r.m_y)) / 1e6).tolist()}
+        if best is None or abs(max(c['m']) - target) < abs(max(best['m']) - target):
+            best = c
+    return best
 
 
 # ---------------------------------------------------------------- concreteproperties
@@ -314,7 +324,7 @@ def cp_nm(case: Case, ns: list[float]) -> dict[str, list]:
     sec = cp_section(case)
     out = {'pos': [], 'neg': []}
     for n in ns:
-        for key, theta in (('pos', math.pi / 2), ('neg', -math.pi / 2)):
+        for key, theta in (('pos', -math.pi / 2), ('neg', math.pi / 2)):
             try:
                 r = sec.ultimate_bending_capacity(theta=theta, n=-n * 1e3)
                 out[key].append(abs(r.m_xy) / 1e6 * (1 if key == 'pos' else -1))
@@ -324,10 +334,17 @@ def cp_nm(case: Case, ns: list[float]) -> dict[str, list]:
 
 
 def cp_curvature(case: Case, chi_max: float) -> dict:
+    """As sc_curvature: the direction whose largest moment matches the strength for +Mx."""
     sec = cp_section(case)
-    r = sec.moment_curvature_analysis(theta=math.pi / 2, n=-case.n_curvature * 1e3, kappa_inc=2e-7,
-                                      kappa_inc_max=chi_max / 1e3 / 60, progress_bar=False)
-    return {'chi': (np.abs(np.asarray(r.kappa)) * 1e3).tolist(), 'm': (np.abs(np.asarray(r.m_xy)) / 1e6).tolist()}
+    target = abs(sec.ultimate_bending_capacity(theta=-math.pi / 2, n=-case.n_curvature * 1e3).m_xy) / 1e6
+    best = None
+    for theta in (-math.pi / 2, math.pi / 2):
+        r = sec.moment_curvature_analysis(theta=theta, n=-case.n_curvature * 1e3, kappa_inc=2e-7,
+                                          kappa_inc_max=chi_max / 1e3 / 60, progress_bar=False)
+        c = {'chi': (np.abs(np.asarray(r.kappa)) * 1e3).tolist(), 'm': (np.abs(np.asarray(r.m_xy)) / 1e6).tolist()}
+        if best is None or abs(max(c['m']) - target) < abs(max(best['m']) - target):
+            best = c
+    return best
 
 
 # ---------------------------------------------------------------- report
@@ -485,7 +502,9 @@ def main(argv=None):
         sys.exit(f'Нет {RUNNER}: dotnet build src/CScorePileRunner -c Release')
     args.out.mkdir(parents=True, exist_ok=True)
     tables = compare_tables()
-    results = {}
+    previous = args.out / 'results.json'
+    # A partial run (--only) keeps the other sections of the previous run.
+    results = (json.loads(previous.read_text(encoding='utf-8'))['cases'] if args.only and previous.exists() else {})
     for case in cases():
         if args.only and case.key not in args.only:
             continue
