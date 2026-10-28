@@ -35,6 +35,7 @@ internal static class Program
         "" => RunBatch(json),
         "--prepare-loads" => PrepareLoads(json),
         "--prepare-member-loads" => PrepareMemberLoads(json),
+        "--moment-curvature" => RunMomentCurvature(json),
         _ => throw new ArgumentException("Unsupported runner command")
     };
 
@@ -172,6 +173,50 @@ internal static class Program
                 cases = records
             });
         }
+    }
+
+    // Moment-curvature diagram of one section (SP63 8.2.23-8.2.32, upstream
+    // BiaxialCurvatureCurveSolver): cracking, yield and ultimate points with the
+    // scan between them. calc_type selects the material diagrams: "C" design
+    // (materials), "N" / "NL" the sls_probe short / long ones.
+    private static string RunMomentCurvature(string json)
+    {
+        var input = JsonSerializer.Deserialize<BatchInput>(json, ReadOptions)
+            ?? throw new ArgumentException("Пустой JSON");
+        var mc = input.MomentCurvature ?? throw new ArgumentException("moment_curvature is required");
+        if (input.SchemaVersion != 1 || input.Materials is null || input.Candidates is not { Count: 1 })
+            throw new ArgumentException("Некорректная схема JSON");
+        ValidateMaterials(input.Materials);
+        var calc = mc.CalcType switch
+        {
+            "C" => CalcType.C, "N" => CalcType.N, "NL" => CalcType.NL,
+            _ => throw new ArgumentException("calc_type: C, N or NL")
+        };
+        if (calc != CalcType.C && input.SlsProbe is null)
+            throw new ArgumentException("calc_type N/NL needs sls_probe materials");
+        var section = MakeSection(input, input.Candidates[0]);
+        var solver = new BiaxialCurvatureCurveSolver(section, calcCrc: calc, calcService: calc,
+            auxPointsPerSegment: mc.AuxPointsPerSegment);
+        var r = solver.Compute(mc.NKn, mc.MxKnm, mc.MyKnm,
+            mc.NMode == "proportional" ? CurvatureNMode.Proportional : CurvatureNMode.Constant, mc.UsePsi);
+        static object? P(BiaxialCurveScanPoint? p) => p is null ? null : new
+        {
+            n_kn = p.N, mx_knm = p.Mx, my_knm = p.My, e0 = p.E0, ky_1m = p.Ky, kz_1m = p.Kz,
+            segment = p.Segment, converged = p.Converged, psi_active = p.PsiActive, non_physical = p.NonPhysical
+        };
+        return JsonSerializer.Serialize(new
+        {
+            schema_version = 1,
+            engine = "OpenCS.CScore.BiaxialCurvatureCurveSolver",
+            engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
+            status = r.Status,
+            calc_type = mc.CalcType,
+            cracked_at_zero_load = r.CrackedAtZeroLoad,
+            elastic = new { ea0_kn = r.Ea0, b0x_knm2 = r.B0x, b0y_knm2 = r.B0y },
+            cracking = P(r.Cracking), crack_transition = P(r.CrackTransitionPoint),
+            yield = P(r.Yield), ultimate = P(r.Ultimate), ultimate_reference = P(r.UltimateReference),
+            points = r.Points.Select(P).ToArray()
+        });
     }
 
     // Two-plane member input preparation only. Normative eccentricities are
@@ -1362,6 +1407,18 @@ internal sealed class BatchInput
     [JsonPropertyName("research_rectangle")] public ResearchRectangle? ResearchRectangle { get; init; }
     [JsonPropertyName("shear_screening")] public ShearScreening? ShearScreening { get; init; }
     [JsonPropertyName("shear_profile")] public ShearProfileBatch? ShearProfile { get; init; }
+    [JsonPropertyName("moment_curvature")] public MomentCurvatureInput? MomentCurvature { get; init; }
+}
+
+internal sealed class MomentCurvatureInput
+{
+    [JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonPropertyName("mx_knm")] public double MxKnm { get; init; }
+    [JsonPropertyName("my_knm")] public double MyKnm { get; init; }
+    [JsonPropertyName("n_mode")] public string NMode { get; init; } = "constant";
+    [JsonPropertyName("use_psi")] public bool UsePsi { get; init; }
+    [JsonPropertyName("calc_type")] public string CalcType { get; init; } = "C";
+    [JsonPropertyName("aux_points_per_segment")] public int AuxPointsPerSegment { get; init; } = 10;
 }
 
 internal sealed class Pile

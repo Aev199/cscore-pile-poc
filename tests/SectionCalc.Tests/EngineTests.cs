@@ -118,6 +118,16 @@ public class EngineTests
     }
 
     [Fact]
+    public void RebarFollowsAmendmentOneOfSp63()
+    {
+        // Table 6.13 / 6.14 in the edition of amendment 1: A400 Rs = 340, Rs,n = 390; A500 Rsc = 435 (400 short-term).
+        var a400 = MaterialTables.Rebar("A400");
+        Assert.Equal((340.0, 340.0, 390.0), (a400.Rs, a400.Rsc, a400.RsSer));
+        var a500 = MaterialTables.Rebar("A500");
+        Assert.Equal((435.0, 435.0, 400.0, 500.0), (a500.Rs, a500.Rsc, a500.RscShort, a500.RsSer));
+    }
+
+    [Fact]
     public void NoCracksCategoryAndSlenderness()
     {
         var p = Arbat400x600();

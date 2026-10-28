@@ -3,8 +3,13 @@ namespace SectionCalc;
 /// <summary>SP 63.13330.2018 tables 6.7, 6.8, 6.11 (heavy concrete), MPa.</summary>
 public sealed record ConcreteClass(string Name, double Rb, double Rbt, double RbSer, double RbtSer, double Eb);
 
-/// <summary>SP 63.13330.2018 tables 6.13, 6.14, 6.15, MPa.</summary>
-public sealed record RebarClass(string Name, double Rs, double RsSer, double Rsw, double Es);
+/// <summary>
+/// SP 63.13330.2018 with amendment 1, tables 6.13, 6.14, 6.15, MPa. Rsc is the compression resistance,
+/// RscShort the value in brackets of table 6.14 (short-term action only). CScore builds the bar diagram
+/// symmetric by Rs (MaterialChars.D2L: "Rsc only for the formula checks"), so Rsc stays reference data
+/// for the cross-check (tools/crosscheck) until the engine takes it.
+/// </summary>
+public sealed record RebarClass(string Name, double Rs, double Rsc, double RscShort, double RsSer, double Rsw, double Es);
 
 /// <summary>Resistances passed to CScore for one kind of combination, MPa.</summary>
 public sealed record MaterialSet(string Key, string Label, double Rb, double Rbt, double Eb, double Rs, double Es, double Rsw)
@@ -39,9 +44,9 @@ public static class MaterialTables
 
     public static readonly IReadOnlyList<RebarClass> Rebars =
     [
-        new("A240", 210, 240, 170, 200000),
-        new("A400", 350, 400, 280, 200000),
-        new("A500", 435, 500, 300, 200000),
+        new("A240", 210, 210, 210, 240, 170, 200000),
+        new("A400", 340, 340, 340, 390, 280, 200000),
+        new("A500", 435, 435, 400, 500, 300, 200000),
     ];
 
     public static ConcreteClass Concrete(string name) =>
