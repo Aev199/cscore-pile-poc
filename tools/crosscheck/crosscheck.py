@@ -317,28 +317,44 @@ def cp_section(case: Case):
     geom = Geometry(Polygon(case.outline), material=concrete)
     for b in case.bars:
         geom = add_bar(geom, b.area, steel, b.x, b.y, n=16)
-    return ConcreteSection(geom, moment_centroid=(0.0, 0.0), geometric_centroid_override=True)
+    sec = ConcreteSection(geom)
+    # Moments about the origin, as CScore (its geometric centre); the constructor arguments are
+    # overridden by the transformed centroid, hence the assignment.
+    sec.moment_centroid = (0.0, 0.0)
+    return sec
 
 
-def cp_nm(case: Case, ns: list[float]) -> dict[str, list]:
+def cp_nm(case: Case, ns: list[float], reference: dict[str, list]) -> dict[str, list]:
+    """Mx bends about x: theta = 0 / π in concreteproperties. Which of the two compresses the face
+    that +Mx of CScore compresses is a matter of axis conventions only; the assignment that fits
+    the reference branches is taken (the faces of an unsymmetric section differ by far more than
+    any modelling difference)."""
     sec = cp_section(case)
-    out = {'pos': [], 'neg': []}
-    for n in ns:
-        for key, theta in (('pos', -math.pi / 2), ('neg', math.pi / 2)):
+    branches = []
+    for theta in (0.0, math.pi):
+        values = []
+        for n in ns:
             try:
-                r = sec.ultimate_bending_capacity(theta=theta, n=-n * 1e3)
-                out[key].append(abs(r.m_xy) / 1e6 * (1 if key == 'pos' else -1))
+                values.append(abs(sec.ultimate_bending_capacity(theta=theta, n=-n * 1e3).m_xy) / 1e6)
             except Exception:  # noqa: BLE001 — outside the domain
-                out[key].append(None)
-    return out
+                values.append(None)
+        branches.append(values)
+
+    def misfit(a, b):
+        return sum(abs(x - abs(y)) for x, y in zip(a, b) if x is not None and y is not None)
+
+    a, b = branches
+    if misfit(a, reference['pos']) + misfit(b, reference['neg']) > misfit(b, reference['pos']) + misfit(a, reference['neg']):
+        a, b = b, a
+    return {'pos': a, 'neg': [(-v if v is not None else None) for v in b], 'theta_pos': 0.0 if a is branches[0] else math.pi}
 
 
-def cp_curvature(case: Case, chi_max: float) -> dict:
+def cp_curvature(case: Case, chi_max: float, theta_pos: float) -> dict:
     """As sc_curvature: the direction whose largest moment matches the strength for +Mx."""
     sec = cp_section(case)
-    target = abs(sec.ultimate_bending_capacity(theta=-math.pi / 2, n=-case.n_curvature * 1e3).m_xy) / 1e6
+    target = abs(sec.ultimate_bending_capacity(theta=theta_pos, n=-case.n_curvature * 1e3).m_xy) / 1e6
     best = None
-    for theta in (-math.pi / 2, math.pi / 2):
+    for theta in (theta_pos, theta_pos + math.pi):
         r = sec.moment_curvature_analysis(theta=theta, n=-case.n_curvature * 1e3, kappa_inc=2e-7,
                                           kappa_inc_max=chi_max / 1e3 / 60, progress_bar=False)
         c = {'chi': (np.abs(np.asarray(r.kappa)) * 1e3).tolist(), 'm': (np.abs(np.asarray(r.m_xy)) / 1e6).tolist()}
@@ -365,7 +381,10 @@ def run_case(case: Case) -> dict:
     res = {'title': case.title, 'materials': {'Rb': case.rb, 'Rbt': case.rbt, 'Eb': case.eb, 'Rs': case.rs,
                                               'Rsc_table': case.rsc, 'Es': case.es},
            'axial': {'cscore': [nc, nt], 'structuralcodes': list(sc_axial(case))}, 'n': ns}
-    res['nm'] = {'cscore': cscore_nm(case, ns), 'structuralcodes': sc_nm(case, ns), 'concreteproperties': cp_nm(case, ns)}
+    cs_nm = cscore_nm(case, ns)
+    cp = cp_nm(case, ns, cs_nm)
+    theta_pos = cp.pop('theta_pos')
+    res['nm'] = {'cscore': cs_nm, 'structuralcodes': sc_nm(case, ns), 'concreteproperties': cp}
     # Influence of Rsc ≠ Rs (table 6.14, short-term: 400 for A500), not modelled by CScore.
     rebar = app_tables()[1][case.rebar]
     if rebar['Rsc_short'] < rebar['Rs']:
@@ -377,7 +396,7 @@ def run_case(case: Case) -> dict:
     chi_max = max(chi) * 1.05 if chi else 0.02
     res['mk'] = {'n': case.n_curvature, 'cscore': {'chi': chi, 'm': m, 'status': mc['status'],
                                                    **{k: mc[k] for k in ('cracking', 'yield', 'ultimate')}},
-                 'structuralcodes': sc_curvature(case, chi_max), 'concreteproperties': cp_curvature(case, chi_max)}
+                 'structuralcodes': sc_curvature(case, chi_max), 'concreteproperties': cp_curvature(case, chi_max, theta_pos)}
     return res
 
 
@@ -450,11 +469,18 @@ def pct(v):
     return '—' if v is None else f'{v * 100:+.1f} %'
 
 
+def mag(v):
+    return '—' if v is None else f'{v * 100:.1f} %'
+
+
 def report(results: dict, tables: list[dict], out: Path):
     lines = ['# Сверка CScore с независимыми расчётами', '',
              'Сгенерировано `tools/crosscheck/crosscheck.py`. Одинаковые диаграммы СП 63 (двухлинейный бетон, '
              'упругопластическая арматура, εs,u = 0,025) заданы в трёх программах. Отклонение Mult = (CScore − другая) / '
              'наибольший Mult кривой другой программы; для M–κ — к величине другой программы.', '',
+             'Запуск: `pip install -r tools/crosscheck/requirements.txt`, `dotnet build src/CScorePileRunner -c Release`, '
+             '`python tools/crosscheck/crosscheck.py` (около 10 минут; `--only <ключ>` — одно сечение, '
+             '`--report-only` — отчёт из results.json).', '',
              '## Таблицы материалов: приложение и structural-materials', '']
     diff = [r for r in tables if not r['same']]
     lines.append(f"Сравнено значений: {len(tables)}, расхождений: {len(diff)}.")
@@ -466,7 +492,7 @@ def report(results: dict, tables: list[dict], out: Path):
               'Mmax M–κ: sc / cp | M в точке текучести: sc / cp |', '|---|---|---|---|---|---|']
     for key, res in results.items():
         s = res['summary']
-        nm = lambda t: f"макс. {pct(s[t]['max_abs'])}, ср. {pct(s[t]['mean'])}" if t in s and s[t]['max_abs'] is not None else '—'
+        nm = lambda t: f"макс. {mag(s[t]['max_abs'])}, ср. {pct(s[t]['mean'])}" if t in s and s[t]['max_abs'] is not None else '—'
         ax = res['axial']
         lines.append(f"| {res['title']} | {nm('structuralcodes')} | {nm('concreteproperties')} | "
                      f"{ax['cscore'][0]:.0f} / {ax['cscore'][1]:.0f}; {ax['structuralcodes'][0]:.0f} / {ax['structuralcodes'][1]:.0f} | "
@@ -477,8 +503,22 @@ def report(results: dict, tables: list[dict], out: Path):
         lines += ['', '## Влияние Rsc = 400 МПа при кратковременной нагрузке (табл. 6.14)', '',
                   'CScore строит диаграмму арматуры симметрично по Rs и не учитывает Rsc. Ниже — изменение Mult '
                   'в structuralcodes при ограничении сжатия стержней 400 МПа (A500), в долях наибольшего Mult:', '']
-        lines += [f"- {results[k]['title']}: макс. {pct(v['max_abs'])}, ср. {pct(v['mean'])}" for k, v in rsc.items()]
-    lines += ['']
+        lines += [f"- {results[k]['title']}: до {mag(v['max_abs'])}, в среднем {pct(v['mean'])}" for k, v in rsc.items()]
+    lines += ['', '## Пояснения', '',
+              '- Бетон под стержнями вычтен во всех трёх программах (в CScore так устроена область арматуры).',
+              '- Моменты — относительно геометрического центра сечения, как в CScore. concreteproperties по '
+              'умолчанию берёт центр приведённого сечения; в стенде он переназначен.',
+              '- Nc / Nt: CScore — предел по лучу (N, 0, 0) при M = 0 относительно центра; structuralcodes '
+              '(`calculate_limit_axial_load`) — сумма полной текучести всех материалов без условия M = 0. '
+              'При несимметричной арматуре (стена) значения поэтому не совпадают; сравниваются точки N–M.',
+              '- Наибольшие отклонения N–M — у вершин кривой (около Nt), где Mult мал; отклонение отнесено к '
+              'наибольшему Mult.',
+              '- M–κ CScore — `BiaxialCurvatureCurveSolver` (команда runner `--moment-curvature`) по расчётным '
+              'диаграммам (C), без ψs: трещинообразование, текучесть, предел (точки на графике). Провал момента '
+              'после трещины — выключение растянутого бетона за εbt2, он есть во всех трёх программах. '
+              'Сравниваются Mmax и M при кривизне текучести CScore.',
+              '- Rsc: CScore строит диаграмму арматуры в НДМ симметрично по Rs (MaterialChars.D2L), значение '
+              'Rsc = 400 МПа табл. 6.14 для кратковременной нагрузки не учитывается — оценка выше.', '']
     for key, res in results.items():
         lines += [f"### {res['title']}", '', f"![{key}]({key}.png)", '']
     (out / 'README.md').write_text('\n'.join(lines), encoding='utf-8')
