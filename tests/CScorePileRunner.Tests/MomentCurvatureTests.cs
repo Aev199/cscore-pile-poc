@@ -4,7 +4,7 @@ using Xunit;
 
 public class MomentCurvatureTests
 {
-    static JsonNode Request()
+    static JsonNode Request(double? rscKpa = null)
     {
         var data = JsonNode.Parse("""
         {"schema_version":1,"pile":{"diameter_mm":800,"mesh_resolution":41,"polygon_sides":96},
@@ -15,6 +15,7 @@ public class MomentCurvatureTests
         "candidates":[{"id":"P800","bar_count":12,"bar_diameter_mm":25,"bar_axis_radius_mm":317.5,
           "rotation_deg":0,"steel_area_mm2":5890.486225480862,"clearance_mm":100}]}
         """)!;
+        if (rscKpa is double r) data["materials"]!["rebar_rsc_kpa"] = r;
         return data;
     }
 
@@ -34,5 +35,19 @@ public class MomentCurvatureTests
         Assert.True(M("cracking") > 0 && M("cracking") < M("yield") && M("yield") <= M("ultimate") + 1e-6);
         Assert.True(K("cracking") < K("yield") && K("yield") < K("ultimate"));
         Assert.True(r["points"]!.AsArray().Count > 10);
+    }
+
+    [Fact]
+    public void RscLowersTheSquashLoadByTheSteelShare()
+    {
+        double Factor(double? rsc)
+        {
+            var r = JsonNode.Parse(Execute("", Request(rsc).ToJsonString()))!;
+            return (double)r["cases"]![0]!["loads"]![0]!["factor"]!;
+        }
+        // Squash load: the bars at Rsc instead of Rs (12Ø25, 35 MPa less, differential diagram).
+        double same = Factor(null), lower = Factor(400000);
+        double expected = 5890.486 * 35 / 1000;
+        Assert.InRange(same * 6000 - lower * 6000, expected * 0.97, expected * 1.03);
     }
 }

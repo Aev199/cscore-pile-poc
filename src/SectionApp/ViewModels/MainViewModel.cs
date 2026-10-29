@@ -78,6 +78,7 @@ public partial class MainViewModel : ObservableObject
     // ---- materials ----
     [ObservableProperty] string concreteClass = "B30", rebarClass = "A500", transverseClass = "A240";
     [ObservableProperty] string gb1 = "", gb2 = "", gb3 = "", gb5 = "", hardening = "", gammaS = "", gammaSw = "";
+    [ObservableProperty] bool rscByTable = true;
 
     // ---- element and design conditions ----
     [ObservableProperty, NotifyPropertyChangedFor(nameof(L0Text))] string elementLength = "";
@@ -207,7 +208,7 @@ public partial class MainViewModel : ObservableObject
             ConcreteClass = p.ConcreteClass; RebarClass = p.RebarClass; TransverseClass = p.TransverseClass;
             var f = p.Concrete;
             Gb1 = S(f.Gb1); Gb2 = S(f.Gb2); Gb3 = S(f.Gb3); Gb5 = S(f.Gb5); Hardening = S(f.HardeningFactor);
-            GammaS = S(p.LongitudinalFactor); GammaSw = S(p.TransverseFactor);
+            GammaS = S(p.LongitudinalFactor); GammaSw = S(p.TransverseFactor); RscByTable = p.RscByTable;
             var c = p.Conditions;
             ElementLength = S(c.ElementLengthM); MuX = S(c.MuX); MuY = S(c.MuY); SlendernessLimit = S(c.SlendernessLimit);
             StaticallyDeterminate = c.StaticallyDeterminate;
@@ -260,7 +261,7 @@ public partial class MainViewModel : ObservableObject
             {
                 Gb1 = D(Gb1, "γb1"), Gb2 = D(Gb2, "γb2"), Gb3 = D(Gb3, "γb3"), Gb5 = D(Gb5, "γb5"), HardeningFactor = D(Hardening, "Коэффициент упрочнения"),
             },
-            LongitudinalFactor = D(GammaS, "γs продольной"), TransverseFactor = D(GammaSw, "γs поперечной"),
+            LongitudinalFactor = D(GammaS, "γs продольной"), TransverseFactor = D(GammaSw, "γs поперечной"), RscByTable = RscByTable,
             Seismic = new SeismicSettings
             {
                 NormalSectionFactor = D(SeismicNormal, "m_tr нормальных сечений"), InclinedSectionFactor = D(SeismicInclined, "m_tr наклонных сечений"),
@@ -352,7 +353,7 @@ public partial class MainViewModel : ObservableObject
         {
             example.Loads = current.Loads; example.Conditions = current.Conditions; example.ConcreteClass = current.ConcreteClass;
             example.RebarClass = current.RebarClass; example.TransverseClass = current.TransverseClass; example.Concrete = current.Concrete;
-            example.LongitudinalFactor = current.LongitudinalFactor; example.TransverseFactor = current.TransverseFactor;
+            example.LongitudinalFactor = current.LongitudinalFactor; example.TransverseFactor = current.TransverseFactor; example.RscByTable = current.RscByTable;
             example.Seismic = current.Seismic; example.Special = current.Special;
         }
         Load(example);
@@ -620,7 +621,7 @@ public partial class MainViewModel : ObservableObject
     static string Fingerprint(SectionProject p) => System.Text.Json.JsonSerializer.Serialize(new
     {
         p.Kind, Geometry = p.Kind == SectionKind.Pile ? (object)p.Pile : p.Wall, p.ConcreteClass, p.RebarClass, p.TransverseClass,
-        p.Concrete, p.LongitudinalFactor, p.TransverseFactor, p.Seismic, p.Special, p.Conditions, p.Loads,
+        p.Concrete, p.LongitudinalFactor, p.TransverseFactor, p.RscByTable, p.Seismic, p.Special, p.Conditions, p.Loads,
     });
 
     static string Safe(string name) => string.Concat(name.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));

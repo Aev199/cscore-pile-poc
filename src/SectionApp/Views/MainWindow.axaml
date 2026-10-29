@@ -132,6 +132,8 @@
                   <StackPanel Grid.Row="2"><TextBlock Classes="label" Text="Поперечная арматура" /><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding TransverseClass}" /></StackPanel>
                   <StackPanel Grid.Row="2" Grid.Column="2"><TextBlock Classes="label" Text="γs поперечной" /><TextBox Text="{Binding GammaSw}" /></StackPanel>
                 </Grid>
+                <CheckBox IsChecked="{Binding RscByTable}" Content="Сжатие арматуры по Rsc табл. 6.14"
+                          ToolTip.Tip="A500: Rsc = 435 МПа, при кратковременных сочетаниях 400 МПа (значение в скобках). Без галочки Rsc = Rs." />
               </StackPanel>
             </ScrollViewer>
           </TabItem>

@@ -158,22 +158,22 @@ public static class ReportWriter
         var table = NewTable(["Материал", "Нормативные и расчётные характеристики, МПа", "Коэффициенты"], [22, 50, 28]);
         table.Append(Row([$"Бетон {p.ConcreteClass}", $"Rb = {F(c.Rb)}; Rbt = {F(c.Rbt)}; Rb,n = {F(c.RbSer)}; Rbt,n = {F(c.RbtSer)}; Eb = {F(c.Eb, "0")}",
             $"γb1 = {F(f.Gb1)}; γb2 = {F(f.Gb2)}; γb3 = {F(f.Gb3)}; γb5 = {F(f.Gb5)}" + (f.HardeningFactor != 1 ? $"; к Eb {F(f.HardeningFactor)}" : "")]));
-        table.Append(Row([$"Продольная арматура {p.RebarClass}", $"Rs = {F(s.Rs)}; Rs,n = {F(s.RsSer)}; Es = {F(s.Es, "0")}", $"γs = {F(p.LongitudinalFactor)}"]));
+        table.Append(Row([$"Продольная арматура {p.RebarClass}", (p.RscByTable ? $"Rs = {F(s.Rs)}; Rsc = {F(s.Rsc)} ({F(s.RscShort)} при кратковременной); " : $"Rs = Rsc = {F(s.Rs)}; ") + $"Rs,n = {F(s.RsSer)}; Es = {F(s.Es, "0")}", $"γs = {F(p.LongitudinalFactor)}"]));
         table.Append(Row([$"Поперечная арматура {p.TransverseClass}", $"Rsw = {F(t.Rsw)}", $"γs = {F(p.TransverseFactor)}"]));
         return table;
     }
 
     static Table ResistanceTable(SectionProject p)
     {
-        var table = NewTable(["Вид сочетания", "Rb", "Rbt", "Rs", "Rsw"], [40, 15, 15, 15, 15]);
+        var table = NewTable(["Вид сочетания", "Rb", "Rbt", "Rs", "Rsc", "Rsw"], [36, 13, 13, 13, 12, 13]);
         foreach (var kind in p.Loads.Select(CombinationKind.Of).Distinct())
         {
             var m = MaterialTables.Uls(p, kind);
             double rsw = kind.Seismic ? MaterialTables.Uls(p, kind, inclined: true).Rsw : m.Rsw;
-            table.Append(Row([KindName(kind, p), F(m.Rb, "0.##"), F(m.Rbt, "0.###"), F(m.Rs, "0.#"), F(rsw, "0.#")]));
+            table.Append(Row([KindName(kind, p), F(m.Rb, "0.##"), F(m.Rbt, "0.###"), F(m.Rs, "0.#"), F(m.Rsc, "0.#"), F(rsw, "0.#")]));
         }
         var sls = MaterialTables.Sls(p);
-        table.Append(Row(["Трещиностойкость (нормативные)", F(sls.Rb, "0.##"), F(sls.Rbt, "0.###"), F(sls.Rs, "0.#"), "—"]));
+        table.Append(Row(["Трещиностойкость (нормативные)", F(sls.Rb, "0.##"), F(sls.Rbt, "0.###"), F(sls.Rs, "0.#"), F(sls.Rsc, "0.#"), "—"]));
         return table;
     }
 
@@ -454,7 +454,7 @@ public static class ReportWriter
         yield return Para("Расчёт по нелинейной деформационной модели. Диаграммы деформирования: бетона — двухлинейная " +
             "(εb1,red = 0,0015; εb2 = 0,0035; при растяжении εbt1,red = 0,00008; εbt2 = 0,00015), арматуры — двухлинейная (εs2 = 0,025).", "Normal");
         var m = info.Materials;
-        yield return Calc($"Rb = {F(m.Rb, "0.##")} МПа;  Rbt = {F(m.Rbt, "0.###")} МПа;  Rs = {F(m.Rs, "0.#")} МПа (растяжение и сжатие);  Eb = {F(m.Eb, "0")} МПа;  Es = {F(m.Es, "0")} МПа.");
+        yield return Calc($"Rb = {F(m.Rb, "0.##")} МПа;  Rbt = {F(m.Rbt, "0.###")} МПа;  {(Math.Abs(m.Rsc - m.Rs) < 1e-9 ? $"Rs = Rsc = {F(m.Rs, "0.#")} МПа" : $"Rs = {F(m.Rs, "0.#")} МПа;  Rsc = {F(m.Rsc, "0.#")} МПа (табл. 6.14)")};  Eb = {F(m.Eb, "0")} МПа;  Es = {F(m.Es, "0")} МПа.");
         double N = info.N, Mx = info.Mx, My = info.My;
         if (gov.Details is { } gd && Num(gd, "n_kn") is double dn) { N = dn; Mx = Num(gd, "mx_knm") ?? Mx; My = Num(gd, "my_knm") ?? My; }
         yield return Calc($"Усилия в сечении: N = {F1(N)} кН;  Mx = {F1(Mx)} кН·м;  My = {F1(My)} кН·м.");

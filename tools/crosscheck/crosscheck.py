@@ -166,7 +166,7 @@ def assign_materials(case: Case, gb1: float = 0.9):
 
 # ---------------------------------------------------------------- CScore
 
-def runner_request(case: Case, loads: list[dict]) -> dict:
+def runner_request(case: Case, loads: list[dict], rsc: float | None = None) -> dict:
     req = {
         'schema_version': 1,
         'materials': {
@@ -176,6 +176,8 @@ def runner_request(case: Case, loads: list[dict]) -> dict:
         },
         'loads': loads,
     }
+    if rsc is not None:
+        req['materials']['rebar_rsc_kpa'] = rsc * 1000
     if case.pile:
         p = case.pile
         req['pile'] = {'diameter_mm': p['diameter_mm'], 'mesh_resolution': MESH, 'polygon_sides': POLYGON_SIDES}
@@ -210,13 +212,13 @@ def cscore_axial(case: Case) -> tuple[float, float]:
     return -loads['c']['factor'], loads['t']['factor']
 
 
-def cscore_nm(case: Case, ns: list[float]) -> dict[str, list]:
+def cscore_nm(case: Case, ns: list[float], rsc: float | None = None) -> dict[str, list]:
     """Mult at fixed N (MomentFactor) for both signs of the moment about x."""
     loads = []
     for i, n in enumerate(ns):
         loads.append({'id': f'p{i}', 'n_kn': n, 'mx_knm': 1, 'my_knm': 0})
         loads.append({'id': f'm{i}', 'n_kn': n, 'mx_knm': -1, 'my_knm': 0})
-    out = run_runner(runner_request(case, loads))
+    out = run_runner(runner_request(case, loads, rsc))
     by = {l['id']: l for l in out['cases'][0]['loads']}
     pos = [by[f'p{i}'].get('moment_factor') for i in range(len(ns))]
     neg = [(-by[f'm{i}']['moment_factor'] if by[f'm{i}'].get('moment_factor') is not None else None) for i in range(len(ns))]
@@ -389,6 +391,7 @@ def run_case(case: Case) -> dict:
     rebar = app_tables()[1][case.rebar]
     if rebar['Rsc_short'] < rebar['Rs']:
         res['nm']['structuralcodes_rsc_short'] = sc_nm(case, ns, rsc=rebar['Rsc_short'])
+        res['nm']['cscore_rsc_short'] = cscore_nm(case, ns, rsc=rebar['Rsc_short'])
     mc = cscore_curvature(case)
     pts = [p for p in mc['points'] if p and p['converged']]
     chi = [math.hypot(p['ky_1m'], p['kz_1m']) for p in pts]
@@ -403,11 +406,11 @@ def run_case(case: Case) -> dict:
 def summary(res: dict) -> dict:
     out = {}
     pairs = [('cscore', 'structuralcodes'), ('cscore', 'concreteproperties'),
-             ('structuralcodes_rsc_short', 'structuralcodes')]
+             ('structuralcodes_rsc_short', 'structuralcodes'), ('cscore_rsc_short', 'structuralcodes_rsc_short')]
     for mine, other in pairs:
         if mine not in res['nm']:
             continue
-        name = other if mine == 'cscore' else 'rsc_short_effect'
+        name = {'cscore': other, 'structuralcodes_rsc_short': 'rsc_short_effect'}.get(mine, 'rsc_short_cscore')
         scale = max(abs(v) for key in ('pos', 'neg') for v in res['nm'][other][key] if v is not None)
         devs = [deviation(abs(a), abs(b), scale) for key in ('pos', 'neg')
                 for a, b in zip(res['nm'][mine][key], res['nm'][other][key]) if a is not None and b is not None]
@@ -436,9 +439,9 @@ def plots(res: dict, key: str, out: Path):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     colours = {'cscore': '#2F6ED8', 'structuralcodes': '#E07A1F', 'concreteproperties': '#2E9E5B',
-               'structuralcodes_rsc_short': '#C23B6B'}
+               'structuralcodes_rsc_short': '#C23B6B', 'cscore_rsc_short': '#7B4FC9'}
     names = {'cscore': 'CScore', 'structuralcodes': 'structuralcodes', 'concreteproperties': 'concreteproperties',
-             'structuralcodes_rsc_short': 'structuralcodes, Rsc = 400 (кратковр.)'}
+             'structuralcodes_rsc_short': 'structuralcodes, Rsc = 400 (кратковр.)', 'cscore_rsc_short': 'CScore, Rsc = 400'}
     fig, (a, b) = plt.subplots(1, 2, figsize=(12, 5))
     for tool, data in res['nm'].items():
         for sign in ('pos', 'neg'):
@@ -501,9 +504,14 @@ def report(results: dict, tables: list[dict], out: Path):
     rsc = {k: r['summary']['rsc_short_effect'] for k, r in results.items() if 'rsc_short_effect' in r['summary']}
     if rsc:
         lines += ['', '## Влияние Rsc = 400 МПа при кратковременной нагрузке (табл. 6.14)', '',
-                  'CScore строит диаграмму арматуры симметрично по Rs и не учитывает Rsc. Ниже — изменение Mult '
-                  'в structuralcodes при ограничении сжатия стержней 400 МПа (A500), в долях наибольшего Mult:', '']
-        lines += [f"- {results[k]['title']}: до {mag(v['max_abs'])}, в среднем {pct(v['mean'])}" for k, v in rsc.items()]
+                  'Собственная диаграмма арматуры CScore симметрична по Rs; приложение (настройка «Сжатие арматуры '
+                  'по Rsc табл. 6.14») передаёт Rsc, и runner строит расчётную диаграмму со сжатием по Rsc. '
+                  'Изменение Mult при Rsc = 400 МПа (A500) против Rsc = Rs и сверка этой диаграммы CScore со '
+                  'structuralcodes, в долях наибольшего Mult:', '',
+                  '| Сечение | Изменение Mult (structuralcodes) | CScore с Rsc против structuralcodes с Rsc |', '|---|---|---|']
+        lines += [f"| {results[k]['title']} | до {mag(v['max_abs'])}, в среднем {pct(v['mean'])} | "
+                  + (f"макс. {mag(c['max_abs'])}, ср. {pct(c['mean'])}" if (c := results[k]['summary'].get('rsc_short_cscore')) else '—')
+                  + ' |' for k, v in rsc.items()]
     lines += ['', '## Пояснения', '',
               '- Бетон под стержнями вычтен во всех трёх программах (в CScore так устроена область арматуры).',
               '- Моменты — относительно геометрического центра сечения, как в CScore. concreteproperties по '
@@ -517,8 +525,8 @@ def report(results: dict, tables: list[dict], out: Path):
               'диаграммам (C), без ψs: трещинообразование, текучесть, предел (точки на графике). Провал момента '
               'после трещины — выключение растянутого бетона за εbt2, он есть во всех трёх программах. '
               'Сравниваются Mmax и M при кривизне текучести CScore.',
-              '- Rsc: CScore строит диаграмму арматуры в НДМ симметрично по Rs (MaterialChars.D2L), значение '
-              'Rsc = 400 МПа табл. 6.14 для кратковременной нагрузки не учитывается — оценка выше.', '']
+              '- Rsc: диаграмма арматуры ядра симметрична по Rs (MaterialChars.D2L); несимметричную расчётную '
+              'диаграмму (C, CL) строит runner открытыми средствами ядра (Diagramm, Diagramm.Differential).', '']
     for key, res in results.items():
         lines += [f"### {res['title']}", '', f"![{key}]({key}.png)", '']
     (out / 'README.md').write_text('\n'.join(lines), encoding='utf-8')

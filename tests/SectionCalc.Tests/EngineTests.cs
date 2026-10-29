@@ -125,6 +125,28 @@ public class EngineTests
         Assert.Equal((340.0, 340.0, 390.0), (a400.Rs, a400.Rsc, a400.RsSer));
         var a500 = MaterialTables.Rebar("A500");
         Assert.Equal((435.0, 435.0, 400.0, 500.0), (a500.Rs, a500.Rsc, a500.RscShort, a500.RsSer));
+        var p = Arbat400x600();
+        p.RebarClass = "A500";
+        var normal = MaterialTables.Uls(p, new CombinationKind(false, false, false));
+        var shortTerm = MaterialTables.Uls(p, new CombinationKind(true, false, false));
+        Assert.False(normal.Engine().ContainsKey("rebar_rsc_kpa"));
+        Assert.Equal(400000 * p.LongitudinalFactor, (double)shortTerm.Engine()["rebar_rsc_kpa"], 6);
+        p.RscByTable = false;
+        Assert.False(MaterialTables.Uls(p, new CombinationKind(true, false, false)).Engine().ContainsKey("rebar_rsc_kpa"));
+    }
+
+    [Fact]
+    public void ShortTermRscLowersTheCompressedSectionCapacity()
+    {
+        var p = Arbat400x600();
+        p.RebarClass = "A500";
+        p.Loads = [new LoadRow { Name = "1", N = -2500, Mx = 60, ShortTerm = true }];
+        double K(bool table)
+        {
+            p.RscByTable = table;
+            return Engine.Check(p).Rows.Where(x => x.CheckId == "normal_strength").Max(x => x.Utilization ?? 0);
+        }
+        Assert.True(K(true) > K(false) * 1.01);
     }
 
     [Fact]

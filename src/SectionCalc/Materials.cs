@@ -5,16 +5,15 @@ public sealed record ConcreteClass(string Name, double Rb, double Rbt, double Rb
 
 /// <summary>
 /// SP 63.13330.2018 with amendment 1, tables 6.13, 6.14, 6.15, MPa. Rsc is the compression resistance,
-/// RscShort the value in brackets of table 6.14 (short-term action only). CScore builds the bar diagram
-/// symmetric by Rs (MaterialChars.D2L: "Rsc only for the formula checks"), so Rsc stays reference data
-/// for the cross-check (tools/crosscheck) until the engine takes it.
+/// RscShort the value in brackets of table 6.14 (short-term action only).
 /// </summary>
 public sealed record RebarClass(string Name, double Rs, double Rsc, double RscShort, double RsSer, double Rsw, double Es);
 
 /// <summary>Resistances passed to CScore for one kind of combination, MPa.</summary>
-public sealed record MaterialSet(string Key, string Label, double Rb, double Rbt, double Eb, double Rs, double Es, double Rsw)
+/// <remarks>Rsc goes on the compression branch of the design bar diagram (the runner rebuilds it; CScore's own is symmetric by Rs).</remarks>
+public sealed record MaterialSet(string Key, string Label, double Rb, double Rbt, double Eb, double Rs, double Es, double Rsw, double Rsc)
 {
-    internal Dictionary<string, object> Engine() => MaterialTables.Engine(Rb, Rbt, Eb, Rs, Es);
+    internal Dictionary<string, object> Engine() => MaterialTables.Engine(Rb, Rbt, Eb, Rs, Es, Rsc);
 }
 
 /// <summary>What a combination does to the material resistances.</summary>
@@ -73,8 +72,9 @@ public static class MaterialTables
             double rb = (n ? c.RbSer : c.Rb * gb1 * gb) * sp.ConcreteFactor * sp.AdditionalFactor;
             double rbt = (n ? c.RbtSer : c.Rbt * gb1) * sp.ConcreteFactor * sp.AdditionalFactor;
             double rs = (n ? s.RsSer : s.Rs * p.LongitudinalFactor) * sp.LongitudinalFactor * sp.AdditionalFactor;
+            double rsc = n ? rs : Rsc(p, s, kind) * p.LongitudinalFactor * sp.LongitudinalFactor * sp.AdditionalFactor;
             double rsw = (n ? t.Rsw * TransverseNormativeFactor : t.Rsw * p.TransverseFactor) * sp.TransverseFactor * sp.AdditionalFactor;
-            return new("special", n ? "особое: нормативные характеристики" : "особое: расчётные характеристики", rb, rbt, eb, rs, s.Es, rsw);
+            return new("special", n ? "особое: нормативные характеристики" : "особое: расчётные характеристики", rb, rbt, eb, rs, s.Es, rsw, rsc);
         }
         double g1 = kind.ShortTerm ? 1 : f.Gb1;
         double m = kind.Seismic ? (inclined ? p.Seismic.InclinedSectionFactor : p.Seismic.NormalSectionFactor) : 1;
@@ -83,20 +83,30 @@ public static class MaterialTables
         string label = (kind.ShortTerm ? "кратковременное (γb1 = 1)" : "γb1 = " + g1.ToString("0.##", ru))
             + (kind.Seismic ? ", сейсмика m_tr = " + m.ToString("0.##", ru) : "");
         return new(key, label, c.Rb * g1 * f.Gb2 * f.Gb3 * f.Gb5 * m, c.Rbt * g1 * m, eb, s.Rs * p.LongitudinalFactor * m, s.Es,
-            t.Rsw * p.TransverseFactor * m);
+            t.Rsw * p.TransverseFactor * m, Rsc(p, s, kind) * p.LongitudinalFactor * m);
     }
+
+    /// <summary>Table 6.14: Rsc, the value in brackets for short-term combinations; Rs when the option is off.</summary>
+    static double Rsc(SectionProject p, RebarClass s, CombinationKind kind) =>
+        !p.RscByTable ? s.Rs : kind.ShortTerm ? s.RscShort : s.Rsc;
 
     /// <summary>Normative (SLS) characteristics: Rb,ser, Rbt,ser, Rs,ser; γ factors of the first group do not apply.</summary>
     public static MaterialSet Sls(SectionProject p)
     {
         var c = Concrete(p.ConcreteClass); var s = Rebar(p.RebarClass);
-        return new("sls", "нормативные", c.RbSer, c.RbtSer, c.Eb * p.Concrete.HardeningFactor, s.RsSer, s.Es, 0);
+        return new("sls", "нормативные", c.RbSer, c.RbtSer, c.Eb * p.Concrete.HardeningFactor, s.RsSer, s.Es, 0, s.RsSer);
     }
 
-    internal static Dictionary<string, object> Engine(double rb, double rbt, double eb, double rs, double es) => new()
+    /// <summary>Rsc goes to the engine only where it differs from Rs.</summary>
+    internal static Dictionary<string, object> Engine(double rb, double rbt, double eb, double rs, double es, double rsc)
     {
-        ["concrete_rb_kpa"] = rb * 1000, ["concrete_rbt_kpa"] = rbt * 1000, ["concrete_e_kpa"] = eb * 1000,
-        ["concrete_ec1"] = -0.0015, ["concrete_ec2"] = -0.0035, ["concrete_et1"] = 0.00008, ["concrete_et2"] = 0.00015,
-        ["rebar_rs_kpa"] = rs * 1000, ["rebar_e_kpa"] = es * 1000, ["rebar_ec2"] = -0.025, ["rebar_et2"] = 0.025,
-    };
+        var d = new Dictionary<string, object>
+        {
+            ["concrete_rb_kpa"] = rb * 1000, ["concrete_rbt_kpa"] = rbt * 1000, ["concrete_e_kpa"] = eb * 1000,
+            ["concrete_ec1"] = -0.0015, ["concrete_ec2"] = -0.0035, ["concrete_et1"] = 0.00008, ["concrete_et2"] = 0.00015,
+            ["rebar_rs_kpa"] = rs * 1000, ["rebar_e_kpa"] = es * 1000, ["rebar_ec2"] = -0.025, ["rebar_et2"] = 0.025,
+        };
+        if (Math.Abs(rsc - rs) > 1e-9) d["rebar_rsc_kpa"] = rsc * 1000;
+        return d;
+    }
 }

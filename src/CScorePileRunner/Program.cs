@@ -1271,6 +1271,23 @@ internal static class Program
                 }).ToArray();
         }
         var rebarRegion = MaterialArea.CreateRebarArea(bars, rebar, DiagrammType.L2, region);
+        if (material.RebarRscKpa is double rsc && Math.Abs(rsc - material.RebarRsKpa) > 1e-6)
+        {
+            // SP63 6.2.13, table 6.14: the bar diagram takes Rs in tension and Rsc in compression.
+            // CScore builds the L2 bar diagram symmetric by Rs (MaterialChars.D2L), so the design
+            // diagrams (C, CL) are rebuilt here the same way with Rsc on the compression branch
+            // and made differential against the host concrete as CreateRebarArea does.
+            // Normative diagrams (N, NL: cracks) keep Rs,ser.
+            foreach (var mode in new[] { CalcType.C, CalcType.CL })
+            {
+                double e = material.RebarEKpa, rs = material.RebarRsKpa;
+                var own = new Diagramm(
+                    new CSmath.LSpline([material.RebarEc2, -rsc / e, 0.0], [-rsc, -rsc, 0.0]),
+                    new CSmath.LSpline([0.0, rs / e, material.RebarEt2], [0.0, rs, rs]),
+                    DiagrammType.L2, MatType.ReSteelF, "Двухлинейная по СП63.13330, Rsc по табл. 6.14");
+                rebarRegion.Diagramms[mode] = Diagramm.Differential(own, region.Diagramms[mode]);
+            }
+        }
         return new CrossSection { Tag = candidate.Id, Areas = [region, rebarRegion] };
     }
 
@@ -1280,6 +1297,8 @@ internal static class Program
                               m.RebarRsKpa, m.RebarEKpa, m.ConcreteEt1,
                               m.ConcreteEt2, m.RebarEt2};
         var negative = new[] {m.ConcreteEc1, m.ConcreteEc2, m.RebarEc2};
+        if (m.RebarRscKpa is double rsc && (!double.IsFinite(rsc) || rsc <= 0))
+            throw new ArgumentException("Invalid rebar compression resistance");
         if (positive.Any(x => !double.IsFinite(x) || x <= 0)
             || negative.Any(x => !double.IsFinite(x) || x >= 0))
             throw new ArgumentException("Invalid service material characteristics");
@@ -1291,6 +1310,8 @@ internal static class Program
             input.Loads is null || input.Candidates is null ||
             input.Loads.Count == 0 || input.Candidates.Count == 0)
             throw new ArgumentException("Некорректная схема JSON");
+        if (input.Materials.RebarRscKpa is double rsc && (!double.IsFinite(rsc) || rsc <= 0))
+            throw new ArgumentException("Invalid rebar compression resistance");
         bool rectMode = input.ResearchRectangle is not null;
         if (!rectMode && (input.Pile.DiameterMm <= 0 || input.Pile.MeshResolution < 10 ||
                           input.Pile.PolygonSides < 32))
@@ -1441,6 +1462,8 @@ internal sealed class Materials
     [JsonPropertyName("concrete_et1")] public double ConcreteEt1 { get; init; }
     [JsonPropertyName("concrete_et2")] public double ConcreteEt2 { get; init; }
     [JsonPropertyName("rebar_rs_kpa")] public double RebarRsKpa { get; init; }
+    // Compression resistance Rsc of the design diagrams (SP63 table 6.14); Rs when absent.
+    [JsonPropertyName("rebar_rsc_kpa")] public double? RebarRscKpa { get; init; }
     [JsonPropertyName("rebar_e_kpa")] public double RebarEKpa { get; init; }
     [JsonPropertyName("rebar_ec2")] public double RebarEc2 { get; init; }
     [JsonPropertyName("rebar_et2")] public double RebarEt2 { get; init; }

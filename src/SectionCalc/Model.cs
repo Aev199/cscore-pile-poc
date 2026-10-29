@@ -250,6 +250,11 @@ public sealed class SectionProject
     /// <summary>γs of the longitudinal and transverse reinforcement.</summary>
     public double LongitudinalFactor { get; set; } = 1;
     public double TransverseFactor { get; set; } = 1;
+    /// <summary>
+    /// Rsc of table 6.14 on the compression branch of the bar diagram (A500: 435, 400 in short-term
+    /// combinations); otherwise Rsc = Rs, as the engine's own diagram.
+    /// </summary>
+    public bool RscByTable { get; set; } = true;
     public List<LoadRow> Loads { get; set; } = [];
     public Conditions Conditions { get; set; } = new();
     public SeismicSettings Seismic { get; set; } = new();
