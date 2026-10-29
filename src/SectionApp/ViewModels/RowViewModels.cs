@@ -22,8 +22,26 @@ public partial class LoadRowViewModel : ObservableObject
     [ObservableProperty] bool special;
 
     // A combination is either seismic or special (SP 14 / SP 296), never both.
-    partial void OnSeismicChanged(bool value) { if (value) Special = false; }
-    partial void OnSpecialChanged(bool value) { if (value) Seismic = false; }
+    partial void OnSeismicChanged(bool value) { if (value) Special = false; OnPropertyChanged(nameof(KindIndex)); }
+    partial void OnSpecialChanged(bool value) { if (value) Seismic = false; OnPropertyChanged(nameof(KindIndex)); }
+    partial void OnShortTermChanged(bool value) => OnPropertyChanged(nameof(KindIndex));
+
+    /// <summary>Kind of the combination in one list instead of three flags.</summary>
+    public static IReadOnlyList<string> KindOptions { get; } = ["основное", "кратковр.", "сейсм.", "сейсм. кратк.", "особое", "особое кратк."];
+    public IReadOnlyList<string> Kinds => KindOptions;
+    public int KindIndex
+    {
+        get => (Seismic ? 2 : Special ? 4 : 0) + (ShortTerm ? 1 : 0);
+        set
+        {
+            if (value < 0 || value == KindIndex) return;
+            bool wasLoading = loading;
+            loading = true;
+            Seismic = value is 2 or 3; Special = value is 4 or 5; ShortTerm = value % 2 == 1;
+            loading = wasLoading;
+            OnPropertyChanged();
+        }
+    }
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
@@ -65,6 +83,23 @@ public partial class LoadRowViewModel : ObservableObject
     static string S(double v) => v.ToString("0.###", Ru);
 }
 
+/// <summary>One vertex of a polygon outline (arbitrary section), mm.</summary>
+public partial class VertexRowViewModel(MainViewModel owner, string x, string y) : ObservableObject
+{
+    [ObservableProperty] string x = x;
+    [ObservableProperty] string y = y;
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e) { base.OnPropertyChanged(e); owner.InputsChanged(); }
+}
+
+/// <summary>One bar of the bar table (arbitrary section): axis coordinates and diameter, mm.</summary>
+public partial class BarRowViewModel(MainViewModel owner, string x, string y, string d) : ObservableObject
+{
+    [ObservableProperty] string x = x;
+    [ObservableProperty] string y = y;
+    [ObservableProperty] string d = d;
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e) { base.OnPropertyChanged(e); owner.InputsChanged(); }
+}
+
 /// <summary>One combination in the results table: worst K per check type; values above 1 are highlighted.</summary>
 public sealed class CombinationRowViewModel(CombinationLine line)
 {
@@ -92,7 +127,8 @@ public sealed class CheckRowViewModel
     public required string Tone { get; init; }
     /// <summary>Utilisation bar fill, 0…1 of the bar width (K = 1 at 80 %).</summary>
     public double Fill { get; init; }
-    public double FillWidth => Fill * 64;
+    public double FillWidth => Fill * 48;
+    public string Tip => $"{Status}; {Combination}";
     public bool IsOk => Tone == "ok";
     public bool IsBad => Tone == "bad";
     public bool IsWarn => Tone == "warn";

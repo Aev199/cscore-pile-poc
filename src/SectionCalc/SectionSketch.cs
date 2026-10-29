@@ -88,11 +88,12 @@ public static class SectionSketch
             canvas.DrawRect(rect, stroke);
             double t = Math.Min(g.StirrupCoverMm(g.PositiveFace.BarDiameterMm), g.StirrupCoverMm(g.NegativeFace.BarDiameterMm)) + g.StirrupDiameterMm / 2;
             canvas.DrawRect(new SKRect(P(-w / 2 + t, h / 2 - t).X, P(-w / 2 + t, h / 2 - t).Y, P(w / 2 - t, -h / 2 + t).X, P(w / 2 - t, -h / 2 + t).Y), tie);
-            Dimension(canvas, P(-w / 2, -h / 2), P(w / 2, -h / 2), 26, $"b = {g.WidthMm:0}", font, text);
+            Dimension(canvas, P(-w / 2, -h / 2), P(w / 2, -h / 2), 26 + font.Size * 1.2f, $"b = {g.WidthMm:0}", font, text);
             Dimension(canvas, P(w / 2, -h / 2), P(w / 2, h / 2), 30, $"h = {g.ThicknessMm:0}", font, text, vertical: true);
             using var plus = new SKPaint { Color = Plus, IsAntialias = true };
-            Label(canvas, "грань «+»", P(-w / 2, h / 2).X, P(-w / 2, h / 2).Y - font.Size * 0.5f, SKTextAlign.Left, font, plus);
-            Label(canvas, "грань «−»", P(-w / 2, -h / 2).X, P(-w / 2, -h / 2).Y + font.Size * 1.3f, SKTextAlign.Left, font, text);
+            // Face names above and below the middle of the faces, clear of the dimensions and the axes.
+            Label(canvas, "грань «+»", P(0, h / 2).X, P(0, h / 2).Y - font.Size * 0.5f, SKTextAlign.Center, font, plus);
+            Label(canvas, "грань «−»", P(0, -h / 2).X, P(0, -h / 2).Y + font.Size * 1.1f, SKTextAlign.Center, font, text);
         }
         foreach (var b in layout.Bars)
             canvas.DrawCircle(P(b.XMm, b.YMm), Math.Max(fontPx * 0.25f, (float)b.DiameterMm / 2 * scale), bar);

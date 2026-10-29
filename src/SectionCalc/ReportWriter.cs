@@ -540,7 +540,7 @@ public static class ReportWriter
             yield return Calc($"Qb = {F1(qb)} кН (п. 8.1.33; 0,5·φn·Rbt·b·h0 = {F1(lo)} ≤ Qb ≤ 2,5·φn·Rbt·b·h0 = {F1(hi)}){bound};");
         }
         if (Num(d, "allowable") is double allow)
-            yield return Calc($"Q = {F1(info.Q)} кН ≤ Qb + Qsw = {F1(allow)} кН;  " + Verdict(gov.Utilization ?? 0, "условие выполнено", "условие не выполнено"));
+            yield return Calc($"Q = {F1(info.Q)} кН {((gov.Utilization ?? 0) <= 1 ? "≤" : ">")} Qb + Qsw = {F1(allow)} кН;  " + Verdict(gov.Utilization ?? 0, "условие выполнено", "условие не выполнено"));
 
         if (Worst(r, "inclined_moment") is { } im)
         {

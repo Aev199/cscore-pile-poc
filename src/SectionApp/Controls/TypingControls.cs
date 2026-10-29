@@ -148,8 +148,6 @@ public sealed class PilePlan : Control
             context.DrawRectangle(Brushes.White, new Pen(Paint.Muted, 1), new Rect(pos.X - 6, pos.Y - 4, ft.Width + 12, ft.Height + 8), 4, 4);
             context.DrawText(ft, pos);
         }
-        var hint = Paint.Format("колесо — масштаб, правая кнопка — сдвиг, двойной щелчок — вписать; рамка или Ctrl+щелчок — выбор", 10.5, Paint.Muted);
-        context.DrawText(hint, new Point(8, Bounds.Height - hint.Height - 4));
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)

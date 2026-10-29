@@ -3,11 +3,15 @@ using System.ComponentModel;
 using System.Globalization;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SectionCalc;
 
 namespace SectionApp.ViewModels;
+
+/// <summary>One concrete outline template in the shape picker.</summary>
+public sealed record ShapeOption(ShapeKind Kind, string Name, string Icon);
 
 public partial class MainViewModel : ObservableObject
 {
@@ -17,63 +21,155 @@ public partial class MainViewModel : ObservableObject
         nameof(Sketch), nameof(IsBusy), nameof(StatusText), nameof(Progress), nameof(ShowProgress), nameof(HasResult),
         nameof(ResultIsStale), nameof(VerdictText), nameof(VerdictTone), nameof(GoverningText), nameof(InputErrors),
         nameof(HasInputErrors), nameof(SelectionSummary), nameof(HasSelection), nameof(SteelText), nameof(SelectedTab),
-        nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(KindTitle), nameof(EtaByCscore),
-        nameof(SelectedLoad), nameof(AxisText), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders),
-        nameof(ProfileMode), nameof(IsSectionMode), nameof(IsProfileMode), nameof(LimitedWidth), nameof(InputTab), nameof(SeismicUsed), nameof(SpecialUsed), nameof(SpecialDesign),
+        nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(IsPile), nameof(IsCustom),
+        nameof(IsGeotech), nameof(KindTitle), nameof(EtaByCscore), nameof(SelectedLoad), nameof(SelectedBar), nameof(SelectedVertex),
+        nameof(AxisText), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders), nameof(ProfileMode), nameof(IsSectionMode),
+        nameof(IsProfileMode), nameof(IsCustomMode), nameof(IsGeotechMode), nameof(LimitedWidth), nameof(SeismicUsed), nameof(SpecialUsed),
+        nameof(SpecialDesign), nameof(AutoCalc), nameof(PropertiesText), nameof(IsContour), nameof(IsManual), nameof(IsPolygon),
+        nameof(ShowRect), nameof(ShowDiameter), nameof(ShowInner), nameof(ShowFlanges), nameof(ShowBoxWall), nameof(ContourText),
+        nameof(ShowSeismic), nameof(CanCheck), nameof(ShowHeight),
     ];
 
     CancellationTokenSource? cancel;
+    readonly SemaphoreSlim engine = new(1, 1);
+    readonly DispatcherTimer debounce = new() { Interval = TimeSpan.FromMilliseconds(450) };
+    int runId;
     CheckResult? lastResult;
     SelectionResult? lastSelection;
     bool loading;
+    SectionKind lastGeotech = SectionKind.Pile;
+    /// <summary>Project of the mode not on screen: each mode keeps its own title, forces and settings.</summary>
+    SectionProject other = SectionProject.Example(SectionKind.Pile);
 
     public MainViewModel()
     {
         Profile = new ProfileViewModel(this);
-        Load(SectionProject.Example(SectionKind.Pile));
+        debounce.Tick += async (_, _) => { debounce.Stop(); await AutoCheck(); };
+        Load(SectionProject.Example(SectionKind.Custom));
     }
 
     /// <summary>Module «Эпюры (PLAXIS)»; it takes the section from this view model.</summary>
     public ProfileViewModel Profile { get; }
 
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsSectionMode), nameof(IsProfileMode))] bool profileMode;
+    // ---- modes: any section / geotechnical section / PLAXIS diagrams ----
+
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsSectionMode), nameof(IsProfileMode), nameof(IsCustomMode), nameof(IsGeotechMode))]
+    bool profileMode;
     public bool IsSectionMode => !ProfileMode;
     public bool IsProfileMode => ProfileMode;
+    public bool IsCustomMode => !ProfileMode && IsCustom;
+    public bool IsGeotechMode => !ProfileMode && !IsCustom;
     partial void OnProfileModeChanged(bool value) { if (value) Profile.RefreshForces(); }
 
-    [RelayCommand] void ShowSection() => ProfileMode = false;
-    [RelayCommand] void ShowProfile() => ProfileMode = true;
+    [RelayCommand] void ShowCustom() { if (SwitchMode(custom: true)) ProfileMode = false; }
+    [RelayCommand] void ShowSection() { if (SwitchMode(custom: false)) ProfileMode = false; }
+    [RelayCommand]
+    void ShowProfile()
+    {
+        // The PLAXIS module designs a pile or a wall: it works with the geotechnical section.
+        if (SwitchMode(custom: false)) ProfileMode = true;
+    }
+
+    /// <summary>Swaps the project on screen with the one of the other mode; false when the input cannot be kept.</summary>
+    bool SwitchMode(bool custom)
+    {
+        if (IsCustom == custom) return true;
+        if (TryBuild(out var errors, quiet: true) is not { } current) { ShowErrors(errors); return false; }
+        var target = other;
+        other = current;
+        Load(target);
+        return true;
+    }
 
     /// <summary>Set by the window: file dialogs need the top-level storage provider.</summary>
     public Func<IStorageProvider?>? Storage { get; set; }
 
     public IReadOnlyList<string> ConcreteClasses { get; } = MaterialTables.Concretes.Select(c => c.Name).ToList();
     public IReadOnlyList<string> RebarClasses { get; } = MaterialTables.Rebars.Select(r => r.Name).ToList();
-    public IReadOnlyList<string> SecondOrderOptions { get; } =
-        ["Учитывать (п. 8.1.15)", "Учтено в усилиях", "Не учитывать"];
-    public IReadOnlyList<string> CrackCategoryOptions { get; } = ["Ограниченное раскрытие трещин", "Трещины не допускаются"];
-    public IReadOnlyList<string> CrackRequirementOptions { get; } = ["Сохранность арматуры", "Ограничение проницаемости"];
-    public IReadOnlyList<string> CrackMethodOptions { get; } = ["Консервативный", "Уточнённый"];
+    public IReadOnlyList<string> SecondOrderOptions { get; } = ["η по п. 8.1.15", "учтено в усилиях", "не учитывать"];
+    public IReadOnlyList<string> EccentricityOptions { get; } = ["по СП 63 / заданный", "учтён в моментах"];
+    public IReadOnlyList<string> SchemeOptions { get; } = ["статически неопределимая", "статически определимая"];
+    public IReadOnlyList<string> CrackCategoryOptions { get; } = ["ограниченное раскрытие", "трещины не допускаются"];
+    public IReadOnlyList<string> CrackRequirementOptions { get; } = ["сохранность арматуры", "ограничение проницаемости"];
+    public IReadOnlyList<string> CrackMethodOptions { get; } = ["консервативный", "уточнённый"];
+    public IReadOnlyList<string> SpecialOptions { get; } = ["нормативные", "расчётные"];
+    public IReadOnlyList<string> ArrangementOptions { get; } = ["По контуру", "Таблицей"];
+
+    /// <summary>Pictograms: 24 × 24 path data.</summary>
+    public IReadOnlyList<ShapeOption> ShapeOptions { get; } =
+    [
+        new(ShapeKind.Rectangle, "Прямоугольник", "M6,2 H18 V22 H6 Z"),
+        new(ShapeKind.Circle, "Круг", "M12,2 A10,10 0 1 1 11.99,2 Z"),
+        new(ShapeKind.Ring, "Кольцо", "M12,2 A10,10 0 1 1 11.99,2 Z M12,7 A5,5 0 1 0 12.01,7 Z"),
+        new(ShapeKind.Tee, "Тавр", "M2,2 H22 V7 H15 V22 H9 V7 H2 Z"),
+        new(ShapeKind.IBeam, "Двутавр", "M3,2 H21 V6 H14.5 V18 H21 V22 H3 V18 H9.5 V6 H3 Z"),
+        new(ShapeKind.Box, "Коробка", "M4,2 H20 V22 H4 Z M8,6 V18 H16 V6 Z"),
+        new(ShapeKind.Polygon, "Многоугольник (вершины)", "M3,20 L6,4 L15,2 L21,10 L17,22 Z"),
+    ];
 
     /// <summary>Set by the window: clipboard text for "paste from Excel".</summary>
     public Func<Task<string?>>? ClipboardText { get; set; }
 
-    // ---- section ----
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsWall), nameof(KindTitle))] bool isPile = true;
-    public bool IsWall => !IsPile;
-    public string KindTitle => IsPile ? "Буронабивная свая" : "Стена в грунте";
+    // ---- section kind ----
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsPile), nameof(IsWall), nameof(IsCustom), nameof(IsGeotech), nameof(KindTitle),
+        nameof(IsCustomMode), nameof(IsGeotechMode))]
+    SectionKind kind = SectionKind.Custom;
+    partial void OnKindChanged(SectionKind value)
+    {
+        if (value != SectionKind.Custom) lastGeotech = value;
+        if (loading) return;
+        // A default name follows the kind; a name given by the user stays.
+        if (DefaultTitles.Contains(Title.Trim())) Title = SectionProject.Example(value).Title;
+        ClearResults();
+        InputsChanged();
+    }
+
+    /// <summary>Bored pile; setting false selects the wall (the PLAXIS module sets it by its scenario).</summary>
+    static readonly HashSet<string> DefaultTitles = [.. Enum.GetValues<SectionKind>().Select(k => SectionProject.Example(k).Title), "", "Новое сечение"];
+
+    public bool IsPile { get => Kind == SectionKind.Pile; set => Kind = value ? SectionKind.Pile : SectionKind.Wall; }
+    public bool IsWall => Kind == SectionKind.Wall;
+    public bool IsCustom => Kind == SectionKind.Custom;
+    public bool IsGeotech => !IsCustom;
+    public string KindTitle => Kind switch { SectionKind.Pile => "Буронабивная свая", SectionKind.Wall => "Стена в грунте", _ => "Сечение" };
+
     [ObservableProperty] string title = "";
     [ObservableProperty] string pileDiameter = "", pileCover = "", pileSpiral = "", pileBarCount = "", pileBarDiameter = "";
     [ObservableProperty] string wallWidth = "", wallThickness = "", wallCover = "", wallStirrup = "";
     [ObservableProperty] string positiveCount = "", positiveDiameter = "", negativeCount = "", negativeDiameter = "";
     [ObservableProperty] string minClearSpacing = "";
     [ObservableProperty] string positiveRows = "1", negativeRows = "1", rowGap = "25";
-    public IReadOnlyList<string> CoverReferenceOptions { get; } = ["до продольных стержней (в свету)", "до спирали / хомута", "до оси продольных стержней"];
+    public IReadOnlyList<string> CoverReferenceOptions { get; } = ["до стержней в свету", "до спирали / хомута", "до оси стержней"];
     [ObservableProperty] int coverReferenceIndex;
     [ObservableProperty] string axisText = "";
 
     static CoverReference CoverOf(int index) => index switch { 1 => CoverReference.Transverse, 2 => CoverReference.Axis, _ => CoverReference.Bar };
     static int IndexOf(CoverReference r) => r switch { CoverReference.Transverse => 1, CoverReference.Axis => 2, _ => 0 };
+
+    // ---- arbitrary section ----
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsPolygon), nameof(ShowRect), nameof(ShowDiameter), nameof(ShowInner),
+        nameof(ShowFlanges), nameof(ShowBoxWall), nameof(ShowHeight))]
+    int shapeIndex;
+    ShapeKind Shape => ShapeOptions[Math.Clamp(ShapeIndex, 0, ShapeOptions.Count - 1)].Kind;
+    public bool IsPolygon => Shape == ShapeKind.Polygon;
+    public bool ShowRect => Shape is ShapeKind.Rectangle or ShapeKind.Box;
+    public bool ShowDiameter => Shape is ShapeKind.Circle or ShapeKind.Ring;
+    public bool ShowInner => Shape == ShapeKind.Ring;
+    public bool ShowFlanges => Shape is ShapeKind.Tee or ShapeKind.IBeam;
+    public bool ShowBoxWall => Shape == ShapeKind.Box;
+    public bool ShowHeight => ShowRect || ShowFlanges;
+    [ObservableProperty] string customWidth = "", customHeight = "", customDiameter = "", customInner = "";
+    [ObservableProperty] string flangeWidth = "", flangeThickness = "", webWidth = "", boxWall = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsContour), nameof(IsManual))] int arrangementIndex;
+    public bool IsContour => ArrangementIndex == 0;
+    public bool IsManual => ArrangementIndex == 1;
+    [ObservableProperty] string barAxis = "", barDiameter = "", barSpacing = "", customStirrup = "";
+    [ObservableProperty] string contourText = "";
+    [ObservableProperty] string propertiesText = "";
+    public ObservableCollection<VertexRowViewModel> Vertices { get; } = [];
+    public ObservableCollection<BarRowViewModel> Bars { get; } = [];
+    [ObservableProperty] VertexRowViewModel? selectedVertex;
+    [ObservableProperty] BarRowViewModel? selectedBar;
 
     // ---- materials ----
     [ObservableProperty] string concreteClass = "B30", rebarClass = "A500", transverseClass = "A240";
@@ -85,7 +181,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(L0Text))] string muX = "";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(L0Text))] string muY = "";
     public string L0Text => TryNumber(ElementLength, out var l) && TryNumber(MuX, out var mx) && TryNumber(MuY, out var my)
-        ? $"l₀ в плоскости Mx = {S(l * mx)} м, в плоскости My = {S(l * my)} м" : "l₀ = μ · L";
+        ? $"l₀,x = {S(l * mx)} м, l₀,y = {S(l * my)} м" : "l₀ = μ·L";
     [ObservableProperty] string slendernessLimit = "";
     [ObservableProperty] bool staticallyDeterminate;
     [ObservableProperty] bool eccentricitySp63 = true;
@@ -93,6 +189,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(EtaByCscore))] int secondOrderIndex;
     public bool EtaByCscore => SecondOrderIndex == 0;
     [ObservableProperty] string reliabilityUls = "", reliabilitySls = "";
+    public int EccentricityIndex { get => EccentricitySp63 ? 0 : 1; set { EccentricitySp63 = value == 0; OnPropertyChanged(); } }
+    public int SchemeIndex { get => StaticallyDeterminate ? 1 : 0; set { StaticallyDeterminate = value == 1; OnPropertyChanged(); } }
+    partial void OnEccentricitySp63Changed(bool value) => OnPropertyChanged(nameof(EccentricityIndex));
+    partial void OnStaticallyDeterminateChanged(bool value) => OnPropertyChanged(nameof(SchemeIndex));
 
     // ---- cracks ----
     [ObservableProperty, NotifyPropertyChangedFor(nameof(LimitedWidth))] int crackCategoryIndex;
@@ -114,9 +214,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] bool seismicCracks;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(SpecialDesign))] bool specialNormative = true;
     public bool SpecialDesign => !SpecialNormative;
+    public int SpecialIndex { get => SpecialNormative ? 0 : 1; set { SpecialNormative = value == 0; OnPropertyChanged(); } }
+    partial void OnSpecialNormativeChanged(bool value) => OnPropertyChanged(nameof(SpecialIndex));
     [ObservableProperty] string specialGb = "", specialGs = "", specialGsw = "", specialAdditional = "";
     public bool SeismicUsed => Loads.Any(l => l.Seismic);
     public bool SpecialUsed => Loads.Any(l => l.Special);
+    /// <summary>The group of seismic and special settings opens by itself once such a combination appears.</summary>
+    [ObservableProperty] bool showSeismic;
     [ObservableProperty] bool shearCheck;
     [ObservableProperty] string shearPitch = "", stirrupLegs = "", pileShearA = "";
     [ObservableProperty] bool shearConfirmed;
@@ -126,7 +230,7 @@ public partial class MainViewModel : ObservableObject
     // ---- selection ----
     [ObservableProperty] string selectionCountMin = "", selectionCountMax = "", selectionCountStep = "";
     [ObservableProperty] bool selectionSymmetric = true;
-    [ObservableProperty] string selectionDiameters = "";
+    [ObservableProperty] string selectionDiameters = "", selectionSpacings = "";
 
     public ObservableCollection<LoadRowViewModel> Loads { get; } = [];
     public ObservableCollection<CheckRowViewModel> SummaryRows { get; } = [];
@@ -137,14 +241,16 @@ public partial class MainViewModel : ObservableObject
     // ---- state ----
     [ObservableProperty] Bitmap? sketch;
     [ObservableProperty] string steelText = "";
-    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(CheckCommand), nameof(SelectCommand), nameof(ExportReportCommand))]
-    bool isBusy;
-    [ObservableProperty] string statusText = "Готово";
+    [ObservableProperty, NotifyCanExecuteChangedFor(nameof(SelectCommand), nameof(ExportReportCommand))] bool isBusy;
+    /// <summary>Recalculate by itself shortly after every change of the input.</summary>
+    [ObservableProperty] bool autoCalc = true;
+    partial void OnAutoCalcChanged(bool value) { if (value && (!HasResult || ResultIsStale)) debounce.Start(); }
+    [ObservableProperty] string statusText = "";
     [ObservableProperty] double progress;
     [ObservableProperty] bool showProgress;
     [ObservableProperty] bool hasResult;
     [ObservableProperty] bool resultIsStale;
-    [ObservableProperty] string verdictText = "Расчёт не выполнен";
+    [ObservableProperty] string verdictText = "Нет результата";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo))]
     string verdictTone = "info";
     public bool VerdictOk => VerdictTone == "ok";
@@ -153,12 +259,12 @@ public partial class MainViewModel : ObservableObject
     public bool VerdictInfo => VerdictTone == "info";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasGoverning))] string governingText = "";
     public bool HasGoverning => GoverningText.Length > 0;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasInputErrors))] string inputErrors = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasInputErrors), nameof(CanCheck))] string inputErrors = "";
     public bool HasInputErrors => InputErrors.Length > 0;
+    public bool CanCheck => !HasInputErrors;
     [ObservableProperty] string selectionSummary = "";
     [ObservableProperty] bool hasSelection;
     [ObservableProperty] int selectedTab;
-    [ObservableProperty] int inputTab;
     [ObservableProperty] LoadRowViewModel? selectedLoad;
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
@@ -172,7 +278,10 @@ public partial class MainViewModel : ObservableObject
         if (loading) return;
         if (HasResult) ResultIsStale = true;
         OnPropertyChanged(nameof(SeismicUsed)); OnPropertyChanged(nameof(SpecialUsed));
+        if (SeismicUsed || SpecialUsed) ShowSeismic = true;
         RefreshSketch();
+        debounce.Stop();
+        if (AutoCalc && !HasInputErrors) debounce.Start();
     }
 
     void RefreshSketch()
@@ -181,11 +290,24 @@ public partial class MainViewModel : ObservableObject
         InputErrors = string.Join("\n", errors);
         if (p is null) return;
         var layout = RequestBuilder.Layout(p);
-        SteelText = $"As = {layout.SteelAreaMm2.ToString("0", Ru)} мм²" + (layout.Problem is string problem ? $" · {problem}" : "");
-        AxisText = p.Kind == SectionKind.Pile
-            ? $"От грани до оси стержней {p.Pile.AxisDistanceMm.ToString("0.#", Ru)} мм, до спирали {p.Pile.SpiralCoverMm.ToString("0.#", Ru)} мм"
-            : $"От грани до оси стержней {p.Wall.AxisDistanceMm(p.Wall.PositiveFace).ToString("0.#", Ru)} мм («+»), {p.Wall.AxisDistanceMm(p.Wall.NegativeFace).ToString("0.#", Ru)} мм («−»)";
-        using var stream = new MemoryStream(SectionSketch.Png(p, 600, 500, 26));
+        var gross = Geometry.Gross(p);
+        SteelText = $"As = {layout.SteelAreaMm2.ToString("0", Ru)} мм²   μs = {(layout.SteelAreaMm2 / gross.AreaMm2 * 100).ToString("0.00", Ru)} %   n = {layout.Bars.Count}";
+        AxisText = p.Kind switch
+        {
+            SectionKind.Pile => $"до оси {p.Pile.AxisDistanceMm.ToString("0.#", Ru)} мм, до спирали {p.Pile.SpiralCoverMm.ToString("0.#", Ru)} мм",
+            SectionKind.Wall => $"до оси {p.Wall.AxisDistanceMm(p.Wall.PositiveFace).ToString("0.#", Ru)} мм («+»), {p.Wall.AxisDistanceMm(p.Wall.NegativeFace).ToString("0.#", Ru)} мм («−»)",
+            _ => "",
+        };
+        if (p.Kind == SectionKind.Custom && p.Custom.OutlineProblems().Count == 0)
+        {
+            var g = p.Custom.Properties();
+            PropertiesText = $"A = {(g.AreaMm2 / 1e6).ToString("0.####", Ru)} м²   ц.т. ({g.CxMm.ToString("0.#", Ru)}; {g.CyMm.ToString("0.#", Ru)}) мм\n"
+                + $"Ix = {(g.IxMm4 / 1e12).ToString("0.#####", Ru)} м⁴   Iy = {(g.IyMm4 / 1e12).ToString("0.#####", Ru)} м⁴\n"
+                + $"ix = {g.RadiusXMm.ToString("0", Ru)} мм   iy = {g.RadiusYMm.ToString("0", Ru)} мм";
+            ContourText = IsContour ? $"{layout.Bars.Count} Ø{p.Custom.BarDiameterMm.ToString("0.#", Ru)}" : "";
+        }
+        else PropertiesText = $"A = {(gross.AreaMm2 / 1e6).ToString("0.####", Ru)} м²   i = {gross.IxMm.ToString("0", Ru)} / {gross.IyMm.ToString("0", Ru)} мм";
+        using var stream = new MemoryStream(SectionSketch.Png(p, 640, 520, 24));
         Sketch = new Bitmap(stream);
     }
 
@@ -196,15 +318,25 @@ public partial class MainViewModel : ObservableObject
         loading = true;
         try
         {
-            IsPile = p.Kind == SectionKind.Pile; Title = p.Title;
+            Kind = p.Kind; Title = p.Title;
             PileDiameter = S(p.Pile.DiameterMm); PileCover = S(p.Pile.CoverMm); PileSpiral = S(p.Pile.SpiralDiameterMm);
             PileBarCount = S(p.Pile.BarCount); PileBarDiameter = S(p.Pile.BarDiameterMm);
             WallWidth = S(p.Wall.WidthMm); WallThickness = S(p.Wall.ThicknessMm); WallCover = S(p.Wall.CoverMm); WallStirrup = S(p.Wall.StirrupDiameterMm);
             PositiveCount = S(p.Wall.PositiveFace.BarCount); PositiveDiameter = S(p.Wall.PositiveFace.BarDiameterMm);
             NegativeCount = S(p.Wall.NegativeFace.BarCount); NegativeDiameter = S(p.Wall.NegativeFace.BarDiameterMm);
             PositiveRows = S(p.Wall.PositiveFace.Rows); NegativeRows = S(p.Wall.NegativeFace.Rows); RowGap = S(p.Wall.PositiveFace.RowGapMm);
-            MinClearSpacing = S(IsPile ? p.Pile.MinClearSpacingMm : p.Wall.MinClearSpacingMm);
-            CoverReferenceIndex = IndexOf(IsPile ? p.Pile.CoverReference : p.Wall.CoverReference);
+            MinClearSpacing = S(p.Kind switch { SectionKind.Pile => p.Pile.MinClearSpacingMm, SectionKind.Wall => p.Wall.MinClearSpacingMm, _ => p.Custom.MinClearSpacingMm });
+            CoverReferenceIndex = IndexOf(p.Kind == SectionKind.Wall ? p.Wall.CoverReference : p.Pile.CoverReference);
+            var g = p.Custom;
+            ShapeIndex = Math.Max(0, ShapeOptions.ToList().FindIndex(o => o.Kind == g.Shape));
+            CustomWidth = S(g.WidthMm); CustomHeight = S(g.HeightMm); CustomDiameter = S(g.DiameterMm); CustomInner = S(g.InnerDiameterMm);
+            FlangeWidth = S(g.FlangeWidthMm); FlangeThickness = S(g.FlangeThicknessMm); WebWidth = S(g.WebMm); BoxWall = S(g.WallMm);
+            ArrangementIndex = g.Arrangement == BarArrangement.Manual ? 1 : 0;
+            BarAxis = S(g.AxisDistanceMm); BarDiameter = S(g.BarDiameterMm); BarSpacing = S(g.MaxSpacingMm); CustomStirrup = S(g.StirrupDiameterMm);
+            Vertices.Clear();
+            foreach (var v in g.Vertices) Vertices.Add(new VertexRowViewModel(this, S(v.X), S(v.Y)));
+            Bars.Clear();
+            foreach (var b in g.Bars) Bars.Add(new BarRowViewModel(this, S(b.X), S(b.Y), S(b.DiameterMm)));
             ConcreteClass = p.ConcreteClass; RebarClass = p.RebarClass; TransverseClass = p.TransverseClass;
             var f = p.Concrete;
             Gb1 = S(f.Gb1); Gb2 = S(f.Gb2); Gb3 = S(f.Gb3); Gb5 = S(f.Gb5); Hardening = S(f.HardeningFactor);
@@ -226,40 +358,48 @@ public partial class MainViewModel : ObservableObject
             ShearConfirmed = c.ShearModelConfirmed; InclinedMoment = c.InclinedMoment;
             AnchorageFactor = S(c.AnchorageFactor); SupportDown = S(c.SupportDistanceDownM); SupportUp = S(c.SupportDistanceUpM);
             var s = p.Selection;
-            SelectionCountMin = S(IsPile ? s.PileCountMin : s.WallCountMin); SelectionCountMax = S(IsPile ? s.PileCountMax : s.WallCountMax);
+            SelectionCountMin = S(p.Kind == SectionKind.Pile ? s.PileCountMin : s.WallCountMin); SelectionCountMax = S(p.Kind == SectionKind.Pile ? s.PileCountMax : s.WallCountMax);
             SelectionCountStep = S(s.PileCountStep); SelectionSymmetric = s.WallSymmetric;
             SelectionDiameters = string.Join(", ", s.Diameters.Select(d => S(d)));
+            SelectionSpacings = string.Join(", ", s.CustomSpacings.Select(d => S(d)));
             Loads.Clear();
             foreach (var l in p.Loads) Loads.Add(LoadRowViewModel.From(l, this));
             SelectedLoad = Loads.FirstOrDefault();
+            ShowSeismic = p.Loads.Any(l => l.Seismic || l.Special);
         }
         finally { loading = false; }
         OnPropertyChanged(nameof(SeismicUsed)); OnPropertyChanged(nameof(SpecialUsed));
         ClearResults();
-        RefreshSketch();
+        InputsChanged();
     }
 
-    /// <summary>Project from the fields; null with readable messages when a value is not a number.</summary>
+    /// <summary>
+    /// Project from the fields; null with readable messages when a value is not a number. The geometry of every kind
+    /// is kept (a saved file reopens in either mode); only the active one reports its errors.
+    /// </summary>
     internal SectionProject? TryBuild(out List<string> errors, bool quiet = false)
     {
         var e = new List<string>();
+        bool report = true;
         double D(string text, string label)
         {
             if (TryNumber(text, out var v)) return v;
-            e.Add($"«{label}»: введите число"); return 0;
+            if (report) e.Add($"«{label}»: введите число");
+            return 0;
         }
         int I(string text, string label)
         {
             if (int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)) return v;
-            e.Add($"«{label}»: введите целое число"); return 0;
+            if (report) e.Add($"«{label}»: введите целое число");
+            return 0;
         }
         var p = new SectionProject
         {
-            Kind = IsPile ? SectionKind.Pile : SectionKind.Wall, Title = string.IsNullOrWhiteSpace(Title) ? KindTitle : Title.Trim(),
+            Kind = Kind, Title = string.IsNullOrWhiteSpace(Title) ? KindTitle : Title.Trim(),
             ConcreteClass = ConcreteClass, RebarClass = RebarClass, TransverseClass = TransverseClass,
             Concrete = new ConcreteFactors
             {
-                Gb1 = D(Gb1, "γb1"), Gb2 = D(Gb2, "γb2"), Gb3 = D(Gb3, "γb3"), Gb5 = D(Gb5, "γb5"), HardeningFactor = D(Hardening, "Коэффициент упрочнения"),
+                Gb1 = D(Gb1, "γb1"), Gb2 = D(Gb2, "γb2"), Gb3 = D(Gb3, "γb3"), Gb5 = D(Gb5, "γb5"), HardeningFactor = D(Hardening, "Коэффициент к Eb"),
             },
             LongitudinalFactor = D(GammaS, "γs продольной"), TransverseFactor = D(GammaSw, "γs поперечной"), RscByTable = RscByTable,
             Seismic = new SeismicSettings
@@ -274,24 +414,51 @@ public partial class MainViewModel : ObservableObject
             },
         };
         double clear = D(MinClearSpacing, "Мин. просвет");
-        if (IsPile)
-            p.Pile = new PileGeometry
-            {
-                DiameterMm = D(PileDiameter, "Диаметр D"), CoverMm = D(PileCover, "Защитный слой"), CoverReference = CoverOf(CoverReferenceIndex),
-                SpiralDiameterMm = D(PileSpiral, "Ø навивки"),
-                BarCount = I(PileBarCount, "Число стержней"), BarDiameterMm = D(PileBarDiameter, "Ø стержней"), MinClearSpacingMm = clear,
-            };
-        else
-            p.Wall = new WallGeometry
-            {
-                WidthMm = D(WallWidth, "Ширина b"), ThicknessMm = D(WallThickness, "Толщина h"), CoverMm = D(WallCover, "Защитный слой"),
-                CoverReference = CoverOf(CoverReferenceIndex),
-                StirrupDiameterMm = D(WallStirrup, "Ø хомута"), MinClearSpacingMm = clear,
-                PositiveFace = new WallFace { BarCount = I(PositiveCount, "Стержней на грани «+»"), BarDiameterMm = D(PositiveDiameter, "Ø на грани «+»"),
-                    Rows = I(PositiveRows, "Рядов у грани «+»"), RowGapMm = D(RowGap, "Зазор между рядами") },
-                NegativeFace = new WallFace { BarCount = I(NegativeCount, "Стержней на грани «−»"), BarDiameterMm = D(NegativeDiameter, "Ø на грани «−»"),
-                    Rows = I(NegativeRows, "Рядов у грани «−»"), RowGapMm = D(RowGap, "Зазор между рядами") },
-            };
+
+        report = Kind == SectionKind.Pile;
+        p.Pile = new PileGeometry
+        {
+            DiameterMm = D(PileDiameter, "Диаметр D"), CoverMm = D(PileCover, "Защитный слой"), CoverReference = CoverOf(CoverReferenceIndex),
+            SpiralDiameterMm = D(PileSpiral, "Ø навивки"),
+            BarCount = I(PileBarCount, "Число стержней"), BarDiameterMm = D(PileBarDiameter, "Ø стержней"), MinClearSpacingMm = clear,
+        };
+        report = Kind == SectionKind.Wall;
+        p.Wall = new WallGeometry
+        {
+            WidthMm = D(WallWidth, "Ширина b"), ThicknessMm = D(WallThickness, "Толщина h"), CoverMm = D(WallCover, "Защитный слой"),
+            CoverReference = CoverOf(CoverReferenceIndex),
+            StirrupDiameterMm = D(WallStirrup, "Ø хомута"), MinClearSpacingMm = clear,
+            PositiveFace = new WallFace { BarCount = I(PositiveCount, "Стержней на грани «+»"), BarDiameterMm = D(PositiveDiameter, "Ø на грани «+»"),
+                Rows = I(PositiveRows, "Рядов у грани «+»"), RowGapMm = D(RowGap, "Зазор между рядами") },
+            NegativeFace = new WallFace { BarCount = I(NegativeCount, "Стержней на грани «−»"), BarDiameterMm = D(NegativeDiameter, "Ø на грани «−»"),
+                Rows = I(NegativeRows, "Рядов у грани «−»"), RowGapMm = D(RowGap, "Зазор между рядами") },
+        };
+        report = Kind == SectionKind.Custom;
+        var shape = Shape;
+        bool Used(params ShapeKind[] kinds) => kinds.Contains(shape);
+        bool r0 = report;
+        p.Custom = new CustomGeometry
+        {
+            Shape = shape, MinClearSpacingMm = clear,
+            Arrangement = IsManual ? BarArrangement.Manual : BarArrangement.Contour,
+        };
+        var g = p.Custom;
+        report = r0 && Used(ShapeKind.Rectangle, ShapeKind.Box); g.WidthMm = D(CustomWidth, "b");
+        report = r0 && Used(ShapeKind.Rectangle, ShapeKind.Box, ShapeKind.Tee, ShapeKind.IBeam); g.HeightMm = D(CustomHeight, "h");
+        report = r0 && Used(ShapeKind.Circle, ShapeKind.Ring); g.DiameterMm = D(CustomDiameter, "D");
+        report = r0 && Used(ShapeKind.Ring); g.InnerDiameterMm = D(CustomInner, "d");
+        report = r0 && Used(ShapeKind.Tee, ShapeKind.IBeam);
+        g.FlangeWidthMm = D(FlangeWidth, "bf"); g.FlangeThicknessMm = D(FlangeThickness, "hf"); g.WebMm = D(WebWidth, "bw");
+        report = r0 && Used(ShapeKind.Box); g.WallMm = D(BoxWall, "t");
+        report = r0 && Used(ShapeKind.Polygon);
+        g.Vertices = Vertices.Select((v, i) => new Vertex(D(v.X, $"Вершина {i + 1}: x"), D(v.Y, $"Вершина {i + 1}: y"))).ToList();
+        report = r0 && IsContour;
+        g.AxisDistanceMm = D(BarAxis, "a до оси"); g.BarDiameterMm = D(BarDiameter, "Ø стержней"); g.MaxSpacingMm = D(BarSpacing, "Шаг не более");
+        report = r0 && IsManual;
+        g.Bars = Bars.Select((b, i) => new BarSpec(D(b.X, $"Стержень {i + 1}: x"), D(b.Y, $"Стержень {i + 1}: y"), D(b.D, $"Стержень {i + 1}: Ø"))).ToList();
+        report = r0 && ShearCheck; g.StirrupDiameterMm = D(CustomStirrup, "Ø хомутов");
+        report = true;
+
         var c = p.Conditions;
         c.ElementLengthM = D(ElementLength, "Длина элемента"); c.MuX = D(MuX, "μ в плоскости Mx"); c.MuY = D(MuY, "μ в плоскости My");
         c.SlendernessLimit = D(SlendernessLimit, "Предельная гибкость");
@@ -318,14 +485,19 @@ public partial class MainViewModel : ObservableObject
         }
         var s = p.Selection;
         if (IsPile) { s.PileCountMin = I(SelectionCountMin, "Подбор: от"); s.PileCountMax = I(SelectionCountMax, "Подбор: до"); s.PileCountStep = I(SelectionCountStep, "Подбор: шаг"); }
-        else { s.WallCountMin = I(SelectionCountMin, "Подбор: от"); s.WallCountMax = I(SelectionCountMax, "Подбор: до"); s.WallSymmetric = SelectionSymmetric; }
-        s.Diameters = SelectionDiameters.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries)
-            .Select(t => D(t, "Подбор: диаметры")).ToList();
+        else if (IsWall) { s.WallCountMin = I(SelectionCountMin, "Подбор: от"); s.WallCountMax = I(SelectionCountMax, "Подбор: до"); s.WallSymmetric = SelectionSymmetric; }
+        s.Diameters = Numbers(SelectionDiameters, "Подбор: диаметры");
+        report = IsCustom && IsContour;
+        s.CustomSpacings = Numbers(SelectionSpacings, "Подбор: шаги");
+        report = true;
         foreach (var row in Loads) p.Loads.Add(row.ToModel(e));
         errors = e.Distinct().ToList();
         if (errors.Count > 0) return null;
         errors.AddRange(RequestBuilder.Validate(p));
         return quiet || errors.Count == 0 ? p : null;
+
+        List<double> Numbers(string text, string label) =>
+            text.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries).Select(t => D(t, label)).ToList();
     }
 
     static string S(double v) => v.ToString("0.###", Ru);
@@ -335,29 +507,16 @@ public partial class MainViewModel : ObservableObject
     {
         value = 0;
         if (text is null) return false;
-        string t = text.Trim().Replace("\u00A0", "").Replace(" ", "").Replace(',', '.').Replace('−', '-');
+        string t = text.Trim().Replace(" ", "").Replace(" ", "").Replace(',', '.').Replace('−', '-');
         return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
     }
 
     // ---- commands ----
 
-    [RelayCommand] void SetPile() => SwitchKind(true);
-    [RelayCommand] void SetWall() => SwitchKind(false);
+    [RelayCommand] void SetPile() => Kind = SectionKind.Pile;
+    [RelayCommand] void SetWall() => Kind = SectionKind.Wall;
 
-    void SwitchKind(bool pile)
-    {
-        if (IsPile == pile) return;
-        var current = TryBuild(out _, quiet: true);
-        var example = SectionProject.Example(pile ? SectionKind.Pile : SectionKind.Wall);
-        if (current is not null)
-        {
-            example.Loads = current.Loads; example.Conditions = current.Conditions; example.ConcreteClass = current.ConcreteClass;
-            example.RebarClass = current.RebarClass; example.TransverseClass = current.TransverseClass; example.Concrete = current.Concrete;
-            example.LongitudinalFactor = current.LongitudinalFactor; example.TransverseFactor = current.TransverseFactor; example.RscByTable = current.RscByTable;
-            example.Seismic = current.Seismic; example.Special = current.Special;
-        }
-        Load(example);
-    }
+    [RelayCommand] void SetArrangement(string index) => ArrangementIndex = int.Parse(index, CultureInfo.InvariantCulture);
 
     // ---- forces grid ----
 
@@ -373,7 +532,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     void AddLoad()
     {
-        // A new row takes γf, kдл and the flags of the selected one: combinations usually share them.
+        // A new row takes γf, kдл and the kind of the selected one: combinations usually share them.
         var t = Template();
         var row = LoadRowViewModel.From(new LoadRow { Name = NextName(), LoadFactor = t.LoadFactor, SustainedShare = t.SustainedShare,
             ShortTerm = t.ShortTerm, Seismic = t.Seismic, Special = t.Special }, this);
@@ -410,7 +569,7 @@ public partial class MainViewModel : ObservableObject
     void SwapPlane()
     {
         foreach (var row in Loads) row.SwapPlane();
-        StatusText = "Моменты Mx и My переставлены во всех сочетаниях";
+        StatusText = "Mx и My переставлены";
     }
 
     [RelayCommand]
@@ -458,15 +617,114 @@ public partial class MainViewModel : ObservableObject
         return added;
     }
 
-    bool CanRun() => !IsBusy;
+    // ---- vertex and bar tables (arbitrary section) ----
 
-    [RelayCommand(CanExecute = nameof(CanRun))]
+    [RelayCommand]
+    void AddVertex()
+    {
+        var last = Vertices.LastOrDefault();
+        var row = new VertexRowViewModel(this, last?.X ?? "0", last?.Y ?? "0");
+        Vertices.Insert(SelectedVertex is null ? Vertices.Count : Vertices.IndexOf(SelectedVertex) + 1, row);
+        SelectedVertex = row; InputsChanged();
+    }
+
+    [RelayCommand]
+    void RemoveVertex()
+    {
+        if (SelectedVertex is not { } row) return;
+        int i = Vertices.IndexOf(row);
+        Vertices.Remove(row);
+        SelectedVertex = Vertices.Count == 0 ? null : Vertices[Math.Min(i, Vertices.Count - 1)];
+        InputsChanged();
+    }
+
+    [RelayCommand]
+    async Task PasteVertices()
+    {
+        var rows = Pairs(ClipboardText is null ? null : await ClipboardText(), 2);
+        if (rows.Count < 3) { StatusText = "В буфере нет вершин: нужны строки «x y», не менее трёх"; return; }
+        Vertices.Clear();
+        foreach (var r in rows) Vertices.Add(new VertexRowViewModel(this, S(r[0]), S(r[1])));
+        StatusText = $"Вставлено вершин: {rows.Count}";
+        InputsChanged();
+    }
+
+    [RelayCommand]
+    void AddBar()
+    {
+        var t = SelectedBar ?? Bars.LastOrDefault();
+        var row = new BarRowViewModel(this, t?.X ?? "0", t?.Y ?? "0", t?.D ?? BarDiameter);
+        Bars.Insert(SelectedBar is null ? Bars.Count : Bars.IndexOf(SelectedBar) + 1, row);
+        SelectedBar = row; InputsChanged();
+    }
+
+    [RelayCommand]
+    void RemoveBar()
+    {
+        if (SelectedBar is not { } row) return;
+        int i = Bars.IndexOf(row);
+        Bars.Remove(row);
+        SelectedBar = Bars.Count == 0 ? null : Bars[Math.Min(i, Bars.Count - 1)];
+        InputsChanged();
+    }
+
+    [RelayCommand]
+    async Task PasteBars()
+    {
+        var rows = Pairs(ClipboardText is null ? null : await ClipboardText(), 2);
+        if (rows.Count == 0) { StatusText = "В буфере нет стержней: нужны строки «x y [Ø]»"; return; }
+        PasteBarRows(rows);
+    }
+
+    internal void PasteBarRows(List<double[]> rows)
+    {
+        Bars.Clear();
+        foreach (var r in rows) Bars.Add(new BarRowViewModel(this, S(r[0]), S(r[1]), r.Length > 2 ? S(r[2]) : BarDiameter));
+        ArrangementIndex = 1;
+        StatusText = $"Вставлено стержней: {rows.Count}";
+        InputsChanged();
+    }
+
+    /// <summary>The contour arrangement as an editable table: one click to move or add single bars.</summary>
+    [RelayCommand]
+    void ContourToTable()
+    {
+        if (TryBuild(out _, quiet: true) is not { } p) return;
+        loading = true;
+        Bars.Clear();
+        foreach (var b in p.Custom.ContourBars()) Bars.Add(new BarRowViewModel(this, S(b.X), S(b.Y), S(b.DiameterMm)));
+        loading = false;
+        ArrangementIndex = 1;
+    }
+
+    /// <summary>Lines of at least <paramref name="min"/> numbers (Excel, CAD lists, "x y" or "x;y"); other lines are skipped.</summary>
+    static List<double[]> Pairs(string? text, int min) =>
+        (text ?? "").Split('\n').Select(l => l.Trim().Split(['\t', ';', ' '], StringSplitOptions.RemoveEmptyEntries))
+            .Select(cells => cells.Select(c => TryNumber(c, out var v) ? v : double.NaN).TakeWhile(double.IsFinite).ToArray())
+            .Where(v => v.Length >= min).ToList();
+
+    // ---- calculation ----
+
+    async Task AutoCheck()
+    {
+        if (!AutoCalc || selecting || ProfileMode) return;
+        if (TryBuild(out _) is not { } p) return;
+        await RunCheck(p);
+    }
+
+    [RelayCommand]
     async Task Check()
     {
+        debounce.Stop();
         var p = TryBuild(out var errors);
         if (p is null) { ShowErrors(errors); return; }
-        await Run("Расчёт…", token => Engine.Check(p, token), Show);
+        await RunCheck(p);
     }
+
+    Task RunCheck(SectionProject p) => Run("Расчёт…", token => Engine.Check(p, token), Show);
+
+    bool CanRun() => !IsBusy;
+    bool selecting;
 
     [RelayCommand(CanExecute = nameof(CanRun))]
     async Task Select()
@@ -479,24 +737,42 @@ public partial class MainViewModel : ObservableObject
             Progress = x.Total == 0 ? 0 : 100.0 * x.Done / x.Total;
             StatusText = x.Label.Length > 0 ? $"Подбор: {x.Label} ({x.Done + 1}/{x.Total})" : "Подбор завершён";
         });
-        await Run("Подбор армирования…", token => Selection.Run(p, progress, token), ShowSelection);
+        selecting = true;
+        try { await Run("Подбор армирования…", token => Selection.Run(p, progress, token), ShowSelection); }
+        finally { selecting = false; }
     }
 
     [RelayCommand] void Cancel() => cancel?.Cancel();
 
+    /// <summary>
+    /// One calculation at a time: a newer run cancels the older one, and only the newest shows its result
+    /// (the engine itself runs one request at a time).
+    /// </summary>
     async Task Run<T>(string message, Func<CancellationToken, T> work, Action<T> done)
     {
-        cancel = new CancellationTokenSource();
+        cancel?.Cancel();
+        var cts = new CancellationTokenSource();
+        cancel = cts;
+        int id = ++runId;
         IsBusy = true; ShowProgress = true; Progress = 0; StatusText = message;
         try
         {
-            var token = cancel.Token;
-            var result = await Task.Run(() => work(token), token);
-            done(result);
+            var token = cts.Token;
+            var result = await Task.Run(async () =>
+            {
+                await engine.WaitAsync(token);
+                try { return work(token); }
+                finally { engine.Release(); }
+            }, token);
+            if (id == runId) done(result);
         }
-        catch (OperationCanceledException) { StatusText = "Остановлено"; }
-        catch (Exception ex) { StatusText = "Ошибка расчёта"; ShowErrors([ex.Message]); }
-        finally { IsBusy = false; ShowProgress = false; cancel.Dispose(); cancel = null; }
+        catch (OperationCanceledException) { if (id == runId) StatusText = "Остановлено"; }
+        catch (Exception ex) { if (id == runId) { StatusText = "Ошибка расчёта"; ShowErrors([ex.Message]); } }
+        finally
+        {
+            if (id == runId) { IsBusy = false; ShowProgress = false; cancel = null; }
+            cts.Dispose();
+        }
     }
 
     void ShowErrors(IEnumerable<string> errors)
@@ -517,7 +793,7 @@ public partial class MainViewModel : ObservableObject
         CombinationRows.Clear();
         foreach (var line in ReportWriter.Combinations(r)) CombinationRows.Add(new CombinationRowViewModel(line));
         CombinationHeaders = ReportWriter.CombinationHeaders(r);
-        StatusText = $"Расчёт выполнен · {DateTime.Now:HH:mm}";
+        StatusText = $"Рассчитано {DateTime.Now:HH:mm:ss}";
     }
 
     void ShowSelection(SelectionResult s)
@@ -529,16 +805,23 @@ public partial class MainViewModel : ObservableObject
         SelectionSummary = s.Best is SelectionOutcome best
             ? $"Минимальное армирование: {best.Candidate.Description}, As = {best.Candidate.SteelAreaMm2.ToString("0", Ru)} мм²."
             : "В заданном диапазоне подходящих вариантов нет.";
-        if (s.GeometricallyRejected > 0) SelectionSummary += $" Не помещаются в сечении: {s.GeometricallyRejected}.";
+        if (s.GeometricallyRejected > 0) SelectionSummary += $" Не помещаются: {s.GeometricallyRejected}.";
         StatusText = "Подбор завершён";
     }
 
     internal async Task Apply(SelectionOutcome outcome)
     {
         var keepSelection = lastSelection;
+        debounce.Stop();
         Load(outcome.Candidate.Project);
+        debounce.Stop();
         lastSelection = keepSelection;
-        foreach (var row in SelectionRows) row.Refresh();
+        HasSelection = keepSelection is not null;
+        if (keepSelection is not null)
+        {
+            SelectionRows.Clear();
+            foreach (var o in keepSelection.Outcomes) SelectionRows.Add(new SelectionRowViewModel(o, o == keepSelection.Best, this));
+        }
         await Check();
         SelectedTab = 0;
     }
@@ -547,7 +830,7 @@ public partial class MainViewModel : ObservableObject
     {
         lastResult = null; lastSelection = null; HasResult = false; ResultIsStale = false; HasSelection = false;
         SummaryRows.Clear(); CombinationRows.Clear(); SelectionRows.Clear();
-        VerdictText = "Расчёт не выполнен"; VerdictTone = "info"; SelectionSummary = "";
+        VerdictText = "Нет результата"; VerdictTone = "info"; SelectionSummary = "";
         GoverningText = "";
     }
 
@@ -556,7 +839,16 @@ public partial class MainViewModel : ObservableObject
     static readonly FilePickerFileType ProjectType = new("Проект сечения") { Patterns = ["*.section.json", "*.json"] };
     static readonly FilePickerFileType WordType = new("Документ Word") { Patterns = ["*.docx"] };
 
-    [RelayCommand] void New() => Load(SectionProject.Example(IsPile ? SectionKind.Pile : SectionKind.Wall));
+    [RelayCommand]
+    void New()
+    {
+        // A fresh section of the current kind; the geometry of the other mode stays.
+        var current = TryBuild(out _, quiet: true);
+        var p = SectionProject.Example(Kind);
+        if (current is not null) { p.Pile = Kind == SectionKind.Pile ? p.Pile : current.Pile; p.Wall = Kind == SectionKind.Wall ? p.Wall : current.Wall;
+            p.Custom = Kind == SectionKind.Custom ? p.Custom : current.Custom; }
+        Load(p);
+    }
 
     [RelayCommand]
     async Task Open()
@@ -569,6 +861,7 @@ public partial class MainViewModel : ObservableObject
             await using var stream = await files[0].OpenReadAsync();
             using var reader = new StreamReader(stream);
             Load(ProjectStore.Deserialize(await reader.ReadToEndAsync()));
+            ProfileMode = false;
             StatusText = $"Открыт {files[0].Name}";
         }
         catch (Exception ex) { ShowErrors([$"Не удалось открыть файл: {ex.Message}"]); }
@@ -620,8 +913,8 @@ public partial class MainViewModel : ObservableObject
 
     static string Fingerprint(SectionProject p) => System.Text.Json.JsonSerializer.Serialize(new
     {
-        p.Kind, Geometry = p.Kind == SectionKind.Pile ? (object)p.Pile : p.Wall, p.ConcreteClass, p.RebarClass, p.TransverseClass,
-        p.Concrete, p.LongitudinalFactor, p.TransverseFactor, p.RscByTable, p.Seismic, p.Special, p.Conditions, p.Loads,
+        p.Kind, Geometry = p.Kind switch { SectionKind.Pile => (object)p.Pile, SectionKind.Wall => p.Wall, _ => p.Custom }, p.ConcreteClass, p.RebarClass,
+        p.TransverseClass, p.Concrete, p.LongitudinalFactor, p.TransverseFactor, p.RscByTable, p.Seismic, p.Special, p.Conditions, p.Loads,
     });
 
     static string Safe(string name) => string.Concat(name.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));

@@ -277,7 +277,7 @@ public partial class ProfileViewModel : ObservableObject
         get => main.ShearConfirmed;
         set { if (main.ShearConfirmed == value) return; main.ShearConfirmed = value; OnPropertyChanged(); Changed(); }
     }
-    public string ShearText => $"Шаг {main.ShearPitch} мм" + (IsWall ? $", ветвей {main.StirrupLegs}" : ", спираль") + " — в режиме «Сечение» → Расчёт";
+    public string ShearText => $"Шаг {main.ShearPitch} мм" + (IsWall ? $", ветвей {main.StirrupLegs}" : ", спираль") + " — задаётся в режиме «БНС · СВГ»";
     [ObservableProperty] string sectionText = "";
 
     // ---- state ----

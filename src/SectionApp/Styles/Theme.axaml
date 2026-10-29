@@ -1,6 +1,7 @@
 <!-- Design code of SoilStiffness (web/src/styles/tokens.css, App.css): gb-* tokens. -->
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="using:SectionApp.Controls">
   <Styles.Resources>
     <SolidColorBrush x:Key="GbPageBg" Color="#F3F5F6" />
     <SolidColorBrush x:Key="GbTitlebarBg" Color="#263640" />
@@ -38,6 +39,37 @@
     <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPointerOver" Color="#216897" />
     <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStrokePointerOver" Color="#216897" />
     <CornerRadius x:Key="ControlCornerRadius">3</CornerRadius>
+
+    <!-- Property row: name (with unit) left, value right. -->
+    <ControlTheme x:Key="{x:Type c:Field}" TargetType="c:Field">
+      <Setter Property="Margin" Value="0,0,0,4" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid ColumnDefinitions="*,Auto" MinHeight="28">
+            <ContentPresenter Content="{TemplateBinding Header}" VerticalAlignment="Center" Margin="0,0,10,0"
+                              Foreground="{StaticResource GbMuted}" FontSize="11.5" TextWrapping="Wrap" />
+            <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}" Width="{TemplateBinding ValueWidth}" VerticalAlignment="Center" />
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <!-- Collapsible group of the inputs column. -->
+    <ControlTheme x:Key="{x:Type c:Group}" TargetType="c:Group">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <StackPanel>
+            <Border Classes="groupHeader">
+              <Grid ColumnDefinitions="Auto,*">
+                <ToggleButton Classes="chevron" IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" />
+                <ContentPresenter Grid.Column="1" Content="{TemplateBinding Header}" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+            <ContentPresenter Content="{TemplateBinding Content}" IsVisible="{TemplateBinding IsExpanded}" Margin="14,6,14,10" />
+          </StackPanel>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
   </Styles.Resources>
 
   <Style Selector="Window">
@@ -370,6 +402,198 @@
     <Setter Property="MinWidth" Value="0" />
     <Setter Property="Width" Value="20" />
     <Setter Property="Padding" Value="0" />
+  </Style>
+
+  <!-- ===== Engineering layout: flat panels, property rows, groups ===== -->
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="{StaticResource GbPanelBg}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+  <Style Selector="Border.panelHead">
+    <Setter Property="BorderBrush" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="14,0,10,0" />
+    <Setter Property="Height" Value="38" />
+  </Style>
+  <Style Selector="TextBlock.panelTitle">
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource GbText}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.toolbar">
+    <Setter Property="Background" Value="{StaticResource GbPanelBg}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="Height" Value="48" />
+  </Style>
+  <Style Selector="TextBox.title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="6,4" />
+  </Style>
+  <Style Selector="TextBox.title:pointerover /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="c|Field TextBox">
+    <Setter Property="HorizontalContentAlignment" Value="Right" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="6,2" />
+  </Style>
+  <Style Selector="c|Field ComboBox">
+    <Setter Property="Height" Value="26" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Padding" Value="8,2" />
+  </Style>
+  <Style Selector="Border.groupHeader">
+    <Setter Property="BorderBrush" Value="{StaticResource GbSectionBg}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="Padding" Value="6,0,14,0" />
+    <Setter Property="MinHeight" Value="34" />
+  </Style>
+  <Style Selector="Border.groupHeader TextBlock">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource GbText}" />
+  </Style>
+  <Style Selector="Border.groupHeader CheckBox TextBlock">
+    <Setter Property="FontSize" Value="11" />
+  </Style>
+  <Style Selector="ToggleButton.chevron">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Margin" Value="0,0,4,0" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="Transparent">
+          <Path Name="arrow" Data="M3,1 L7,5 L3,9" Stroke="{StaticResource GbGrey}" StrokeThickness="1.4"
+                HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="50%,50%" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.chevron:checked /template/ Path#arrow">
+    <Setter Property="RenderTransform" Value="rotate(90deg)" />
+  </Style>
+  <Style Selector="TextBlock.sub">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="Foreground" Value="{StaticResource GbGrey}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="Margin" Value="0,0,0,6" />
+  </Style>
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="Consolas, Menlo, DejaVu Sans Mono, monospace" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource GbMuted}" />
+    <Setter Property="LineHeight" Value="17" />
+  </Style>
+
+  <!-- Shape picker tiles -->
+  <Style Selector="ListBox.shapes">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ListBox.shapes ListBoxItem">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0,0,4,0" />
+    <Setter Property="Width" Value="38" />
+    <Setter Property="Height" Value="38" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorder}" />
+    <Setter Property="Background" Value="White" />
+  </Style>
+  <Style Selector="ListBox.shapes ListBoxItem Path">
+    <Setter Property="Fill" Value="#C9D3D8" />
+    <Setter Property="Stroke" Value="{StaticResource GbMuted}" />
+    <Setter Property="StrokeThickness" Value="1" />
+  </Style>
+  <Style Selector="ListBox.shapes ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource GbAccentSoft}" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbAccent}" />
+  </Style>
+  <Style Selector="ListBox.shapes ListBoxItem:selected Path">
+    <Setter Property="Fill" Value="#9FC2DA" />
+    <Setter Property="Stroke" Value="{StaticResource GbAccent}" />
+  </Style>
+
+  <!-- Navigation in the title bar -->
+  <Style Selector="Button.nav">
+    <Setter Property="Height" Value="42" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0,0,0,2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Foreground" Value="#AEBBC0" />
+    <Setter Property="FontSize" Value="12.5" />
+  </Style>
+  <Style Selector="Button.nav:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#2E414B" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="#F4F7F8" />
+  </Style>
+  <Style Selector="Button.nav.active">
+    <Setter Property="Foreground" Value="#FFFFFF" />
+    <Setter Property="BorderBrush" Value="#6FB1DE" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Button.nav.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="#6FB1DE" />
+  </Style>
+  <Style Selector="TextBlock.navGroup">
+    <Setter Property="FontSize" Value="9.5" />
+    <Setter Property="Foreground" Value="#7F929B" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="14,0,0,0" />
+    <Setter Property="LetterSpacing" Value="0.6" />
+  </Style>
+
+  <!-- Verdict strip -->
+  <Style Selector="Border.verdict">
+    <Setter Property="BorderThickness" Value="3,0,0,0" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="BorderBrush" Value="{StaticResource GbBorderStrong}" />
+    <Setter Property="Background" Value="{StaticResource GbSectionBg}" />
+  </Style>
+  <Style Selector="Border.verdict.ok"><Setter Property="BorderBrush" Value="{StaticResource GbSuccess}" /><Setter Property="Background" Value="{StaticResource GbSuccessSoft}" /></Style>
+  <Style Selector="Border.verdict.bad"><Setter Property="BorderBrush" Value="{StaticResource GbError}" /><Setter Property="Background" Value="{StaticResource GbErrorSoft}" /></Style>
+  <Style Selector="Border.verdict.warn"><Setter Property="BorderBrush" Value="{StaticResource GbWarning}" /><Setter Property="Background" Value="{StaticResource GbWarningSoft}" /></Style>
+  <Style Selector="Border.verdict.ok TextBlock"><Setter Property="Foreground" Value="{StaticResource GbSuccess}" /></Style>
+  <Style Selector="Border.verdict.bad TextBlock"><Setter Property="Foreground" Value="{StaticResource GbError}" /></Style>
+  <Style Selector="Border.verdict.warn TextBlock"><Setter Property="Foreground" Value="{StaticResource GbWarningText}" /></Style>
+  <Style Selector="TextBlock.k">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextAlignment" Value="Right" />
+  </Style>
+  <Style Selector="TextBlock.k.bad"><Setter Property="Foreground" Value="{StaticResource GbError}" /></Style>
+  <Style Selector="TextBlock.k.muted"><Setter Property="Foreground" Value="{StaticResource GbGrey}" /><Setter Property="FontWeight" Value="Normal" /></Style>
+  <Style Selector=":is(Control).stale">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+  <Style Selector="Button.tool">
+    <Setter Property="Height" Value="26" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource GbMuted}" />
+  </Style>
+  <Style Selector="DataGrid.compact">
+    <Setter Property="RowHeight" Value="24" />
+    <Setter Property="ColumnHeaderHeight" Value="26" />
   </Style>
 
   <Style Selector="ProgressBar">

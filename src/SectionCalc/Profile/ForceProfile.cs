@@ -60,7 +60,7 @@ public sealed class ForceProfile
         if (kind == "Plate" && is3D) throw new InvalidOperationException("PLAXIS 3D: стены пока не поддерживаются");
         var need = scenario == ProfileScenario.Wall ? SectionKind.Wall : SectionKind.Pile;
         if (p.Section.Kind != need)
-            throw new InvalidOperationException($"Сценарий требует сечение {(need == SectionKind.Wall ? "СВГ" : "БНС")}: задайте его в режиме «Сечение»");
+            throw new InvalidOperationException($"Сценарий требует сечение {(need == SectionKind.Wall ? "СВГ" : "БНС")}: задайте его в режиме «БНС · СВГ»");
         // PLAXIS 2D: forces per metre out of plane × panel width or pile spacing; PLAXIS 3D: per pile.
         double width = scenario switch
         {

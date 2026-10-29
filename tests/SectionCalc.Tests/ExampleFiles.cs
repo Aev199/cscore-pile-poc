@@ -24,11 +24,24 @@ public class ExampleFiles
         return p;
     }
 
+    /// <summary>Arbitrary section: a tee with the bars by the contour and the shear check.</summary>
+    internal static SectionProject Tee()
+    {
+        var p = SectionProject.Example(SectionKind.Custom);
+        p.Title = "Ригель таврового сечения";
+        p.Custom = new CustomGeometry { Shape = ShapeKind.Tee, HeightMm = 700, FlangeWidthMm = 900, FlangeThicknessMm = 200, WebMm = 300,
+            AxisDistanceMm = 50, BarDiameterMm = 20, MaxSpacingMm = 200, StirrupDiameterMm = 10 };
+        p.Conditions.ShearCheck = true; p.Conditions.ShearModelConfirmed = true; p.Conditions.StirrupLegs = 2; p.Conditions.ShearPitchMm = 100;
+        p.Loads = [new LoadRow { Name = "1", N = -600, Mx = 320, Q = 260, LoadFactor = 1.15, SustainedShare = 0.7 },
+            new LoadRow { Name = "2", N = 0, Mx = -180, Q = 150, LoadFactor = 1.15, SustainedShare = 0.7 }];
+        return p;
+    }
+
     [Fact]
     public void ExamplesCheckAndWrite()
     {
         string? dir = Environment.GetEnvironmentVariable("SECTION_APP_EXAMPLES");
-        foreach (var (name, p) in new[] { ("bns-800", Pile()), ("svg-600", Wall()) })
+        foreach (var (name, p) in new[] { ("bns-800", Pile()), ("svg-600", Wall()), ("tavr-700", Tee()) })
         {
             Assert.Empty(RequestBuilder.Validate(p));
             var r = Engine.Check(p);
@@ -36,7 +49,7 @@ public class ExampleFiles
             if (dir is not { Length: > 0 }) continue;
             Directory.CreateDirectory(dir);
             ProjectStore.Save(p, Path.Combine(dir, name + ".section.json"));
-            ReportWriter.Write(Path.Combine(dir, name == "bns-800" ? "report-bns.docx" : "report-svg.docx"), r, null, new DateTime(2026, 10, 20));
+            ReportWriter.Write(Path.Combine(dir, name switch { "bns-800" => "report-bns.docx", "svg-600" => "report-svg.docx", _ => "report-custom.docx" }), r, null, new DateTime(2026, 10, 20));
         }
     }
 }

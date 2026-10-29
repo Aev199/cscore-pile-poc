@@ -19,10 +19,11 @@ public static class TestApp
 // Real engine, real window: the user workflow from input to results.
 public class AppTests
 {
-    static (MainWindow, MainViewModel) Open(bool pile = true)
+    /// <summary>Window in the geotechnical mode (pile or wall) or, with <paramref name="custom"/>, in the arbitrary section mode.</summary>
+    static (MainWindow, MainViewModel) Open(bool pile = true, bool custom = false)
     {
-        var vm = new MainViewModel();
-        if (!pile) vm.SetWallCommand.Execute(null);
+        var vm = new MainViewModel { AutoCalc = false };
+        if (!custom) { vm.ShowSectionCommand.Execute(null); if (pile) vm.SetPileCommand.Execute(null); else vm.SetWallCommand.Execute(null); }
         var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -39,17 +40,116 @@ public class AppTests
         }
     }
 
+    /// <summary>Pumps the dispatcher until the condition holds (the debounced recalculation runs on a timer).</summary>
+    static async Task Until(Func<bool> condition, int timeoutMs = 20000)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (!condition() && watch.ElapsedMilliseconds < timeoutMs)
+        {
+            await Task.Delay(30);
+            Dispatcher.UIThread.RunJobs();
+        }
+        Assert.True(condition(), "condition not reached in time");
+    }
+
+    [AvaloniaFact]
+    public async Task StartsInArbitraryModeAndRecalculatesByItself()
+    {
+        var vm = new MainViewModel();
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Assert.True(vm.IsCustomMode);
+        Assert.True(vm.AutoCalc);
+        // No button: the example is calculated on start.
+        await Until(() => vm.HasResult && !vm.IsBusy);
+        Assert.Equal(2, vm.CombinationRows.Count);
+        Snapshot(window, "01-custom-start");
+        // A change recalculates without any command.
+        vm.CustomHeight = "700";
+        Assert.True(vm.ResultIsStale);
+        await Until(() => !vm.ResultIsStale && !vm.IsBusy);
+        Assert.Contains("700", vm.SteelText + vm.PropertiesText + vm.TryBuild(out _)!.Custom.HeightMm);
+    }
+
+    [AvaloniaFact]
+    public async Task ArbitraryShapesBarsAndSelection()
+    {
+        var (window, vm) = Open(custom: true);
+        // Tee from the template, bars by the contour.
+        vm.ShapeIndex = vm.ShapeOptions.ToList().FindIndex(o => o.Kind == ShapeKind.Tee);
+        vm.FlangeThickness = "200";
+        Assert.True(vm.ShowFlanges);
+        await vm.CheckCommand.ExecuteAsync(null);
+        Assert.True(vm.HasResult, vm.InputErrors);
+        Assert.Contains("Ix", vm.PropertiesText);
+        Snapshot(window, "02-custom-tee");
+
+        // The contour arrangement goes into the table; one bar is moved by hand.
+        vm.ContourToTableCommand.Execute(null);
+        Assert.True(vm.IsManual);
+        int n = vm.Bars.Count;
+        Assert.True(n > 6);
+        vm.Bars[0].X = "-1000";
+        Assert.Contains("выходит из бетона", vm.InputErrors);
+        vm.SelectedBar = vm.Bars[0];
+        vm.RemoveBarCommand.Execute(null);
+        Assert.Equal(n - 1, vm.Bars.Count);
+        Assert.DoesNotContain("выходит", vm.InputErrors);
+
+        // Polygon pasted from a list of coordinates, bars pasted with diameters.
+        vm.ShapeIndex = vm.ShapeOptions.ToList().FindIndex(o => o.Kind == ShapeKind.Polygon);
+        vm.ClipboardText = () => Task.FromResult<string?>("x\ty\n0\t0\n600\t0\n600\t300\n300\t300\n300\t700\n0\t700\n");
+        await vm.PasteVerticesCommand.ExecuteAsync(null);
+        Assert.Equal(6, vm.Vertices.Count);
+        vm.ClipboardText = () => Task.FromResult<string?>("50 50 20\n550 50 20\n550 250 20\n250 250 16\n250 650 16\n50 650 20\n");
+        await vm.PasteBarsCommand.ExecuteAsync(null);
+        Assert.Equal(6, vm.Bars.Count);
+        await vm.CheckCommand.ExecuteAsync(null);
+        Assert.True(vm.HasResult, vm.InputErrors);
+        Snapshot(window, "03-custom-polygon");
+
+        // Selection keeps the positions and tries the diameters.
+        vm.SelectionDiameters = "16, 20, 25, 32";
+        await vm.SelectCommand.ExecuteAsync(null);
+        Assert.True(vm.HasSelection, vm.InputErrors);
+        Snapshot(window, "04-custom-selection");
+
+        // The file keeps the arbitrary geometry and the geotechnical one.
+        var p = vm.TryBuild(out _, quiet: true)!;
+        var q = ProjectStore.Deserialize(ProjectStore.Serialize(p));
+        Assert.Equal(SectionKind.Custom, q.Kind);
+        Assert.Equal(6, q.Custom.Vertices.Count);
+        Assert.Equal(800, q.Pile.DiameterMm);
+    }
+
+    [AvaloniaFact]
+    public void ModesKeepTheirSections()
+    {
+        var (_, vm) = Open(custom: true);
+        vm.CustomWidth = "450";
+        vm.ShowSectionCommand.Execute(null);
+        Assert.True(vm.IsGeotechMode);
+        Assert.True(vm.IsPile);
+        vm.SetWallCommand.Execute(null);
+        vm.WallThickness = "800";
+        vm.ShowCustomCommand.Execute(null);
+        Assert.Equal("450", vm.CustomWidth);
+        // Back to geotechnics: the last kind (wall) with its thickness.
+        vm.ShowProfileCommand.Execute(null);
+        Assert.True(vm.IsWall);
+        Assert.Equal("800", vm.WallThickness);
+    }
+
     [AvaloniaFact]
     public async Task PileCheckShowsVerdictAndRows()
     {
         var (window, vm) = Open();
-        Snapshot(window, "01-pile-start");
         await vm.CheckCommand.ExecuteAsync(null);
         Assert.True(vm.HasResult, vm.InputErrors);
         Assert.Equal(2, vm.CombinationRows.Count);
         Assert.NotEmpty(vm.SummaryRows);
         Assert.Contains(vm.VerdictTone, new[] { "ok", "bad", "warn" });
-        Snapshot(window, "02-pile-checked");
+        Snapshot(window, "05-pile-checked");
         vm.PileBarCount = "16";
         Assert.True(vm.ResultIsStale);
     }
@@ -62,18 +162,20 @@ public class AppTests
         await vm.SelectCommand.ExecuteAsync(null);
         Assert.True(vm.HasSelection, vm.InputErrors);
         var best = Assert.Single(vm.SelectionRows, r => r.IsBest);
-        Snapshot(window, "03-wall-selection");
+        Snapshot(window, "06-wall-selection");
         await best.ApplyCommand.ExecuteAsync(null);
         Assert.True(vm.HasResult);
         Assert.Equal("ok", vm.VerdictTone);
         Assert.Equal(0, vm.SelectedTab);
-        Snapshot(window, "04-wall-applied");
+        Assert.True(vm.HasSelection);
+        Snapshot(window, "07-wall-applied");
     }
 
     [AvaloniaFact]
     public async Task PastedSeismicCombinationIsCheckedWithItsFactors()
     {
         var (window, vm) = Open();
+        Assert.False(vm.ShowSeismic);
         int added = vm.PasteText("№\tN, кН\tMx\tMy\tQ\tγf\tkдл\r\nС1\t-1 200\t210,5\t0\t100\t1,2\t0,6\r\n");
         Assert.Equal(1, added);
         var row = vm.Loads[^1];
@@ -82,35 +184,40 @@ public class AppTests
         row.Seismic = true;
         row.Special = true;
         Assert.False(row.Seismic);
-        row.Seismic = true;
-        Assert.False(row.Special);
+        Assert.Equal(4, row.KindIndex);
+        // One list instead of three flags: seismic, short-term.
+        row.KindIndex = 3;
+        Assert.True(row.Seismic && row.ShortTerm && !row.Special);
+        row.KindIndex = 2;
+        Assert.False(row.ShortTerm);
         Assert.True(vm.SeismicUsed);
-        vm.InputTab = 4;
+        Assert.True(vm.ShowSeismic);
         await vm.CheckCommand.ExecuteAsync(null);
         Assert.True(vm.HasResult, vm.InputErrors);
         Assert.Contains(vm.CombinationRows, r => r.Name == "С1 · сейсмическое");
-        Snapshot(window, "06-seismic");
+        Snapshot(window, "08-seismic");
         vm.SwapPlaneCommand.Execute(null);
         Assert.Equal("210,5", row.My);
         Assert.True(vm.ResultIsStale);
     }
 
     [AvaloniaFact]
-    public void TabsShowAllSettings()
+    public void SettingsReachTheProject()
     {
-        var (window, vm) = Open(pile: false);
-        vm.InputTab = 1; Snapshot(window, "07-materials");
-        vm.InputTab = 2; Snapshot(window, "08-design");
-        vm.InputTab = 3;
+        var (_, vm) = Open(pile: false);
         vm.CrackRequirementIndex = 1;
         Assert.Equal("0,2", vm.CrackLimitLong);
         Assert.Equal("0,3", vm.CrackLimitShort);
-        Snapshot(window, "09-cracks");
         var p = vm.TryBuild(out var errors);
         Assert.True(p is not null, string.Join("\n", errors));
         Assert.True(p!.Conditions.PermeabilityLimits);
         vm.CrackMethodIndex = 1;
         Assert.Equal(CrackMethod.Refined, vm.TryBuild(out _)!.Conditions.CrackMethod);
+        vm.SchemeIndex = 1; vm.EccentricityIndex = 1; vm.SpecialIndex = 1;
+        p = vm.TryBuild(out _)!;
+        Assert.True(p.Conditions.StaticallyDeterminate);
+        Assert.Equal(EccentricityMode.InLoads, p.Conditions.Eccentricity);
+        Assert.False(p.Special.NormativeProperties);
     }
 
     /// <summary>Synthetic PLAXIS 2D Output of a 15 m wall (kN, m), three phases.</summary>
@@ -139,6 +246,7 @@ public class AppTests
     {
         var (window, vm) = Open(pile: true);
         vm.ShowProfileCommand.Execute(null);
+        Assert.True(vm.IsProfileMode);
         var p = vm.Profile;
         string root = AppContext.BaseDirectory;
         while (!Directory.Exists(Path.Combine(root, "examples", "profile"))) root = Path.GetDirectoryName(root)!;
@@ -281,7 +389,7 @@ public class AppTests
         await vm.CheckCommand.ExecuteAsync(null);
         Assert.False(vm.HasResult);
         Assert.Contains("Диаметр D", vm.InputErrors);
-        Snapshot(window, "05-input-error");
+        Snapshot(window, "09-input-error");
         window.Close();
     }
 }

@@ -8,7 +8,7 @@
     <RootNamespace>SectionApp</RootNamespace>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
-    <Product>Сечения БНС и СВГ</Product>
+    <Product>Сечения ЖБ</Product>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="SectionApp.Tests" />
