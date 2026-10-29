@@ -22,13 +22,18 @@ public static class SectionSketch
     {
         canvas.Clear(SKColors.White);
         var layout = RequestBuilder.Layout(p);
-        double w = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.WidthMm;
-        double h = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.ThicknessMm;
+        bool custom = p.Kind == SectionKind.Custom && p.Custom.OutlineProblems().Count == 0;
+        if (p.Kind == SectionKind.Custom && !custom) return;
+        var props = custom ? p.Custom.Properties() : null;
+        double w = props?.WidthMm ?? (p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.WidthMm);
+        double h = props?.HeightMm ?? (p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.ThicknessMm);
         if (!(w > 0 && h > 0)) return;
+        // Bounding-box centre of a custom outline at the centre of the picture.
+        double ox = props is null ? 0 : (props.MinX + props.MaxX) / 2, oy = props is null ? 0 : (props.MinY + props.MaxY) / 2;
         float margin = Math.Max(58, fontPx * 3.2f);
         float scale = (float)Math.Min((width - 2 * margin) / w, (height - 2 * margin) / h);
         float cx = width / 2, cy = height / 2;
-        SKPoint P(double x, double y) => new(cx + (float)x * scale, cy - (float)y * scale);
+        SKPoint P(double x, double y) => new(cx + (float)(x - ox) * scale, cy - (float)(y - oy) * scale);
 
         using var fill = new SKPaint { Color = Concrete, IsAntialias = true };
         using var stroke = new SKPaint { Color = Outline, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f };
@@ -38,7 +43,34 @@ public static class SectionSketch
         using var font = new SKFont(Typeface(), fontPx);
         using var text = new SKPaint { Color = Text, IsAntialias = true };
 
-        if (p.Kind == SectionKind.Pile)
+        if (custom)
+        {
+            var g = p.Custom;
+            using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
+            foreach (var ring in new[] { g.Outline() }.Concat(g.Holes()))
+            {
+                path.MoveTo(P(ring[0].X, ring[0].Y));
+                foreach (var v in ring.Skip(1)) path.LineTo(P(v.X, v.Y));
+                path.Close();
+            }
+            canvas.DrawPath(path, fill);
+            canvas.DrawPath(path, stroke);
+            var (x0, x1, y0, y1) = (props!.MinX, props.MaxX, props.MinY, props.MaxY);
+            if (g.IsRound)
+                Dimension(canvas, P(x0, y0), P(x1, y0), 26, $"D = {g.DiameterMm:0}", font, text);
+            else
+            {
+                Dimension(canvas, P(x0, y0), P(x1, y0), 26, $"{w:0}", font, text);
+                Dimension(canvas, P(x1, y0), P(x1, y1), 30, $"{h:0}", font, text, vertical: true);
+            }
+            // Centroid: the point the forces are referred to.
+            using var c = new SKPaint { Color = Plus, IsAntialias = true, StrokeWidth = 1.4f, Style = SKPaintStyle.Stroke };
+            var co = P(props.CxMm, props.CyMm); float k = fontPx * 0.7f;
+            canvas.DrawCircle(co, k * 0.55f, c);
+            canvas.DrawLine(co.X - k, co.Y, co.X + k, co.Y, c);
+            canvas.DrawLine(co.X, co.Y - k, co.X, co.Y + k, c);
+        }
+        else if (p.Kind == SectionKind.Pile)
         {
             var g = p.Pile;
             float r = (float)(g.DiameterMm / 2) * scale;

@@ -32,6 +32,21 @@ public static class Selection
                     Add(c, $"{n} Ø{d:0}");
                 }
         }
+        else if (p.Kind == SectionKind.Custom)
+        {
+            // Bar positions stay; the contour arrangement also tries the spacings along the contour.
+            var spacings = p.Custom.Arrangement == BarArrangement.Contour
+                ? s.CustomSpacings.Where(x => x > 0).Distinct().OrderBy(x => x).ToList() : [0.0];
+            foreach (var spacing in spacings)
+                foreach (var d in diameters)
+                {
+                    var c = Clone(p);
+                    if (c.Custom.Arrangement == BarArrangement.Contour) { c.Custom.BarDiameterMm = d; c.Custom.MaxSpacingMm = spacing; }
+                    else foreach (var b in c.Custom.Bars) b.DiameterMm = d;
+                    int n = c.Custom.EffectiveBars().Count;
+                    Add(c, spacing > 0 ? $"{n} Ø{d:0}, шаг ≤ {spacing:0}" : $"{n} Ø{d:0}");
+                }
+        }
         else
         {
             var faces = (from n in Enumerable.Range(Math.Max(2, s.WallCountMin), Math.Max(0, s.WallCountMax - Math.Max(2, s.WallCountMin) + 1))
@@ -87,6 +102,12 @@ public static class Selection
     {
         var c = Clone(p);
         if (c.Kind == SectionKind.Pile) { c.Pile.BarCount = 6; c.Pile.BarDiameterMm = 12; }
+        else if (c.Kind == SectionKind.Custom)
+        {
+            // Positions stay (table or contour), only the diameters change: check them with thin bars.
+            c.Custom.BarDiameterMm = 1; c.Custom.MinClearSpacingMm = 0;
+            foreach (var b in c.Custom.Bars) b.DiameterMm = 1;
+        }
         else { c.Wall.PositiveFace = new WallFace { BarCount = 2, BarDiameterMm = 12 }; c.Wall.NegativeFace = new WallFace { BarCount = 2, BarDiameterMm = 12 }; }
         return c;
     }

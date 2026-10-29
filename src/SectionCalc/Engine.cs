@@ -223,8 +223,8 @@ public static class Engine
     {
         if (!p.Loads.Any(l => l.N < 0)) return [];
         var c = p.Conditions;
-        double ix = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm / 4 : p.Wall.ThicknessMm / Math.Sqrt(12);
-        double iy = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm / 4 : p.Wall.WidthMm / Math.Sqrt(12);
+        var gross = Geometry.Gross(p);
+        double ix = gross.IxMm, iy = gross.IyMm;
         CheckRow Row(string id, double l0, double i)
         {
             double k = l0 * 1000 / i / c.SlendernessLimit;
@@ -238,8 +238,8 @@ public static class Engine
     {
         var c = p.Conditions;
         if (c.Eccentricity != EccentricityMode.Sp63) return (source, null, null);
-        double hx = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.ThicknessMm;
-        double hy = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.WidthMm;
+        var gross = Geometry.Gross(p);
+        double hx = gross.HxMm, hy = gross.HyMm;
         var payload = new JsonObject
         {
             ["length_m"] = c.ElementLengthM, ["height_x_m"] = hx / 1000, ["height_y_m"] = hy / 1000,

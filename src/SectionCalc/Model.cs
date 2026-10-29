@@ -3,7 +3,15 @@ using System.Text.Json.Serialization;
 namespace SectionCalc;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SectionKind { Pile, Wall }
+public enum SectionKind
+{
+    /// <summary>Bored pile (БНС), geotechnical mode.</summary>
+    Pile,
+    /// <summary>Diaphragm wall (СВГ), geotechnical mode.</summary>
+    Wall,
+    /// <summary>Any section: template or polygon outline, any bars.</summary>
+    Custom,
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SecondOrderMode { SectionOnly, InLoads, Cscore }
@@ -100,8 +108,31 @@ public sealed class WallGeometry
     public double CentroidMm(WallFace face) => AxisDistanceMm(face) + (face.Rows - 1) / 2.0 * face.RowPitchMm;
 }
 
+/// <summary>Gross concrete sizes used by the slenderness and the accidental eccentricity.</summary>
+/// <param name="HxMm">Height in the plane of Mx (along y).</param>
+/// <param name="HyMm">Height in the plane of My (along x).</param>
+/// <param name="IxMm">Radius of gyration in the plane of Mx.</param>
+/// <param name="IyMm">Radius of gyration in the plane of My.</param>
+public sealed record GrossSection(double HxMm, double HyMm, double IxMm, double IyMm, double AreaMm2);
+
 public static class Geometry
 {
+    public static GrossSection Gross(SectionProject p)
+    {
+        switch (p.Kind)
+        {
+            case SectionKind.Pile:
+                double d = p.Pile.DiameterMm;
+                return new GrossSection(d, d, d / 4, d / 4, Math.PI * d * d / 4);
+            case SectionKind.Wall:
+                var w = p.Wall;
+                return new GrossSection(w.ThicknessMm, w.WidthMm, w.ThicknessMm / Math.Sqrt(12), w.WidthMm / Math.Sqrt(12), w.ThicknessMm * w.WidthMm);
+            default:
+                var g = p.Custom.Properties();
+                return new GrossSection(g.HeightMm, g.WidthMm, g.RadiusXMm, g.RadiusYMm, g.AreaMm2);
+        }
+    }
+
     /// <summary>Cover to the transverse bar surface from a cover measured to the given reference.</summary>
     public static double TransverseCover(double cover, CoverReference reference, double transverse, double bar) => reference switch
     {
@@ -231,6 +262,8 @@ public sealed class SelectionSettings
     public int PileCountStep { get; set; } = 2;
     public int WallCountMin { get; set; } = 3;
     public int WallCountMax { get; set; } = 10;
+    /// <summary>Arbitrary section, contour arrangement: candidate spacings of the bars along the contour, mm.</summary>
+    public List<double> CustomSpacings { get; set; } = [100, 150, 200, 250, 300];
     public bool WallSymmetric { get; set; } = true;
     public List<double> Diameters { get; set; } = [16, 20, 25, 28, 32];
 }
@@ -243,6 +276,7 @@ public sealed class SectionProject
     public SectionKind Kind { get; set; } = SectionKind.Pile;
     public PileGeometry Pile { get; set; } = new();
     public WallGeometry Wall { get; set; } = new();
+    public CustomGeometry Custom { get; set; } = new();
     public string ConcreteClass { get; set; } = "B30";
     public string RebarClass { get; set; } = "A500";
     public string TransverseClass { get; set; } = "A240";
@@ -263,10 +297,17 @@ public sealed class SectionProject
 
     public static SectionProject Example(SectionKind kind)
     {
-        var p = new SectionProject { Kind = kind, Title = kind == SectionKind.Pile ? "БНС Ø800" : "СВГ 600 мм" };
+        var p = new SectionProject { Kind = kind, Title = kind switch { SectionKind.Pile => "БНС Ø800", SectionKind.Wall => "СВГ 600 мм", _ => "Сечение 400×600" } };
         // New sections: cover to the longitudinal bars, as in ARBAT (50 mm to the spiral + Ø10 = 60 mm).
         p.Pile.CoverReference = CoverReference.Bar; p.Pile.CoverMm = 60;
         p.Wall.CoverReference = CoverReference.Bar; p.Wall.CoverMm = 60;
+        if (kind == SectionKind.Custom)
+        {
+            p.Conditions.ElementLengthM = 4;
+            p.Loads.Add(new LoadRow { Name = "1", N = -1800, Mx = 160, My = 40, Q = 90, LoadFactor = 1.15, SustainedShare = 0.8 });
+            p.Loads.Add(new LoadRow { Name = "2", N = -900, Mx = -120, Q = 60, LoadFactor = 1.15, SustainedShare = 0.8 });
+            return p;
+        }
         p.Loads.Add(new LoadRow { Name = "1", N = -1500, Mx = 250, Q = 120, LoadFactor = 1.15, SustainedShare = 0.8 });
         p.Loads.Add(new LoadRow { Name = "2", N = -900, Mx = -180, Q = 90, LoadFactor = 1.15, SustainedShare = 0.8 });
         return p;

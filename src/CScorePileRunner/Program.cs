@@ -1220,7 +1220,14 @@ internal static class Program
 
         var xs = new List<double>();
         var ys = new List<double>();
-        if (rectangle is not null)
+        if (rectangle?.Outline is { } outline)
+        {
+            // General polygon (any concrete outline); width and height are its bounding box.
+            var ring = ResearchVertex.Closed(outline, counterClockwise: true);
+            xs.AddRange(ring.Select(v => v.XMm / 1000.0));
+            ys.AddRange(ring.Select(v => v.YMm / 1000.0));
+        }
+        else if (rectangle is not null)
         {
             double hx = rectangle.WidthMm / 2000.0;
             double hy = rectangle.HeightMm / 2000.0;
@@ -1248,6 +1255,9 @@ internal static class Program
             Material = concrete, MaterialId = concrete.Id, DiagrammType = DiagrammType.L2,
             Hull = contour, Contours = [contour], NX = mesh, NY = mesh
         };
+        foreach (var hole in (rectangle?.Holes ?? []).Select(h => ResearchVertex.Closed(h, counterClockwise: false)))
+            region.Contours.Add(new Contour(hole.Select(v => v.XMm / 1000.0), hole.Select(v => v.YMm / 1000.0), "section-hole")
+                { Type = ContourType.Hole });
         region.ResolveAndBuildDiagramms();
         region.SliceXY(mesh, mesh);
 
@@ -1325,8 +1335,22 @@ internal static class Program
                 || string.IsNullOrWhiteSpace(input.Candidates[0].Id))
                 throw new ArgumentException("Invalid rectangular research geometry");
             if (rect.Bars.Any(b => !double.IsFinite(b.XMm) || !double.IsFinite(b.YMm)
-                    || !double.IsFinite(b.DiameterMm) || b.DiameterMm <= 0
-                    || Math.Abs(b.XMm) + b.DiameterMm / 2 >= rect.WidthMm / 2
+                    || !double.IsFinite(b.DiameterMm) || b.DiameterMm <= 0))
+                throw new ArgumentException("Invalid rectangular research geometry");
+            if (rect.Outline is { } outline)
+            {
+                var rings = new[] { outline }.Concat(rect.Holes ?? []).ToList();
+                if (outline.Count < 3 || (rect.Holes ?? []).Any(h => h is null || h.Count < 3)
+                    || rings.Any(r => r.Any(v => !double.IsFinite(v.XMm) || !double.IsFinite(v.YMm)))
+                    || Math.Abs(ResearchVertex.Area(outline)) < 1e-6)
+                    throw new ArgumentException("Invalid polygon research geometry");
+                // A bar lies wholly in the concrete: inside the outline, outside every hole, clear of all edges.
+                if (rect.Bars.Any(b => !ResearchVertex.Inside(outline, b.XMm, b.YMm)
+                        || (rect.Holes ?? []).Any(h => ResearchVertex.Inside(h, b.XMm, b.YMm))
+                        || rings.Any(r => ResearchVertex.EdgeDistance(r, b.XMm, b.YMm) <= b.DiameterMm / 2)))
+                    throw new ArgumentException("Rebar outside polygon concrete face");
+            }
+            else if (rect.Bars.Any(b => Math.Abs(b.XMm) + b.DiameterMm / 2 >= rect.WidthMm / 2
                     || Math.Abs(b.YMm) + b.DiameterMm / 2 >= rect.HeightMm / 2))
                 throw new ArgumentException("Rebar outside rectangular concrete face");
             for (int i = 0; i < rect.Bars.Count; i++)
@@ -1530,6 +1554,52 @@ internal sealed class ResearchRectangle
     [JsonPropertyName("height_mm")] public double HeightMm { get; init; }
     [JsonPropertyName("mesh_resolution")] public int MeshResolution { get; init; }
     [JsonPropertyName("bars")] public List<ResearchBar> Bars { get; init; } = [];
+    // Optional general outline replacing the width × height rectangle (any polygon, mm), and holes in it.
+    [JsonPropertyName("outline")] public List<ResearchVertex>? Outline { get; init; }
+    [JsonPropertyName("holes")] public List<List<ResearchVertex>>? Holes { get; init; }
+}
+internal sealed class ResearchVertex
+{
+    [JsonPropertyName("x_mm")] public double XMm { get; init; }
+    [JsonPropertyName("y_mm")] public double YMm { get; init; }
+
+    // Closed ring for a CScore contour, which takes at least four distinct vertices (a triangle gets an edge
+    // midpoint) and the orientation of GridSplit: hull counterclockwise, holes clockwise.
+    internal static List<ResearchVertex> Closed(List<ResearchVertex> ring, bool counterClockwise)
+    {
+        var list = ring.ToList();
+        if (Area(list) > 0 != counterClockwise) list.Reverse();
+        if (list.Count == 3)
+            list.Insert(1, new ResearchVertex { XMm = (list[0].XMm + list[1].XMm) / 2, YMm = (list[0].YMm + list[1].YMm) / 2 });
+        list.Add(list[0]);
+        return list;
+    }
+
+    internal static double Area(List<ResearchVertex> ring) =>
+        ring.Select((v, i) => v.XMm * ring[(i + 1) % ring.Count].YMm - ring[(i + 1) % ring.Count].XMm * v.YMm).Sum() / 2;
+
+    internal static bool Inside(List<ResearchVertex> ring, double x, double y)
+    {
+        bool inside = false;
+        for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
+            if ((ring[i].YMm > y) != (ring[j].YMm > y)
+                && x < (ring[j].XMm - ring[i].XMm) * (y - ring[i].YMm) / (ring[j].YMm - ring[i].YMm) + ring[i].XMm)
+                inside = !inside;
+        return inside;
+    }
+
+    internal static double EdgeDistance(List<ResearchVertex> ring, double x, double y)
+    {
+        double best = double.MaxValue;
+        for (int i = 0; i < ring.Count; i++)
+        {
+            var (a, b) = (ring[i], ring[(i + 1) % ring.Count]);
+            double dx = b.XMm - a.XMm, dy = b.YMm - a.YMm, len2 = dx * dx + dy * dy;
+            double t = len2 > 0 ? Math.Clamp(((x - a.XMm) * dx + (y - a.YMm) * dy) / len2, 0, 1) : 0;
+            best = Math.Min(best, Math.Sqrt(Math.Pow(x - a.XMm - t * dx, 2) + Math.Pow(y - a.YMm - t * dy, 2)));
+        }
+        return best;
+    }
 }
 internal sealed class ResearchBar
 {

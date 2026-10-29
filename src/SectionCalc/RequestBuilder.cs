@@ -19,7 +19,30 @@ public static class RequestBuilder
     public const int MeshResolution = 41;
     public const int PolygonSides = 96;
 
-    public static BarLayout Layout(SectionProject p) => p.Kind == SectionKind.Pile ? PileLayout(p.Pile) : WallLayout(p.Wall);
+    public static BarLayout Layout(SectionProject p) => p.Kind switch
+    {
+        SectionKind.Pile => PileLayout(p.Pile), SectionKind.Wall => WallLayout(p.Wall), _ => CustomLayout(p.Custom),
+    };
+
+    public static BarLayout CustomLayout(CustomGeometry g)
+    {
+        var specs = g.EffectiveBars();
+        var bars = specs.Select(b => new BarPoint(b.X, b.Y, b.DiameterMm)).ToList();
+        double area = bars.Sum(b => Math.PI * b.DiameterMm * b.DiameterMm / 4);
+        if (g.OutlineProblems() is { Count: > 0 } outline) return new BarLayout(bars, area, 0, outline[0]);
+        double clear = double.MaxValue; string? problem = null;
+        for (int i = 0; i < bars.Count; i++)
+            for (int j = i + 1; j < bars.Count; j++)
+                clear = Math.Min(clear, Math.Sqrt(Math.Pow(bars[i].XMm - bars[j].XMm, 2) + Math.Pow(bars[i].YMm - bars[j].YMm, 2))
+                    - (bars[i].DiameterMm + bars[j].DiameterMm) / 2);
+        if (bars.Count < 2) problem = "Задайте не менее 2 стержней";
+        else if (specs.Any(b => !(b.DiameterMm > 0) || !double.IsFinite(b.X) || !double.IsFinite(b.Y))) problem = "Координаты и диаметры стержней должны быть числами, Ø > 0";
+        else if (specs.Select((b, i) => (b, i)).FirstOrDefault(x => g.ClearCover(x.b) <= 0) is { b: not null } outside)
+            problem = $"Стержень {outside.i + 1} ({outside.b.X:0.#}; {outside.b.Y:0.#}) выходит из бетона";
+        else if (clear < g.MinClearSpacingMm) problem = clear <= 0 ? "Стержни накладываются друг на друга"
+            : $"Просвет между стержнями {clear:0} мм меньше {g.MinClearSpacingMm:0} мм";
+        return new BarLayout(bars, area, clear == double.MaxValue ? 0 : clear, problem);
+    }
 
     public static BarLayout PileLayout(PileGeometry g)
     {
@@ -82,6 +105,11 @@ public static class RequestBuilder
             else if (g.SpiralCoverMm < 0)
                 e.Add("Защитный слой меньше, чем помещается спираль снаружи стержней");
         }
+        else if (p.Kind == SectionKind.Custom)
+        {
+            if (p.Custom.Arrangement == BarArrangement.Contour && !(p.Custom.AxisDistanceMm > 0 && p.Custom.BarDiameterMm > 0 && p.Custom.MaxSpacingMm > 0))
+                e.Add("Расстановка по контуру: a, Ø и шаг должны быть больше 0");
+        }
         else
         {
             var g = p.Wall;
@@ -116,6 +144,9 @@ public static class RequestBuilder
         {
             if (c.ShearPitchMm <= 0) e.Add("Задайте шаг поперечной арматуры");
             if (p.Kind == SectionKind.Wall && c.StirrupLegs < 1) e.Add("Задайте число рабочих ветвей хомутов");
+            if (p.Kind == SectionKind.Custom && c.StirrupLegs < 1) e.Add("Задайте число рабочих ветвей хомутов");
+            if (p.Kind == SectionKind.Custom && p.Custom.IsRound) e.Add("Q круглого и кольцевого сечения не проверяется: для сваи — режим «БНС · СВГ»");
+            if (p.Kind == SectionKind.Custom && !(p.Custom.StirrupDiameterMm > 0)) e.Add("Задайте диаметр хомутов");
             if (p.Kind == SectionKind.Pile && (c.PileShearAMm <= 0 || c.PileShearAMm >= 0.885 * p.Pile.DiameterMm))
                 e.Add("Для Q круглого сечения задайте a: 0 < a < 0,885D");
         }
@@ -143,6 +174,30 @@ public static class RequestBuilder
             {
                 ["id"] = $"{g.BarCount}x{g.BarDiameterMm:0.##}", ["bar_count"] = g.BarCount, ["bar_diameter_mm"] = g.BarDiameterMm,
                 ["rotation_deg"] = 0, ["bar_axis_radius_mm"] = g.DiameterMm / 2 - g.AxisDistanceMm,
+                ["steel_area_mm2"] = layout.SteelAreaMm2, ["clearance_mm"] = layout.MinClearanceMm,
+            });
+        }
+        else if (p.Kind == SectionKind.Custom)
+        {
+            // The engine refers N, Mx, My to the origin: the geometry goes shifted to the concrete centroid.
+            var g = p.Custom; var gp = g.Properties();
+            JsonArray Ring(IEnumerable<Vertex> ring, int sides) => new(Thin(ring.ToList(), sides).Select(v => (JsonNode)new JsonObject
+                { ["x_mm"] = v.X - gp.CxMm, ["y_mm"] = v.Y - gp.CyMm }).ToArray());
+            int sides = c.CoarseMesh ? 2 : 1;
+            req["pile"] = new JsonObject { ["diameter_mm"] = 0, ["polygon_sides"] = 0, ["mesh_resolution"] = MeshResolution };
+            req["research_rectangle"] = new JsonObject
+            {
+                ["width_mm"] = gp.WidthMm, ["height_mm"] = gp.HeightMm, ["mesh_resolution"] = MeshResolution,
+                ["bars"] = new JsonArray(layout.Bars.Select(b => (JsonNode)new JsonObject
+                    { ["x_mm"] = b.XMm - gp.CxMm, ["y_mm"] = b.YMm - gp.CyMm, ["diameter_mm"] = b.DiameterMm }).ToArray()),
+                ["outline"] = Ring(g.Outline(), sides),
+                ["holes"] = new JsonArray(g.Holes().Select(h => (JsonNode)Ring(h, sides)).ToArray()),
+            };
+            req["candidates"] = new JsonArray(new JsonObject
+            {
+                ["id"] = $"custom{layout.Bars.Count}", ["bar_count"] = layout.Bars.Count,
+                ["bar_diameter_mm"] = layout.Bars.Count > 0 ? layout.Bars.Max(b => b.DiameterMm) : 0,
+                ["rotation_deg"] = 0, ["bar_axis_radius_mm"] = 0,
                 ["steel_area_mm2"] = layout.SteelAreaMm2, ["clearance_mm"] = layout.MinClearanceMm,
             });
         }
@@ -200,7 +255,7 @@ public static class RequestBuilder
             req["shear_screening"] = new JsonObject
             {
                 ["enabled"] = true,
-                ["diameter_mm"] = p.Kind == SectionKind.Pile ? p.Pile.SpiralDiameterMm : p.Wall.StirrupDiameterMm,
+                ["diameter_mm"] = p.Kind switch { SectionKind.Pile => p.Pile.SpiralDiameterMm, SectionKind.Wall => p.Wall.StirrupDiameterMm, _ => p.Custom.StirrupDiameterMm },
                 ["spacing_mm"] = c.ShearPitchMm,
                 ["effective_legs_per_cage"] = p.Kind == SectionKind.Pile ? 2 : c.StirrupLegs,
                 ["cage_count"] = 1, ["rsw_kpa"] = materials.Rsw * 1000, ["constructive_confirmed"] = c.ShearModelConfirmed,
@@ -239,6 +294,10 @@ public static class RequestBuilder
             };
         return o;
     }
+
+    /// <summary>Coarse mesh: every other vertex of a circle (96 → 48 sides), as for the pile polygon.</summary>
+    static List<Vertex> Thin(List<Vertex> ring, int step) =>
+        step > 1 && ring.Count >= CustomGeometry.CircleSides ? ring.Where((_, i) => i % step == 0).ToList() : ring;
 
     static JsonObject ToJson(Dictionary<string, object> values) =>
         new(values.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)JsonValue.Create(Convert.ToDouble(kv.Value)))));

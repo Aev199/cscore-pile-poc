@@ -128,6 +128,18 @@ public static class ReportWriter
             rows.Add(("Спираль", $"Ø{F(g.SpiralDiameterMm)} {p.TransverseClass}"));
             rows.Add(("Защитный слой", $"{F(g.CoverMm)} мм {CoverText(g.CoverReference, "спирали")}; до оси стержней {F(g.AxisDistanceMm, "0.#")} мм"));
         }
+        else if (p.Kind == SectionKind.Custom)
+        {
+            var g = p.Custom; var gp = g.Properties();
+            var bars = g.EffectiveBars();
+            rows.Add(("Тип", "произвольное сечение: " + g.ShapeText() + " мм"));
+            rows.Add(("Геометрические характеристики бетона", $"A = {F(gp.AreaMm2 / 1e6, "0.####")} м²; центр тяжести x = {F(gp.CxMm, "0.#")}, y = {F(gp.CyMm, "0.#")} мм; Ix = {F(gp.IxMm4 / 1e12, "0.#####")} м⁴, Iy = {F(gp.IyMm4 / 1e12, "0.#####")} м⁴"));
+            string spec = string.Join(", ", bars.GroupBy(b => b.DiameterMm).OrderByDescending(x => x.Key).Select(x => $"{x.Count()} Ø{F(x.Key)}"));
+            rows.Add(("Продольная арматура", $"{spec} {p.RebarClass}, As = {F(r.Layout.SteelAreaMm2, "0")} мм², μs = {F(r.Layout.SteelAreaMm2 / gp.AreaMm2 * 100, "0.00")} %"
+                + (g.Arrangement == BarArrangement.Contour ? $"; по контуру: до оси {F(g.AxisDistanceMm)} мм, шаг не более {F(g.MaxSpacingMm)} мм" : "")));
+            rows.Add(("Координаты стержней (x; y), мм", string.Join("; ", bars.Select(b => $"({F(b.X, "0.#")}; {F(b.Y, "0.#")})"))));
+            rows.Add(("Усилия", "приложены в центре тяжести бетонного сечения; Mx > 0 растягивает сторону +y"));
+        }
         else
         {
             var g = p.Wall;
@@ -206,7 +218,7 @@ public static class ReportWriter
         if (c.ShearCheck)
             rows.Add(("Поперечное армирование", p.Kind == SectionKind.Pile
                 ? $"спираль Ø{F(p.Pile.SpiralDiameterMm)} {p.TransverseClass} с шагом {F(c.ShearPitchMm)} мм"
-                : $"хомуты Ø{F(p.Wall.StirrupDiameterMm)} {p.TransverseClass} с шагом {F(c.ShearPitchMm)} мм, {c.StirrupLegs} ветви в сечении"));
+                : $"хомуты Ø{F(StirrupDiameter(p))} {p.TransverseClass} с шагом {F(c.ShearPitchMm)} мм, {c.StirrupLegs} ветви в сечении"));
         if (c.ShearCheck && c.InclinedMoment)
             rows.Add(("Наклонное сечение на M", $"коэффициент анкеровки {F(c.AnchorageFactor)}; расстояния до опор {F(c.SupportDistanceDownM)} и {F(c.SupportDistanceUpM)} м"));
         if (p.Loads.Any(l => l.Special && !l.Seismic))
@@ -387,6 +399,12 @@ public static class ReportWriter
                 yield return Calc($"i = D/4 = {F(p.Pile.DiameterMm)}/4 = {F1(i)} мм;");
                 yield return Calc($"λx = l₀,x/i = {F(c.L0xM * 1000, "0")}/{F1(i)} = {F1(c.L0xM * 1000 / i)};  λy = l₀,y/i = {F(c.L0yM * 1000, "0")}/{F1(i)} = {F1(c.L0yM * 1000 / i)}.");
             }
+            else if (p.Kind == SectionKind.Custom)
+            {
+                var gs = Geometry.Gross(p);
+                yield return Calc($"ix = √(Ix/A) = {F1(gs.IxMm)} мм;  iy = √(Iy/A) = {F1(gs.IyMm)} мм;");
+                yield return Calc($"λx = l₀,x/ix = {F(c.L0xM * 1000, "0")}/{F1(gs.IxMm)} = {F1(c.L0xM * 1000 / gs.IxMm)};  λy = l₀,y/iy = {F(c.L0yM * 1000, "0")}/{F1(gs.IyMm)} = {F1(c.L0yM * 1000 / gs.IyMm)}.");
+            }
             else
             {
                 double ix = p.Wall.ThicknessMm / Math.Sqrt(12), iy = p.Wall.WidthMm / Math.Sqrt(12);
@@ -409,8 +427,8 @@ public static class ReportWriter
         if (c.Eccentricity == EccentricityMode.Sp63 && info.N < 0)
         {
             yield return Para("Случайный эксцентриситет (п. 8.1.7)", "Heading2");
-            double hx = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.ThicknessMm;
-            double hy = p.Kind == SectionKind.Pile ? p.Pile.DiameterMm : p.Wall.WidthMm;
+            var gross = Geometry.Gross(p);
+            double hx = gross.HxMm, hy = gross.HyMm;
             double L = c.ElementLengthM * 1000;
             foreach (var (axis, h, given, ea) in new[] { ("x", hx, c.EaXMm, r.EaXMm ?? 0), ("y", hy, c.EaYMm, r.EaYMm ?? 0) })
             {
@@ -497,7 +515,7 @@ public static class ReportWriter
         double? qsw = Num(d, "variables", "qsw"), C = Num(d, "variables", "C"), Qb = Num(d, "variables", "Qb"), Qsw = Num(d, "variables", "Qsw");
         double asw = p.Kind == SectionKind.Pile
             ? Num(d, "equivalence", "effective_asw_mm2") ?? 2 * Math.PI * Math.Pow(p.Pile.SpiralDiameterMm, 2) / 4
-            : c.StirrupLegs * Math.PI * Math.Pow(p.Wall.StirrupDiameterMm, 2) / 4;
+            : c.StirrupLegs * Math.PI * Math.Pow(StirrupDiameter(p), 2) / 4;
         if (qsw is double q)
         {
             double calc = m.Rsw * asw / c.ShearPitchMm;
@@ -637,6 +655,8 @@ public static class ReportWriter
         if (shortRow?.Utilization is double ks && aShort is double wsh)
             yield return Calc($"acrc,непрод = {F3(wsh)} мм {(ks <= 1 ? "≤" : ">")} acrc,ult = {F(c.CrackLimitShortMm)} мм;  K = {F3(ks)}.");
     }
+
+    static double StirrupDiameter(SectionProject p) => p.Kind == SectionKind.Custom ? p.Custom.StirrupDiameterMm : p.Wall.StirrupDiameterMm;
 
     static IEnumerable<string> StandardNotes(CheckResult r)
     {
