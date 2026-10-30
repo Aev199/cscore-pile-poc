@@ -3,6 +3,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CScore;
+using CScore.Sp63Shear;
 
 internal static class Program
 {
@@ -12,13 +13,43 @@ internal static class Program
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
-    static int Main()
+    static int Main(string[] args)
     {
         try
         {
-            var input = JsonSerializer.Deserialize<BatchInput>(Console.In.ReadToEnd(), ReadOptions)
+            if (args.Length > 1) throw new ArgumentException("Unsupported runner command");
+            Console.Out.Write(Execute(args.Length == 1 ? args[0] : "", Console.In.ReadToEnd()));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.ToString());
+            return 2;
+        }
+    }
+
+    // In-process entry used by the desktop application: the same commands and
+    // JSON contracts as the command-line runner; throws instead of exit code 2.
+    internal static string Execute(string command, string json) => command switch
+    {
+        "" => RunBatch(json),
+        "--prepare-loads" => PrepareLoads(json),
+        "--prepare-member-loads" => PrepareMemberLoads(json),
+        "--moment-curvature" => RunMomentCurvature(json),
+        _ => throw new ArgumentException("Unsupported runner command")
+    };
+
+    private static string RunBatch(string json)
+    {
+        {
+            var input = JsonSerializer.Deserialize<BatchInput>(json, ReadOptions)
                 ?? throw new ArgumentException("Пустой JSON");
             Validate(input);
+            input.ConnectionContext?.Validate();
+            if (input.Loads.Any(l=>l.SourceMxKnm.HasValue!=l.SourceMyKnm.HasValue
+                || l.SourceMxKnm is double sx && !double.IsFinite(sx)
+                || l.SourceMyKnm is double sy && !double.IsFinite(sy)))
+                throw new ArgumentException("Invalid external moment provenance");
             var records = new List<object>();
             foreach (var candidate in input.Candidates)
             {
@@ -120,39 +151,362 @@ internal static class Program
                 object[]? slsValues =
                     slsGate is "calculated_research_override" or "calculated_uls_pass"
                         ? RunCrackProbe(input, candidate) : null;
+                object[]? shearValues = input.ShearScreening?.Enabled == true && input.ResearchRectangle is not null
+                    ? RunShearScreening(input, candidate) : null;
+                object[]? fullProfileValues = input.ShearProfile is not null
+                    ? RunShearProfiles(input, candidate) : null;
                 records.Add(new { id = candidate.Id, loads = values,
-                    sls_gate = slsGate, sls_probe = slsValues });
+                    sls_gate = slsGate, sls_probe = slsValues, shear_screening = shearValues,
+                    shear_profiles = fullProfileValues,
+                    connection_report = input.ConnectionContext is null ? null
+                        : ConnectionReport.Build(input,candidate,values,slsValues,slsGate) });
             }
-            Console.Out.Write(JsonSerializer.Serialize(new
+            return JsonSerializer.Serialize(new
             {
                 schema_version = 1,
                 engine = "OpenCS.CScore.LimitForceSolver",
                 engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
-                scope = "uls_ndm_section_only_without_eta_shear_cracks",
+                engine_patches = new[] { "sp63_phi_n_amendment2_v1" },
+                scope = input.ShearScreening?.Enabled == true
+                    ? "uls_ndm_and_local_shear_research_screen_not_design_verified"
+                    : "uls_ndm_section_only_without_eta_shear_cracks",
                 cases = records
-            }));
-            return 0;
+            });
         }
-        catch (Exception ex)
+    }
+
+    // Moment-curvature diagram of one section (SP63 8.2.23-8.2.32, upstream
+    // BiaxialCurvatureCurveSolver): cracking, yield and ultimate points with the
+    // scan between them. calc_type selects the material diagrams: "C" design
+    // (materials), "N" / "NL" the sls_probe short / long ones.
+    private static string RunMomentCurvature(string json)
+    {
+        var input = JsonSerializer.Deserialize<BatchInput>(json, ReadOptions)
+            ?? throw new ArgumentException("Пустой JSON");
+        var mc = input.MomentCurvature ?? throw new ArgumentException("moment_curvature is required");
+        if (input.SchemaVersion != 1 || input.Materials is null || input.Candidates is not { Count: 1 })
+            throw new ArgumentException("Некорректная схема JSON");
+        ValidateMaterials(input.Materials);
+        var calc = mc.CalcType switch
         {
-            Console.Error.WriteLine(ex.ToString());
-            return 2;
+            "C" => CalcType.C, "N" => CalcType.N, "NL" => CalcType.NL,
+            _ => throw new ArgumentException("calc_type: C, N or NL")
+        };
+        if (calc != CalcType.C && input.SlsProbe is null)
+            throw new ArgumentException("calc_type N/NL needs sls_probe materials");
+        var section = MakeSection(input, input.Candidates[0]);
+        var solver = new BiaxialCurvatureCurveSolver(section, calcCrc: calc, calcService: calc,
+            auxPointsPerSegment: mc.AuxPointsPerSegment);
+        var r = solver.Compute(mc.NKn, mc.MxKnm, mc.MyKnm,
+            mc.NMode == "proportional" ? CurvatureNMode.Proportional : CurvatureNMode.Constant, mc.UsePsi);
+        static object? P(BiaxialCurveScanPoint? p) => p is null ? null : new
+        {
+            n_kn = p.N, mx_knm = p.Mx, my_knm = p.My, e0 = p.E0, ky_1m = p.Ky, kz_1m = p.Kz,
+            segment = p.Segment, converged = p.Converged, psi_active = p.PsiActive, non_physical = p.NonPhysical
+        };
+        return JsonSerializer.Serialize(new
+        {
+            schema_version = 1,
+            engine = "OpenCS.CScore.BiaxialCurvatureCurveSolver",
+            engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
+            status = r.Status,
+            calc_type = mc.CalcType,
+            cracked_at_zero_load = r.CrackedAtZeroLoad,
+            elastic = new { ea0_kn = r.Ea0, b0x_knm2 = r.B0x, b0y_knm2 = r.B0y },
+            cracking = P(r.Cracking), crack_transition = P(r.CrackTransitionPoint),
+            yield = P(r.Yield), ultimate = P(r.Ultimate), ultimate_reference = P(r.UltimateReference),
+            points = r.Points.Select(P).ToArray()
+        });
+    }
+
+    // Two-plane member input preparation only. Normative eccentricities are
+    // obtained from the upstream helpers; resistance and eta remain untouched.
+    private static string PrepareMemberLoads(string json)
+    {
+        var input = JsonSerializer.Deserialize<MemberPreparationInput>(json, ReadOptions)
+            ?? throw new ArgumentException("Missing member preparation input");
+        if (!double.IsFinite(input.LengthM) || input.LengthM <= 0
+            || !double.IsFinite(input.HeightXM) || input.HeightXM <= 0
+            || !double.IsFinite(input.HeightYM) || input.HeightYM <= 0
+            || input.Loads.Count == 0 || input.Loads.Count > 1000
+            || input.Loads.Select(l=>l.Id).Distinct().Count()!=input.Loads.Count)
+            throw new ArgumentException("Invalid member preparation geometry or loads");
+        var scheme = input.StructuralScheme switch {
+            "statically_determinate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyDeterminate,
+            "statically_indeterminate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyIndeterminate,
+            _ => throw new ArgumentException("Missing structural scheme") };
+        // A user-given accidental eccentricity replaces the SP 63 one; as in ARBAT
+        // it is taken not less than 10 mm. It still enters CScore's EffectiveEccentricity.
+        if (new[] { input.EaXMm, input.EaYMm }.Any(e => e is double v && (!double.IsFinite(v) || v < 0)))
+            throw new ArgumentException("Invalid given accidental eccentricity");
+        double eax = input.EaXMm is double gx && gx > 0 ? Math.Max(0.01, gx / 1000)
+            : CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightXM);
+        double eay = input.EaYMm is double gy && gy > 0 ? Math.Max(0.01, gy / 1000)
+            : CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(input.LengthM,input.HeightYM);
+        var prepared = new List<object>();
+        foreach (var load in input.Loads)
+        {
+            if (string.IsNullOrWhiteSpace(load.Id) || new[] { load.NKn,load.MxTotalKnm,load.MyTotalKnm,
+                    load.MxLongKnm,load.MyLongKnm }.Any(v=>!double.IsFinite(v)))
+                throw new ArgumentException("Invalid member preparation load");
+            int[] Signs(double m) => load.NKn < 0 && Math.Abs(m)<1e-12 ? [-1,1] : [m<0 ? -1 : 1];
+            double Prepare(double m,double ea,int zeroSign) => load.NKn >= 0 ? m
+                : (Math.Abs(m)<1e-12 ? zeroSign : Math.Sign(m))*Math.Abs(load.NKn)
+                    * CScore.Sp63.Normal.Sp63MemberContext.EffectiveEccentricity(
+                        Math.Abs(m)/Math.Abs(load.NKn),ea,scheme);
+            var xs=Signs(load.MxTotalKnm);var ys=Signs(load.MyTotalKnm);
+            foreach (int sx in xs) foreach (int sy in ys)
+                prepared.Add(new { id=load.Id+(xs.Length*ys.Length>1 ? $" [ea {sx:+0;-0},{sy:+0;-0}]" : ""),
+                    source_id=load.Id, n_kn=load.NKn,
+                    mx_total_knm=Prepare(load.MxTotalKnm,eax,sx),
+                    my_total_knm=Prepare(load.MyTotalKnm,eay,sy),
+                    mx_long_knm=Prepare(load.MxLongKnm,eax,sx),
+                    my_long_knm=Prepare(load.MyLongKnm,eay,sy),
+                    source=load, sign_x=sx,sign_y=sy });
         }
+        return JsonSerializer.Serialize(new { schema_version=1,
+            method="CScore.Sp63.Normal.Sp63MemberContext",ea_x_mm=eax*1000,ea_y_mm=eay*1000,
+            loads=prepared });
+    }
+
+    private static string PrepareLoads(string json)
+    {
+        var input = JsonSerializer.Deserialize<LoadPreparationInput>(json, ReadOptions)
+            ?? throw new ArgumentException("Missing load preparation data");
+        if (!double.IsFinite(input.DiameterMm) || input.DiameterMm <= 0
+            || !double.IsFinite(input.LengthMm) || input.LengthMm <= 0
+            || input.Loads.Count == 0 || input.Loads.Count > 1000)
+            throw new ArgumentException("Invalid eccentricity geometry or loads");
+        double ea = CScore.Sp63.Normal.Sp63MemberContext.AccidentalEccentricity(
+            input.LengthMm / 1000.0, input.DiameterMm / 1000.0);
+        var loads = new List<object>();
+        var audit = new List<object>();
+        foreach (var l in input.Loads)
+        {
+            if (!double.IsFinite(l.NKn) || !double.IsFinite(l.MxKnm) || !double.IsFinite(l.MyKnm))
+                throw new ArgumentException("Nonfinite load");
+            double mx = l.MxKnm, my = l.MyKnm;
+            if (l.NKn < 0)
+            {
+                double magnitude = Math.Sqrt(mx * mx + my * my);
+                var direction = magnitude > 1e-12 ? (mx / magnitude, my / magnitude)
+                    : input.ZeroMomentAxis switch {
+                        "mx_positive" => (1.0, 0.0), "mx_negative" => (-1.0, 0.0),
+                        "my_positive" => (0.0, 1.0), "my_negative" => (0.0, -1.0),
+                        _ => throw new ArgumentException("zero_moment_axis required") };
+                double e = CScore.Sp63.Normal.Sp63MemberContext.EffectiveEccentricity(
+                    magnitude / Math.Abs(l.NKn), ea,
+                    CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyDeterminate);
+                mx = Math.Abs(l.NKn) * e * direction.Item1;
+                my = Math.Abs(l.NKn) * e * direction.Item2;
+            }
+            if (!double.IsFinite(mx) || !double.IsFinite(my))
+                throw new ArgumentException("Nonfinite prepared moments");
+            var original = new { id = l.Id, n_kn = l.NKn, mx_knm = l.MxKnm, my_knm = l.MyKnm };
+            var effective = new { id = l.Id, n_kn = l.NKn, mx_knm = mx, my_knm = my };
+            loads.Add(effective);
+            audit.Add(new { id = l.Id, original, effective,
+                delta_mx_knm = mx - l.MxKnm, delta_my_knm = my - l.MyKnm,
+                ea_mm = l.NKn < 0 ? ea * 1000.0 : 0.0 });
+        }
+        return JsonSerializer.Serialize(new { loads, audit, ea_mm = ea * 1000.0 });
+    }
+
+    // A native infinite ratio is a known failure only when its capacity is exactly zero.
+    private static bool IsZeroCapacityFailure(CScore.CheckDetail d) =>
+        d.Allowable == 0 && double.IsFinite(d.Applied) && d.Applied > 0
+        && double.IsPositiveInfinity(d.Ratio);
+
+    // Local Q diagnostic, NOT a complete inclined-section verification.
+    // ConstantProfile is an upstream-supported model for one isolated force tuple,
+    // but it does not reconstruct reactions, applied distributed loads or bar cutoffs.
+    // A positive result must NEVER be described as normative approval.
+    private static object[] RunShearScreening(BatchInput input, Candidate candidate)
+    {
+        var options = input.ShearScreening!;
+        return input.Loads.Select(load => load.ExternalActions()).Select(load =>
+        {
+            try
+            {
+                if (input.ResearchRectangle is null)
+                    throw new InvalidOperationException("circular_shear_requires_independent_method");
+                if (load.QKn is not double q || !double.IsFinite(q))
+                    throw new InvalidOperationException("missing_or_invalid_Q");
+                var section = MakeSection(input, candidate);
+                var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
+                var side = geometry.For(load.MxKnm);
+                if (!(side.B > 0 && side.H0 > 0))
+                    throw new InvalidOperationException("invalid_automatic_shear_geometry");
+                // Active branches per *physical* cage; never infer from longitudinal bars.
+                double effectiveLegs = options.ConstructiveConfirmed
+                    ? options.EffectiveLegsPerCage * options.CageCount : 0.0;
+                double areaM2 = effectiveLegs * Math.PI
+                    * Math.Pow(options.DiameterMm / 1000.0, 2) / 4.0;
+                double qsw = options.RswKpa * areaM2 / (options.SpacingMm / 1000.0);
+                var parameters = new ShearInclinedInput(
+                    B: side.B, H0: side.H0, Rb: side.Rb, Rbt: side.Rbt,
+                    Qsw: qsw, Sw: options.SpacingMm / 1000.0,
+                    Ns: side.Ns, Kind: ElementKind.Other,
+                    AnchorageFactor: 1.0, StationStep: 0.0, ProjectionStep: 0.0,
+                    MomentZoneLength: 0.0, BarCutoffs: Array.Empty<double>(),
+                    CheckMoment: false, PhiNOverride: null);
+                var profile = new ConstantProfile(
+                    q: q, m: load.MxKnm, n: load.NKn, supportDistance: 0.0);
+                var outcome = ShearInclinedChecker.Check(parameters, profile, geometry, 0);
+                var exact = outcome.Details.Where(x => x.Formula is "8.55" or "8.56").ToList();
+                var zero = exact.FirstOrDefault(IsZeroCapacityFailure);
+                if (zero is not null)
+                    return (object)new { id = load.Id, status = "research_screen_fail",
+                        utilization = (double?)null, reason = "native_zero_capacity",
+                        governing_formula = zero.Formula, applied = zero.Applied, allowable = zero.Allowable,
+                        verified_for_design = false };
+                if (exact.Count != 2 || exact.Any(x => !double.IsFinite(x.Ratio) || x.Ratio < 0))
+                    throw new InvalidOperationException("incomplete_or_nonfinite_shear_checks");
+                double util = exact.Max(x => x.Ratio);
+                var worst = exact.OrderByDescending(x => x.Ratio).First();
+                var station = outcome.Stations.FirstOrDefault();
+                return (object)new {
+                    id = load.Id,
+                    status = util <= 1.0 ? "research_screen_pass" : "research_screen_fail",
+                    utilization = (double?)util,
+                    governing_formula = worst.Formula,
+                    q_kn = (double?)q,
+                    qb_kn = station is not null && double.IsFinite(station.Qb)
+                        ? (double?)station.Qb : null,
+                    qsw_kn = station is not null && double.IsFinite(station.Qsw)
+                        ? (double?)station.Qsw : null,
+                    critical_c_m = station is not null && double.IsFinite(station.CriticalC)
+                        ? (double?)station.CriticalC : null,
+                    active_qsw_kn_per_m = qsw,
+                    b_m = side.B, h0_m = side.H0,
+                    rb_kpa = side.Rb, rbt_kpa = side.Rbt,
+                    phi_n = station is not null && double.IsFinite(station.PhiN)
+                        ? (double?)station.PhiN : null,
+                    support_model = "constant_profile_no_support",
+                    note = options.ConstructiveConfirmed
+                        ? "Unverified link geometry and local Q profile; no inclined moment check"
+                        : "Constructive 10.3 not confirmed; stirrup contribution ignored",
+                    verified_for_design = false
+                };
+            }
+            catch (Exception ex)
+            {
+                return (object)new {
+                    id = load.Id, status = "indeterminate",
+                    utilization = (double?)null,
+                    error = "shear_screen_error:" + ex.GetType().Name + ":" + ex.Message,
+                    verified_for_design = false
+                };
+            }
+        }).ToArray();
+    }
+
+    // Direct upstream profile check. Pinned CScore accepts one constant qsw;
+    // variable physical pitch is unsupported, never approximated by this adapter.
+    private static object[] RunShearProfiles(BatchInput input, Candidate candidate)
+    {
+        var batch = input.ShearProfile!;
+        var transverse = input.ShearScreening!;
+        return batch.Profiles.Select(phase =>
+        {
+            try
+            {
+                var section = MakeSection(input, candidate);
+                var geometry = InclinedSectionGeometryPair.Resolve(section, ShearPlane.Vy, CalcType.C);
+                var profile = new SampledProfile(
+                    phase.Samples.Select(v => new ForceSample(v.SM, v.QKn, v.MKnm, v.NKn)).ToArray(),
+                    supportDistanceFromStart: 0.0, supportDistanceFromEnd: 0.0,
+                    supportAtStart: false, supportAtEnd: false);
+                if (profile.Warnings.Count != 0)
+                    throw new InvalidOperationException("upstream_profile_M_Q_mismatch");
+                var pitches = batch.PitchBands!.Select(b => b.SpacingMm).Distinct().ToArray();
+                if (pitches.Length != 1 || pitches[0] != transverse.SpacingMm)
+                    throw new InvalidOperationException("CScore_requires_uniform_pitch");
+                double area = transverse.ConstructiveConfirmed
+                    ? transverse.EffectiveLegsPerCage * transverse.CageCount
+                        * Math.PI * Math.Pow(transverse.DiameterMm / 1000.0, 2) / 4.0 : 0.0;
+                double qsw = transverse.RswKpa * area / (transverse.SpacingMm / 1000.0);
+                var reference = geometry.For(phase.Samples[0].MKnm);
+                var parameters = new ShearInclinedInput(
+                    B: reference.B, H0: reference.H0, Rb: reference.Rb, Rbt: reference.Rbt,
+                    Qsw: qsw, Sw: transverse.SpacingMm / 1000.0, Ns: reference.Ns,
+                    Kind: ElementKind.Other, AnchorageFactor: 1.0,
+                    StationStep: 0.0, ProjectionStep: 0.0, MomentZoneLength: 0.0,
+                    BarCutoffs: Array.Empty<double>(), CheckMoment: false, PhiNOverride: null);
+                var runs = new[] { -1, 1 }.Select(direction => (
+                    Direction: direction,
+                    Outcome: ShearInclinedChecker.Check(parameters, profile, geometry, direction))).ToArray();
+                var zero = runs.SelectMany(r => r.Outcome.Details)
+                    .Where(d => d.Formula is "8.55" or "8.56").FirstOrDefault(IsZeroCapacityFailure);
+                if (zero is not null)
+                    return (object)new { id = phase.Id, status = "research_profile_exceeds_one",
+                        utilization = (double?)null, reason = "native_zero_capacity",
+                        governing_formula = zero.Formula, applied = zero.Applied, allowable = zero.Allowable,
+                        support_model = "none", reinforcement_model = "cscore_native_uniform_pitch",
+                        uniform_pitch_mm = transverse.SpacingMm, verified_for_design = false };
+                foreach (var run in runs)
+                {
+                    var checks = run.Outcome.Details.Where(d => d.Formula is "8.55" or "8.56").ToArray();
+                    if (checks.Length != 2 || checks.Any(d => !double.IsFinite(d.Ratio) || d.Ratio < 0))
+                        throw new InvalidOperationException("incomplete_upstream_shear_result");
+                }
+                var worst = runs.SelectMany(run => run.Outcome.Details
+                    .Where(d => d.Formula is "8.55" or "8.56")
+                    .Select(d => (Detail: d, run.Direction))).OrderByDescending(x => x.Detail.Ratio).First();
+                var critical = runs.SelectMany(run => run.Outcome.Details.Where(d => d.Formula == "8.56")
+                    .Select(d => (Detail: d, run.Direction))).OrderByDescending(x => x.Detail.Ratio).First();
+                double eta = worst.Detail.Ratio;
+                return (object)new {
+                    id = phase.Id,
+                    status = eta <= 1 ? "research_profile_below_one" : "research_profile_exceeds_one",
+                    utilization = (double?)eta, governing_formula = worst.Detail.Formula,
+                    governing_s_m = worst.Detail.Variables["s"],
+                    critical_shear_s_m = critical.Detail.Variables["s"],
+                    critical_shear_c_m = critical.Detail.Variables["C"],
+                    critical_shear_direction = critical.Direction,
+                    critical_shear_eta = critical.Detail.Ratio,
+                    sampled_stations = runs.Sum(r => r.Outcome.Stations.Count),
+                    max_abs_q_kn = profile.MaxAbsQ(profile.StationRange.Min, profile.StationRange.Max),
+                    qsw_kn_per_m = qsw, uniform_pitch_mm = transverse.SpacingMm,
+                    warnings = runs.SelectMany(r => r.Outcome.Warnings).Distinct().ToArray(),
+                    support_model = "none", reinforcement_model = "cscore_native_uniform_pitch",
+                    inclined_moment_status = "not_evaluated",
+                    note = "Native CScore constant-pitch profile; supports, anchorage and inclined moment not verified.",
+                    verified_for_design = false
+                };
+            }
+            catch (Exception ex)
+            {
+                return (object)new { id = phase.Id, status = "indeterminate", utilization = (double?)null,
+                    error = "profile_shear_error:" + ex.GetType().Name + ":" + ex.Message,
+                    support_model = "none", verified_for_design = false };
+            }
+        }).ToArray();
     }
 
     // Research probe: explicit service properties and separate total / sustained bending
     // moments. CScore.CrackWidthSolver accepts only ONE axial N, so the probe uses
     // the same axial action for sustained and total loads. No ULS verdict is affected.
-    private static object[] RunCrackProbe(BatchInput input, Candidate candidate)
+    internal static object[] RunCrackProbe(BatchInput input, Candidate candidate, IReadOnlyList<SlsLoad>? loadsOverride = null)
     {
         var probe = input.SlsProbe!;
         try
         {
             var section = MakeSection(input, candidate);
-            return probe.Loads.Select(load =>
+            return (loadsOverride ?? probe.Loads).Select(load =>
             {
                 try
                 {
+                    double nLong = load.NLongKn ?? load.NKn;
+                    bool sameAxial = Math.Abs(nLong - load.NKn) < 1e-9;
+                    bool fullySustained = sameAxial
+                        && Math.Abs(load.MxLongKnm - load.MxTotalKnm) < 1e-9
+                        && Math.Abs(load.MyLongKnm - load.MyTotalKnm) < 1e-9;
+                    if (!fullySustained && probe.PreliminaryMethod != "native_refined")
+                        return SplitSp63Estimate(input, candidate, section, probe, load, nLong);
+                    // CrackWidthSolver.Compute takes one axial force for both parts.
+                    if (!sameAxial)
+                        throw new InvalidOperationException("native_refined_requires_single_axial_force");
                     var solver = new CrackWidthSolver(
                         section,
                         calcCrc: CalcType.N,
@@ -216,7 +570,7 @@ internal static class Program
                                 "short_only_supplement_failed_convergence_or_psi_identity");
 
                         double nativeShortWidth = full.Acrc2;
-                        double screeningShortWidth = probe.PreliminaryMethod == "native_refined"
+                        double screeningShortWidth = NativeRefined(probe.PreliminaryMethod)
                             ? nativeShortWidth
                             : Math.Max(nativeShortWidth, nativeShortWidth / full.PsiS2);
                         if (!double.IsFinite(screeningShortWidth)
@@ -469,7 +823,7 @@ internal static class Program
                             primaryShortWidth = 0.0;
                             primaryBasis = "uncracked_checked_both_long_and_total_thresholds";
                         }
-                        else if (probe.PreliminaryMethod == "native_refined")
+                        else if (NativeRefined(probe.PreliminaryMethod))
                         {
                             primaryWidth = r.AcrcLong;
                             primaryShortWidth = r.AcrcShort;
@@ -631,7 +985,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            return probe.Loads.Select(load => (object)new {
+            return (loadsOverride ?? probe.Loads).Select(load => (object)new {
                 id = load.Id,
                 status = "indeterminate",
                 error = "crack_section_error:" + ex.GetType().Name + ":" + ex.Message,
@@ -640,11 +994,169 @@ internal static class Program
         }
     }
 
+    // CScore's own crack widths. "native_refined_split" differs only for a partly
+    // sustained action: it takes the SP63 8.2.6 split below (each state native)
+    // instead of CrackWidthSolver's single-axial-force long/short computation.
+    static bool NativeRefined(string method) => method is "native_refined" or "native_refined_split";
+
+    // SP63 8.2.6 / 8.2.15 for a partly sustained action: crack formation is
+    // checked under the total action; acrc1 and acrc3 use the sustained N_l, M_l,
+    // acrc2 the total N, M. Each state is one fully sustained CScore call
+    // through the agreed estimate above (acrc(phi1=1.0) = acrc(phi1=1.4) / 1.4
+    // for the same state), so separate sustained and total axial forces are
+    // honoured. If the sustained action alone is below Mcrc but the total action
+    // has formed cracks, acrc1 uses the psi_s of the cracked total state: the
+    // agreed total-state width scaled by the cracked-section rebar stress ratio
+    // sigma_s(N_l, M_l) / sigma_s(N, M); ls, phi2, psi_s and Es are those of the
+    // total state (the sustained stress alone would give psi_s below its bound).
+    static object SplitSp63Estimate(BatchInput input, Candidate candidate, CrossSection section,
+        SlsProbe probe, SlsLoad load, double nLong)
+    {
+        object Indeterminate(string error) => new { id = load.Id, status = "indeterminate", error,
+            preliminary_method = probe.PreliminaryMethod, n_long_kn = nLong, verified_for_design = false };
+        double mLong = Math.Sqrt(load.MxLongKnm * load.MxLongKnm + load.MyLongKnm * load.MyLongKnm);
+        double mTotal = Math.Sqrt(load.MxTotalKnm * load.MxTotalKnm + load.MyTotalKnm * load.MyTotalKnm);
+        double dot = load.MxLongKnm * load.MxTotalKnm + load.MyLongKnm * load.MyTotalKnm;
+        double cross = load.MxLongKnm * load.MyTotalKnm - load.MyLongKnm * load.MxTotalKnm;
+        // A rotating or reversed sustained moment cracks another face.
+        if (mLong > 1e-9 && (dot <= 0 || Math.Abs(cross) > 1e-8 * mLong * mTotal))
+            return Indeterminate("split_requires_proportional_nonreversing_moments");
+
+        static JsonElement State(BatchInput input, Candidate candidate, string id, double n, double mx, double my)
+            => JsonSerializer.SerializeToElement(RunCrackProbe(input, candidate, new[] { new SlsLoad {
+                Id = id, NKn = n, MxLongKnm = mx, MxTotalKnm = mx, MyLongKnm = my, MyTotalKnm = my } })[0]);
+        static string Text(JsonElement e, string key)
+            => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
+        static double? Number(JsonElement e, string key)
+            => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+        static bool Cracked(JsonElement e)
+            => e.TryGetProperty("cracked", out var v) && v.ValueKind == JsonValueKind.True;
+
+        var total = State(input, candidate, load.Id + ":total", load.NKn, load.MxTotalKnm, load.MyTotalKnm);
+        if (Text(total, "status") != "research_calculated")
+            return Indeterminate("split_total_state:" + Text(total, "error"));
+        double a1, a2, n1, n2;
+        string basis;
+        JsonElement? sustained = null;
+        if (!Cracked(total))
+        {
+            a1 = a2 = n1 = n2 = 0.0;
+            basis = "sp63_8_2_6_uncracked_under_total_action";
+        }
+        else
+        {
+            if (Number(total, "preliminary_width_long_mm") is not double wTotal
+                || Number(total, "width_long_mm") is not double nTotal)
+                return Indeterminate("split_total_state_without_width");
+            a2 = wTotal / 1.4; n2 = nTotal / 1.4;
+            var s = State(input, candidate, load.Id + ":sustained", nLong, load.MxLongKnm, load.MyLongKnm);
+            sustained = s;
+            if (Text(s, "status") != "research_calculated")
+                return Indeterminate("split_sustained_state:" + Text(s, "error"));
+            if (Cracked(s))
+            {
+                if (Number(s, "preliminary_width_long_mm") is not double wSustained
+                    || Number(s, "width_long_mm") is not double nSustained)
+                    return Indeterminate("split_sustained_state_without_width");
+                a1 = wSustained; n1 = nSustained;
+                basis = "sp63_8_2_6_split_sustained_" + Text(s, "preliminary_basis");
+            }
+            else
+            {
+                if (Number(total, "sigma_rebar_kpa") is not double sigmaTotalNative || sigmaTotalNative <= 0)
+                    return Indeterminate("split_total_state_without_rebar_stress");
+                var sigmaTotal = CrackedRebarStress(section, load.NKn, load.MxTotalKnm, load.MyTotalKnm);
+                var sigmaSustained = CrackedRebarStress(section, nLong, load.MxLongKnm, load.MyLongKnm);
+                // Same stress readout as CScore's sigma_s; reject a different state.
+                if (sigmaTotal is not double st || sigmaSustained is not double sl
+                    || Math.Abs(st - sigmaTotalNative) > 0.02 * sigmaTotalNative)
+                    return Indeterminate("split_cracked_rebar_stress_not_reproduced");
+                double phi3Total = load.NKn > 1e-3 ? 1.2 : 1.0, phi3Sustained = nLong > 1e-3 ? 1.2 : 1.0;
+                a1 = wTotal * sl / st * phi3Sustained / phi3Total;
+                n1 = 0.0;
+                basis = "sp63_8_2_6_split_sustained_below_mcrc_total_state_psi_s";
+            }
+        }
+        double a3 = a1 / 1.4, n3 = n1 / 1.4;
+        double widthLong = a1, widthShort = a1 + a2 - a3;
+        double nativeLong = n1, nativeShort = n1 + n2 - n3;
+        if (!new[] { widthLong, widthShort, nativeLong, nativeShort }.All(v => double.IsFinite(v) && v >= 0))
+            return Indeterminate("split_invalid_width");
+        double useLong = widthLong / probe.AcrcUltLongMm, useShort = widthShort / probe.AcrcUltShortMm;
+        double governing = Math.Max(useLong, useShort);
+        string decision = Math.Abs(governing - 1.0) <= probe.ReviewBand ? "engineering_review"
+            : governing > 1.0 ? "preliminary_exceeds_limit" : "preliminary_below_limit";
+        return new
+        {
+            id = load.Id,
+            status = "research_calculated",
+            error = (string?)null,
+            preliminary_method = probe.PreliminaryMethod,
+            preliminary_basis = basis,
+            preliminary_review_reason = "",
+            preliminary_width_long_mm = (double?)widthLong,
+            preliminary_utilization_long = (double?)useLong,
+            preliminary_width_short_mm = (double?)widthShort,
+            preliminary_utilization_short = (double?)useShort,
+            preliminary_governing_utilization = (double?)governing,
+            preliminary_decision = decision,
+            preliminary_review_band = probe.ReviewBand,
+            preliminary_is_final_approval = false,
+            cracked = (bool?)Cracked(total),
+            crc_converged = true,
+            mcrc_knm = Number(total, "mcrc_knm"),
+            n_long_kn = nLong,
+            a_crc_1_mm = (double?)a1,
+            a_crc_2_mm = (double?)a2,
+            a_crc_3_mm = (double?)a3,
+            width_long_mm = (double?)nativeLong,
+            width_short_mm = (double?)nativeShort,
+            utilization_long = (double?)(nativeLong / probe.AcrcUltLongMm),
+            utilization_short = (double?)(nativeShort / probe.AcrcUltShortMm),
+            total_state = total,
+            sustained_state = sustained,
+            verified_for_design = false
+        };
+    }
+
+    // Maximum tensile rebar stress on the cracked (ten=false) service plane,
+    // read like CrackWidthSolver's sigma_s; null without convergence.
+    static double? CrackedRebarStress(CrossSection section, double n, double mx, double my)
+    {
+        var solver = new StrainSolver(section, CalcType.N, ten: false, ca: true,
+            tol: 0.5, maxIter: 80, centralJacobian: true);
+        var plane = solver.Solve(n, mx, my);
+        if (!solver.Converged || !double.IsFinite(plane.e0) || !double.IsFinite(plane.ky) || !double.IsFinite(plane.kz))
+            return null;
+        double sigma = 0.0;
+        foreach (var (area, ka) in section.EnumerateAreas(plane))
+        {
+            if (area.Material?.Type != MatType.ReSteelF)
+                continue;
+            var diagrams = area.Material.GetDiagramms(area.DiagrammType, 0.85, 0.05);
+            if (diagrams is null || !diagrams.TryGetValue(CalcType.N, out var diag))
+                continue;
+            foreach (var bar in area.Fibers)
+            {
+                if (bar.TypeFiber != FiberType.point)
+                    continue;
+                var eps = ka.e0 + ka.ky * bar.Y + ka.kz * bar.X;
+                if (eps > 0)
+                {
+                    var stress = diag.Sig(eps, out _);
+                    if (double.IsFinite(stress) && stress > sigma)
+                        sigma = stress;
+                }
+            }
+        }
+        return double.IsFinite(sigma) ? sigma : null;
+    }
+
     // CScore eagerly creates material diagrams for all four internal calculation states.
     private static readonly CalcType[] MaterialModes =
         [CalcType.C, CalcType.CL, CalcType.N, CalcType.NL];
 
-    private static CrossSection MakeSection(BatchInput input, Candidate candidate)
+    internal static CrossSection MakeSection(BatchInput input, Candidate candidate)
     {
         // Explicit rectangular section is a research-only route. The ordinary
         // Python pile selector still sends only circular pile geometries.
@@ -669,12 +1181,18 @@ internal static class Program
         concrete.MaterialChars = MaterialModes.Select(mode =>
         {
             var m = Choose(mode);
+            if (!double.IsFinite(m.ConcreteEc0) || m.ConcreteEc0>=0
+                || !double.IsFinite(m.ConcreteEt0) || m.ConcreteEt0<=0)
+                throw new ArgumentException("Invalid physical concrete reference strains");
             return new MaterialChars(mode)
             {
                 Type = MatType.Concrete,
                 Fc = -m.ConcreteRbKpa,
                 Ft = m.ConcreteRbtKpa,
                 E = m.ConcreteEKpa,
+                // Physical reference strains for phiN are distinct from L2 diagram points.
+                Ec0 = m.ConcreteEc0,
+                Et0 = m.ConcreteEt0,
                 Ec1Red = m.ConcreteEc1,
                 Ec2 = m.ConcreteEc2,
                 Et1Red = m.ConcreteEt1,
@@ -702,7 +1220,14 @@ internal static class Program
 
         var xs = new List<double>();
         var ys = new List<double>();
-        if (rectangle is not null)
+        if (rectangle?.Outline is { } outline)
+        {
+            // General polygon (any concrete outline); width and height are its bounding box.
+            var ring = ResearchVertex.Closed(outline, counterClockwise: true);
+            xs.AddRange(ring.Select(v => v.XMm / 1000.0));
+            ys.AddRange(ring.Select(v => v.YMm / 1000.0));
+        }
+        else if (rectangle is not null)
         {
             double hx = rectangle.WidthMm / 2000.0;
             double hy = rectangle.HeightMm / 2000.0;
@@ -730,6 +1255,9 @@ internal static class Program
             Material = concrete, MaterialId = concrete.Id, DiagrammType = DiagrammType.L2,
             Hull = contour, Contours = [contour], NX = mesh, NY = mesh
         };
+        foreach (var hole in (rectangle?.Holes ?? []).Select(h => ResearchVertex.Closed(h, counterClockwise: false)))
+            region.Contours.Add(new Contour(hole.Select(v => v.XMm / 1000.0), hole.Select(v => v.YMm / 1000.0), "section-hole")
+                { Type = ContourType.Hole });
         region.ResolveAndBuildDiagramms();
         region.SliceXY(mesh, mesh);
 
@@ -753,6 +1281,23 @@ internal static class Program
                 }).ToArray();
         }
         var rebarRegion = MaterialArea.CreateRebarArea(bars, rebar, DiagrammType.L2, region);
+        if (material.RebarRscKpa is double rsc && Math.Abs(rsc - material.RebarRsKpa) > 1e-6)
+        {
+            // SP63 6.2.13, table 6.14: the bar diagram takes Rs in tension and Rsc in compression.
+            // CScore builds the L2 bar diagram symmetric by Rs (MaterialChars.D2L), so the design
+            // diagrams (C, CL) are rebuilt here the same way with Rsc on the compression branch
+            // and made differential against the host concrete as CreateRebarArea does.
+            // Normative diagrams (N, NL: cracks) keep Rs,ser.
+            foreach (var mode in new[] { CalcType.C, CalcType.CL })
+            {
+                double e = material.RebarEKpa, rs = material.RebarRsKpa;
+                var own = new Diagramm(
+                    new CSmath.LSpline([material.RebarEc2, -rsc / e, 0.0], [-rsc, -rsc, 0.0]),
+                    new CSmath.LSpline([0.0, rs / e, material.RebarEt2], [0.0, rs, rs]),
+                    DiagrammType.L2, MatType.ReSteelF, "Двухлинейная по СП63.13330, Rsc по табл. 6.14");
+                rebarRegion.Diagramms[mode] = Diagramm.Differential(own, region.Diagramms[mode]);
+            }
+        }
         return new CrossSection { Tag = candidate.Id, Areas = [region, rebarRegion] };
     }
 
@@ -762,6 +1307,8 @@ internal static class Program
                               m.RebarRsKpa, m.RebarEKpa, m.ConcreteEt1,
                               m.ConcreteEt2, m.RebarEt2};
         var negative = new[] {m.ConcreteEc1, m.ConcreteEc2, m.RebarEc2};
+        if (m.RebarRscKpa is double rsc && (!double.IsFinite(rsc) || rsc <= 0))
+            throw new ArgumentException("Invalid rebar compression resistance");
         if (positive.Any(x => !double.IsFinite(x) || x <= 0)
             || negative.Any(x => !double.IsFinite(x) || x >= 0))
             throw new ArgumentException("Invalid service material characteristics");
@@ -773,6 +1320,8 @@ internal static class Program
             input.Loads is null || input.Candidates is null ||
             input.Loads.Count == 0 || input.Candidates.Count == 0)
             throw new ArgumentException("Некорректная схема JSON");
+        if (input.Materials.RebarRscKpa is double rsc && (!double.IsFinite(rsc) || rsc <= 0))
+            throw new ArgumentException("Invalid rebar compression resistance");
         bool rectMode = input.ResearchRectangle is not null;
         if (!rectMode && (input.Pile.DiameterMm <= 0 || input.Pile.MeshResolution < 10 ||
                           input.Pile.PolygonSides < 32))
@@ -786,8 +1335,22 @@ internal static class Program
                 || string.IsNullOrWhiteSpace(input.Candidates[0].Id))
                 throw new ArgumentException("Invalid rectangular research geometry");
             if (rect.Bars.Any(b => !double.IsFinite(b.XMm) || !double.IsFinite(b.YMm)
-                    || !double.IsFinite(b.DiameterMm) || b.DiameterMm <= 0
-                    || Math.Abs(b.XMm) + b.DiameterMm / 2 >= rect.WidthMm / 2
+                    || !double.IsFinite(b.DiameterMm) || b.DiameterMm <= 0))
+                throw new ArgumentException("Invalid rectangular research geometry");
+            if (rect.Outline is { } outline)
+            {
+                var rings = new[] { outline }.Concat(rect.Holes ?? []).ToList();
+                if (outline.Count < 3 || (rect.Holes ?? []).Any(h => h is null || h.Count < 3)
+                    || rings.Any(r => r.Any(v => !double.IsFinite(v.XMm) || !double.IsFinite(v.YMm)))
+                    || Math.Abs(ResearchVertex.Area(outline)) < 1e-6)
+                    throw new ArgumentException("Invalid polygon research geometry");
+                // A bar lies wholly in the concrete: inside the outline, outside every hole, clear of all edges.
+                if (rect.Bars.Any(b => !ResearchVertex.Inside(outline, b.XMm, b.YMm)
+                        || (rect.Holes ?? []).Any(h => ResearchVertex.Inside(h, b.XMm, b.YMm))
+                        || rings.Any(r => ResearchVertex.EdgeDistance(r, b.XMm, b.YMm) <= b.DiameterMm / 2)))
+                    throw new ArgumentException("Rebar outside polygon concrete face");
+            }
+            else if (rect.Bars.Any(b => Math.Abs(b.XMm) + b.DiameterMm / 2 >= rect.WidthMm / 2
                     || Math.Abs(b.YMm) + b.DiameterMm / 2 >= rect.HeightMm / 2))
                 throw new ArgumentException("Rebar outside rectangular concrete face");
             for (int i = 0; i < rect.Bars.Count; i++)
@@ -796,6 +1359,50 @@ internal static class Program
                                  + Math.Pow(rect.Bars[i].YMm - rect.Bars[j].YMm, 2))
                         <= (rect.Bars[i].DiameterMm + rect.Bars[j].DiameterMm) / 2)
                         throw new ArgumentException("Overlapping rectangular reinforcement bars");
+        }
+        if (input.ShearScreening is { Enabled: true } shear)
+        {
+            if ((!rectMode && input.ConnectionContext is null) || !double.IsFinite(shear.DiameterMm) || shear.DiameterMm <= 0
+                || !double.IsFinite(shear.SpacingMm) || shear.SpacingMm <= 0
+                || !double.IsFinite(shear.RswKpa) || shear.RswKpa <= 0 || shear.RswKpa > 300_000
+                || shear.EffectiveLegsPerCage < 1 || shear.EffectiveLegsPerCage > 30
+                || shear.CageCount < 1 || shear.CageCount > 3
+                || input.Loads.Any(l => l.QKn is not double q || !double.IsFinite(q)))
+                throw new ArgumentException("Invalid shear screening geometry, steel or Q");
+            if (!rectMode && (shear.CageCount!=1 || shear.EffectiveLegsPerCage!=2))
+                throw new ArgumentException("Circular shear uses one spiral, not rectangular cage branches");
+        }
+        if (input.ShearProfile is { } profiles)
+        {
+            if (!rectMode || input.ShearScreening is not { Enabled: true }
+                || profiles.Scope != "full_phase_profile_research_constant_background_only"
+                || !profiles.AxisConfirmed
+                || profiles.Orientation is not ("same" or "opposite")
+                || profiles.SupportModel != "none"
+                || profiles.Profiles is null or { Count: 0 or > 200 }
+                || profiles.Profiles.Select(p => p.Id).Distinct().Count() != profiles.Profiles.Count
+                || profiles.Profiles.Any(p => string.IsNullOrWhiteSpace(p.Id)
+                    || p.Samples is null or { Count: < 2 or > 200 }
+                    || p.Samples.Any(s => !double.IsFinite(s.SM)
+                        || !double.IsFinite(s.NKn) || !double.IsFinite(s.MKnm)
+                        || !double.IsFinite(s.QKn))
+                    || p.Samples.Zip(p.Samples.Skip(1))
+                        .Any(v => v.Second.SM - v.First.SM <= 1e-9))
+                || profiles.PitchBands is null or { Count: 0 or > 201 }
+                || profiles.PitchBands.Any(b => !double.IsFinite(b.StartSM)
+                    || !double.IsFinite(b.EndSM) || !double.IsFinite(b.SpacingMm)
+                    || b.EndSM - b.StartSM <= 1e-9
+                    || b.SpacingMm <= 0.0 || b.SpacingMm > 2000.0)
+                || Math.Abs(profiles.PitchBands[0].StartSM
+                    - profiles.Profiles[0].Samples[0].SM)>1e-8
+                || Math.Abs(profiles.PitchBands[^1].EndSM
+                    - profiles.Profiles[0].Samples[^1].SM)>1e-8
+                || profiles.PitchBands.Zip(profiles.PitchBands.Skip(1))
+                    .Any(v => Math.Abs(v.First.EndSM-v.Second.StartSM)>1e-8)
+                || profiles.Profiles.Any(p =>
+                    Math.Abs(p.Samples[0].SM-profiles.PitchBands[0].StartSM)>1e-8
+                    || Math.Abs(p.Samples[^1].SM-profiles.PitchBands[^1].EndSM)>1e-8))
+                throw new ArgumentException("Invalid or unconfirmed shear phase profile");
         }
         if (input.SlsExecutionPolicy is not ("uls_pass_only" or "research_all"))
             throw new ArgumentException("Unsupported SLS execution policy");
@@ -806,8 +1413,7 @@ internal static class Program
                 || !double.IsFinite(probe.Phi2) || probe.Phi2 <= 0
                 || !double.IsFinite(probe.AcrcUltLongMm) || probe.AcrcUltLongMm <= 0
                 || !double.IsFinite(probe.AcrcUltShortMm) || probe.AcrcUltShortMm <= 0
-                || (probe.PreliminaryMethod != "arbat_conservative"
-                    && probe.PreliminaryMethod != "native_refined")
+                || probe.PreliminaryMethod is not ("native_refined" or "native_refined_split" or "arbat_conservative")
                 || !double.IsFinite(probe.ReviewBand) || probe.ReviewBand <= 0
                 || probe.ReviewBand >= 0.25)
                 throw new ArgumentException("Explicit service characteristics, loads and limits required");
@@ -834,6 +1440,7 @@ internal static class Program
 
 internal sealed class BatchInput
 {
+    [JsonPropertyName("connection_context")] public ConnectionContext? ConnectionContext { get; init; }
     [JsonPropertyName("schema_version")] public int SchemaVersion { get; init; }
     [JsonPropertyName("pile")] public Pile Pile { get; init; } = new();
     [JsonPropertyName("materials")] public Materials Materials { get; init; } = new();
@@ -843,6 +1450,20 @@ internal sealed class BatchInput
     // Default is safe even when a direct consumer does not specify a policy.
     [JsonPropertyName("sls_execution_policy")] public string SlsExecutionPolicy { get; init; } = "uls_pass_only";
     [JsonPropertyName("research_rectangle")] public ResearchRectangle? ResearchRectangle { get; init; }
+    [JsonPropertyName("shear_screening")] public ShearScreening? ShearScreening { get; init; }
+    [JsonPropertyName("shear_profile")] public ShearProfileBatch? ShearProfile { get; init; }
+    [JsonPropertyName("moment_curvature")] public MomentCurvatureInput? MomentCurvature { get; init; }
+}
+
+internal sealed class MomentCurvatureInput
+{
+    [JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonPropertyName("mx_knm")] public double MxKnm { get; init; }
+    [JsonPropertyName("my_knm")] public double MyKnm { get; init; }
+    [JsonPropertyName("n_mode")] public string NMode { get; init; } = "constant";
+    [JsonPropertyName("use_psi")] public bool UsePsi { get; init; }
+    [JsonPropertyName("calc_type")] public string CalcType { get; init; } = "C";
+    [JsonPropertyName("aux_points_per_segment")] public int AuxPointsPerSegment { get; init; } = 10;
 }
 
 internal sealed class Pile
@@ -857,11 +1478,16 @@ internal sealed class Materials
     [JsonPropertyName("concrete_rb_kpa")] public double ConcreteRbKpa { get; init; }
     [JsonPropertyName("concrete_rbt_kpa")] public double ConcreteRbtKpa { get; init; }
     [JsonPropertyName("concrete_e_kpa")] public double ConcreteEKpa { get; init; }
+    // SP63 6.1.14, short-term heavy concrete; explicit overrides remain supported.
+    [JsonPropertyName("concrete_ec0")] public double ConcreteEc0 { get; init; } = -.002;
+    [JsonPropertyName("concrete_et0")] public double ConcreteEt0 { get; init; } = .0001;
     [JsonPropertyName("concrete_ec1")] public double ConcreteEc1 { get; init; }
     [JsonPropertyName("concrete_ec2")] public double ConcreteEc2 { get; init; }
     [JsonPropertyName("concrete_et1")] public double ConcreteEt1 { get; init; }
     [JsonPropertyName("concrete_et2")] public double ConcreteEt2 { get; init; }
     [JsonPropertyName("rebar_rs_kpa")] public double RebarRsKpa { get; init; }
+    // Compression resistance Rsc of the design diagrams (SP63 table 6.14); Rs when absent.
+    [JsonPropertyName("rebar_rsc_kpa")] public double? RebarRscKpa { get; init; }
     [JsonPropertyName("rebar_e_kpa")] public double RebarEKpa { get; init; }
     [JsonPropertyName("rebar_ec2")] public double RebarEc2 { get; init; }
     [JsonPropertyName("rebar_et2")] public double RebarEt2 { get; init; }
@@ -873,6 +1499,53 @@ internal sealed class LoadCase
     [JsonPropertyName("n_kn")] public double NKn { get; init; }
     [JsonPropertyName("mx_knm")] public double MxKnm { get; init; }
     [JsonPropertyName("my_knm")] public double MyKnm { get; init; }
+    [JsonPropertyName("q_kn")] public double? QKn { get; init; }
+    [JsonPropertyName("source_mx_knm")] public double? SourceMxKnm { get; init; }
+    [JsonPropertyName("source_my_knm")] public double? SourceMyKnm { get; init; }
+    internal LoadCase ExternalActions() => new() { Id=Id,NKn=NKn,QKn=QKn,
+        MxKnm=SourceMxKnm??MxKnm,MyKnm=SourceMyKnm??MyKnm };
+
+}
+
+
+internal sealed class ShearProfileBatch
+{
+    [JsonPropertyName("scope")] public string Scope { get; init; } = "";
+    [JsonPropertyName("orientation")] public string Orientation { get; init; } = "";
+    [JsonPropertyName("axis_confirmed")] public bool AxisConfirmed { get; init; }
+    [JsonPropertyName("support_model")] public string SupportModel { get; init; } = "";
+    [JsonPropertyName("profiles")] public List<ShearPhase> Profiles { get; init; } = [];
+    [JsonPropertyName("pitch_bands")] public List<ShearPitchBand>? PitchBands { get; init; }
+}
+internal sealed class ShearPitchBand
+{
+    [JsonRequired, JsonPropertyName("start_s_m")] public double StartSM { get; init; }
+    [JsonRequired, JsonPropertyName("end_s_m")] public double EndSM { get; init; }
+    [JsonRequired, JsonPropertyName("spacing_mm")] public double SpacingMm { get; init; }
+}
+internal sealed class ShearPhase
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("samples")] public List<ShearSample> Samples { get; init; } = [];
+}
+internal sealed class ShearSample
+{
+    // Reject omitted numbers instead of silently accepting the CLR default 0.
+    [JsonRequired, JsonPropertyName("s_m")] public double SM { get; init; }
+    [JsonRequired, JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonRequired, JsonPropertyName("m_knm")] public double MKnm { get; init; }
+    [JsonRequired, JsonPropertyName("q_kn")] public double QKn { get; init; }
+}
+
+internal sealed class ShearScreening
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; init; }
+    [JsonPropertyName("diameter_mm")] public double DiameterMm { get; init; }
+    [JsonPropertyName("spacing_mm")] public double SpacingMm { get; init; }
+    [JsonPropertyName("effective_legs_per_cage")] public int EffectiveLegsPerCage { get; init; }
+    [JsonPropertyName("cage_count")] public int CageCount { get; init; }
+    [JsonPropertyName("rsw_kpa")] public double RswKpa { get; init; }
+    [JsonPropertyName("constructive_confirmed")] public bool ConstructiveConfirmed { get; init; }
 }
 
 internal sealed class ResearchRectangle
@@ -881,6 +1554,52 @@ internal sealed class ResearchRectangle
     [JsonPropertyName("height_mm")] public double HeightMm { get; init; }
     [JsonPropertyName("mesh_resolution")] public int MeshResolution { get; init; }
     [JsonPropertyName("bars")] public List<ResearchBar> Bars { get; init; } = [];
+    // Optional general outline replacing the width × height rectangle (any polygon, mm), and holes in it.
+    [JsonPropertyName("outline")] public List<ResearchVertex>? Outline { get; init; }
+    [JsonPropertyName("holes")] public List<List<ResearchVertex>>? Holes { get; init; }
+}
+internal sealed class ResearchVertex
+{
+    [JsonPropertyName("x_mm")] public double XMm { get; init; }
+    [JsonPropertyName("y_mm")] public double YMm { get; init; }
+
+    // Closed ring for a CScore contour, which takes at least four distinct vertices (a triangle gets an edge
+    // midpoint) and the orientation of GridSplit: hull counterclockwise, holes clockwise.
+    internal static List<ResearchVertex> Closed(List<ResearchVertex> ring, bool counterClockwise)
+    {
+        var list = ring.ToList();
+        if (Area(list) > 0 != counterClockwise) list.Reverse();
+        if (list.Count == 3)
+            list.Insert(1, new ResearchVertex { XMm = (list[0].XMm + list[1].XMm) / 2, YMm = (list[0].YMm + list[1].YMm) / 2 });
+        list.Add(list[0]);
+        return list;
+    }
+
+    internal static double Area(List<ResearchVertex> ring) =>
+        ring.Select((v, i) => v.XMm * ring[(i + 1) % ring.Count].YMm - ring[(i + 1) % ring.Count].XMm * v.YMm).Sum() / 2;
+
+    internal static bool Inside(List<ResearchVertex> ring, double x, double y)
+    {
+        bool inside = false;
+        for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
+            if ((ring[i].YMm > y) != (ring[j].YMm > y)
+                && x < (ring[j].XMm - ring[i].XMm) * (y - ring[i].YMm) / (ring[j].YMm - ring[i].YMm) + ring[i].XMm)
+                inside = !inside;
+        return inside;
+    }
+
+    internal static double EdgeDistance(List<ResearchVertex> ring, double x, double y)
+    {
+        double best = double.MaxValue;
+        for (int i = 0; i < ring.Count; i++)
+        {
+            var (a, b) = (ring[i], ring[(i + 1) % ring.Count]);
+            double dx = b.XMm - a.XMm, dy = b.YMm - a.YMm, len2 = dx * dx + dy * dy;
+            double t = len2 > 0 ? Math.Clamp(((x - a.XMm) * dx + (y - a.YMm) * dy) / len2, 0, 1) : 0;
+            best = Math.Min(best, Math.Sqrt(Math.Pow(x - a.XMm - t * dx, 2) + Math.Pow(y - a.YMm - t * dy, 2)));
+        }
+        return best;
+    }
 }
 internal sealed class ResearchBar
 {
@@ -904,6 +1623,8 @@ internal sealed class SlsLoad
 {
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("n_kn")] public double NKn { get; init; }
+    // Sustained axial force; omitted means equal to the total n_kn.
+    [JsonPropertyName("n_long_kn")] public double? NLongKn { get; init; }
     [JsonPropertyName("mx_long_knm")] public double MxLongKnm { get; init; }
     [JsonPropertyName("my_long_knm")] public double MyLongKnm { get; init; }
     [JsonPropertyName("mx_total_knm")] public double MxTotalKnm { get; init; }
@@ -919,4 +1640,34 @@ internal sealed class Candidate
     [JsonPropertyName("bar_axis_radius_mm")] public double BarAxisRadiusMm { get; init; }
     [JsonPropertyName("steel_area_mm2")] public double SteelAreaMm2 { get; init; }
     [JsonPropertyName("clearance_mm")] public double ClearanceMm { get; init; }
+}
+
+internal sealed class LoadPreparationInput
+{
+    [JsonPropertyName("loads")] public List<LoadCase> Loads { get; init; } = new();
+    [JsonPropertyName("diameter_mm")] public double DiameterMm { get; init; }
+    [JsonPropertyName("length_mm")] public double LengthMm { get; init; }
+    [JsonPropertyName("zero_moment_axis")] public string? ZeroMomentAxis { get; init; }
+}
+
+internal sealed class MemberPreparationInput
+{
+    [JsonPropertyName("length_m")] public double LengthM { get; init; }
+    [JsonPropertyName("height_x_m")] public double HeightXM { get; init; }
+    [JsonPropertyName("height_y_m")] public double HeightYM { get; init; }
+    [JsonPropertyName("structural_scheme")] public string StructuralScheme { get; init; } = "";
+    // Optional given accidental eccentricities, mm; null or 0 means "by SP 63".
+    [JsonPropertyName("ea_x_mm")] public double? EaXMm { get; init; }
+    [JsonPropertyName("ea_y_mm")] public double? EaYMm { get; init; }
+    [JsonPropertyName("loads")] public List<MemberPreparationLoad> Loads { get; init; } = [];
+}
+
+internal sealed class MemberPreparationLoad
+{
+    [JsonRequired,JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonRequired,JsonPropertyName("n_kn")] public double NKn { get; init; }
+    [JsonRequired,JsonPropertyName("mx_total_knm")] public double MxTotalKnm { get; init; }
+    [JsonRequired,JsonPropertyName("my_total_knm")] public double MyTotalKnm { get; init; }
+    [JsonRequired,JsonPropertyName("mx_long_knm")] public double MxLongKnm { get; init; }
+    [JsonRequired,JsonPropertyName("my_long_knm")] public double MyLongKnm { get; init; }
 }

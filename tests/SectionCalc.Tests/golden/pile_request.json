@@ -1,0 +1,117 @@
+{
+ "schema_version": 1,
+ "pile": {
+  "diameter_mm": 900,
+  "mesh_resolution": 41,
+  "polygon_sides": 96
+ },
+ "materials": {
+  "concrete_rb_kpa": 15300,
+  "concrete_rbt_kpa": 1035,
+  "concrete_e_kpa": 32500000,
+  "concrete_ec1": -0.0015,
+  "concrete_ec2": -0.0035,
+  "concrete_et1": 8e-05,
+  "concrete_et2": 0.00015,
+  "rebar_rs_kpa": 435000,
+  "rebar_e_kpa": 200000000,
+  "rebar_ec2": -0.025,
+  "rebar_et2": 0.025
+ },
+ "loads": [
+  {
+   "id": "ULS:U #1",
+   "n_kn": -2000,
+   "mx_knm": 320,
+   "my_knm": 60.00000000000001,
+   "q_kn": 150.0,
+   "source_mx_knm": 320.0,
+   "source_my_knm": 40.0
+  }
+ ],
+ "candidates": [
+  {
+   "id": "14x25@0deg",
+   "bar_count": 14,
+   "bar_diameter_mm": 25,
+   "rotation_deg": 0,
+   "bar_axis_radius_mm": 372.5,
+   "steel_area_mm2": 6872.233929727672,
+   "clearance_mm": 140.77809579745423
+  }
+ ],
+ "sls_probe": {
+  "short_materials": {
+   "concrete_rb_kpa": 22000,
+   "concrete_rbt_kpa": 1750,
+   "concrete_e_kpa": 32500000,
+   "concrete_ec1": -0.0015,
+   "concrete_ec2": -0.0035,
+   "concrete_et1": 8e-05,
+   "concrete_et2": 0.00015,
+   "rebar_rs_kpa": 500000,
+   "rebar_e_kpa": 200000000,
+   "rebar_ec2": -0.025,
+   "rebar_et2": 0.025
+  },
+  "long_materials": {
+   "concrete_rb_kpa": 22000,
+   "concrete_rbt_kpa": 1750,
+   "concrete_e_kpa": 32500000,
+   "concrete_ec1": -0.0015,
+   "concrete_ec2": -0.0035,
+   "concrete_et1": 8e-05,
+   "concrete_et2": 0.00015,
+   "rebar_rs_kpa": 500000,
+   "rebar_e_kpa": 200000000,
+   "rebar_ec2": -0.025,
+   "rebar_et2": 0.025
+  },
+  "phi2": 0.5,
+  "acrc_ult_long_mm": 0.3,
+  "acrc_ult_short_mm": 0.4,
+  "preliminary_method": "arbat_conservative",
+  "review_band": 0.03,
+  "loads": [
+   {
+    "id": "S #1",
+    "n_kn": -1500.0,
+    "mx_total_knm": 240.0,
+    "mx_long_knm": 180.0,
+    "my_total_knm": 30.0,
+    "my_long_knm": 20.0,
+    "n_long_kn": -1100.0
+   }
+  ]
+ },
+ "sls_execution_policy": "uls_pass_only",
+ "connection_context": {
+  "second_order_mode": "cscore_member",
+  "l0_x_m": 7,
+  "l0_y_m": 6.5,
+  "psi": 0.8,
+  "inclined_moment_requested": false,
+  "anchorage_confirmed": false,
+  "anchorage_factor": null,
+  "circular_shear": {
+   "method": "vniigs_1984_two_legs",
+   "a_mm": 90,
+   "winding_diameter_mm": null,
+   "circular_efficiency": null,
+   "confirmed": true,
+   "efficiency_basis": "Принятая модель: один полный виток — две условные ветви; b = 0,885D, h0 = b − a."
+  },
+  "support_distance_positive_m": null,
+  "support_distance_negative_m": null,
+  "eccentricity_in_loads": true
+ },
+ "shear_screening": {
+  "diameter_mm": 10,
+  "spacing_mm": 150,
+  "rsw_kpa": 170000,
+  "constructive_confirmed": true,
+  "enabled": true,
+  "effective_legs_per_cage": 2,
+  "cage_count": 1
+ }
+}

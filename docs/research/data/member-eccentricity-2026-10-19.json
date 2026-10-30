@@ -1,0 +1,40 @@
+[
+  {
+    "length_m": 1,
+    "ea_x_mm": 20,
+    "ea_y_mm": 13.333333333333334,
+    "cscore_normal": 0.33017073789197876,
+    "arbat_recorded_normal": 0.332,
+    "reference_inputs_not_fully_reestablished": true
+  },
+  {
+    "length_m": 10,
+    "ea_x_mm": 20,
+    "ea_y_mm": 16.666666666666668,
+    "cscore_normal": 0.382768672986943,
+    "arbat_recorded_normal": 0.388,
+    "reference_inputs_not_fully_reestablished": true
+  },
+  {
+    "length_m": 12,
+    "ea_x_mm": 20,
+    "ea_y_mm": 20,
+    "cscore_normal": 0.4482986170884259,
+    "arbat_recorded_normal": 0.443,
+    "reference_inputs_not_fully_reestablished": true
+  },
+  {
+    "length_m": 15,
+    "ea_x_mm": 25,
+    "ea_y_mm": 25,
+    "cscore_normal": 8.000512032770098,
+    "arbat_recorded_normal": 6.483,
+    "reference_inputs_not_fully_reestablished": true
+  },
+  {
+    "case": "L15_explicit_20mm_weak_plane",
+    "cscore_normal": 6.346466287571081,
+    "arbat_recorded_normal": 6.483,
+    "reference_inputs_not_fully_reestablished": true
+  }
+]

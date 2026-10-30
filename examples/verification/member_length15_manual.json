@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "title": "Проверка 15 м · эксцентриситет CScore",
+  "kind": "wall",
+  "force_scale": "per_metre",
+  "spacing_m": 1.5,
+  "moment_sign": 1,
+  "materials_confirmed": true,
+  "eccentricity_confirmed": false,
+  "background": [
+    4,
+    4
+  ],
+  "pile_background": 8,
+  "diameters": [
+    25,
+    25
+  ],
+  "pile_diameter": 25,
+  "max_tier": 1,
+  "q_allowed_steps_mm": [
+    100,
+    150,
+    200,
+    300
+  ],
+  "transverse_layout": {
+    "mode": "proposed",
+    "positions_mm": [],
+    "geometry_confirmed": false
+  },
+  "profile_options": {
+    "orientation": "same",
+    "axes_confirmed": false
+  },
+  "transverse": {
+    "mode": "screen",
+    "diameter_mm": 8,
+    "spacing_mm": 200,
+    "effective_legs_per_cage": 2,
+    "rsw_kpa": 170000,
+    "constructive_confirmed": true
+  },
+  "wall": {
+    "panel_width_mm": 400,
+    "thickness_mm": 600,
+    "cage_count": 1,
+    "cage_width_mm": 316,
+    "end_cover_mm": 42,
+    "cover_mm": 42,
+    "ties_diameter_mm": 8,
+    "min_clear_spacing_mm": 25,
+    "min_cage_gap_mm": 50,
+    "mesh_resolution": 41
+  },
+  "pile": {
+    "diameter_mm": 800,
+    "cover_mm": 60,
+    "ties_diameter_mm": 10,
+    "min_clear_spacing_mm": 25,
+    "mesh_resolution": 41,
+    "polygon_sides": 96
+  },
+  "materials": {
+    "concrete_rb_kpa": 15300,
+    "concrete_rbt_kpa": 1035,
+    "concrete_e_kpa": 32500000,
+    "concrete_ec1": -0.0015,
+    "concrete_ec2": -0.0035,
+    "concrete_et1": 8e-05,
+    "concrete_et2": 0.00015,
+    "rebar_rs_kpa": 435000,
+    "rebar_e_kpa": 200000000,
+    "rebar_ec2": -0.025,
+    "rebar_et2": 0.025
+  },
+  "sls_settings": {
+    "short_materials": {
+      "concrete_rb_kpa": 22000,
+      "concrete_rbt_kpa": 1750,
+      "concrete_e_kpa": 32500000,
+      "concrete_ec1": -0.0015,
+      "concrete_ec2": -0.0035,
+      "concrete_et1": 8e-05,
+      "concrete_et2": 0.00015,
+      "rebar_rs_kpa": 500000,
+      "rebar_e_kpa": 200000000,
+      "rebar_ec2": -0.025,
+      "rebar_et2": 0.025
+    },
+    "long_materials": {
+      "concrete_rb_kpa": 22000,
+      "concrete_rbt_kpa": 1750,
+      "concrete_e_kpa": 32500000,
+      "concrete_ec1": -0.0015,
+      "concrete_ec2": -0.0035,
+      "concrete_et1": 8e-05,
+      "concrete_et2": 0.00015,
+      "rebar_rs_kpa": 500000,
+      "rebar_e_kpa": 200000000,
+      "rebar_ec2": -0.025,
+      "rebar_et2": 0.025
+    },
+    "phi2": 0.5,
+    "acrc_ult_long_mm": 0.3,
+    "acrc_ult_short_mm": 0.4,
+    "preliminary_method": "arbat_conservative",
+    "review_band": 0.03
+  },
+  "rows": [
+    {
+      "z": 0,
+      "case": "U",
+      "basis": "ULS",
+      "n": -2500,
+      "m": 375,
+      "my": 0,
+      "q": 250,
+      "m_long": null
+    }
+  ],
+  "zones": [],
+  "transverse_zones": [],
+  "source": {
+    "type": "manual",
+    "manual_force_basis": "per_section"
+  },
+  "calculation_context": {
+    "second_order_mode": "cscore_member",
+    "l0_x_m": 15,
+    "l0_y_m": 15,
+    "psi": 1.0,
+    "inclined_moment_requested": false,
+    "anchorage_confirmed": false,
+    "anchorage_factor": null,
+    "sections": [],
+    "circular_shear": null
+  },
+  "member_load_preparation": {
+    "mode": "sp63",
+    "length_m": 15,
+    "structural_scheme": "statically_indeterminate"
+  }
+}

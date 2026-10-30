@@ -10,6 +10,8 @@ git -C vendor/OpenCS fetch origin 4ae6aa077be5b29145930ec093ba1c9eb7776222
 if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed' }
 git -C vendor/OpenCS checkout --detach 4ae6aa077be5b29145930ec093ba1c9eb7776222
 if ($LASTEXITCODE -ne 0) { throw 'Git checkout failed' }
+python tools/apply_opencs_patches.py
+if ($LASTEXITCODE -ne 0) { throw 'Pinned CScore patch failed' }
 dotnet publish src/CScorePileRunner/CScorePileRunner.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 Write-Host 'Ready: publish/CScorePileRunner.exe'
