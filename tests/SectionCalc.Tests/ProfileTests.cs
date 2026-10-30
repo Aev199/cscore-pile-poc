@@ -551,34 +551,59 @@ public class ProfileTests(ITestOutputHelper output)
             // Pile 4 has the largest moments (×1,75 of pile 1).
             Assert.True(d.Piles[3].As.Max() > d.Piles[0].As.Max());
 
+            // Types gather piles of any length and head (the envelope by the depth below the head).
             var two = PileTyping.Group(d, 2);
-            Assert.Equal(3, two.Types.Count);
-            Assert.NotNull(two.Note);
+            Assert.Equal(2, two.Types.Count);
+            Assert.Null(two.Note);
             var four = PileTyping.Group(d, 4);
             Assert.Equal(4, four.Types.Count);
             var three = PileTyping.Group(d, 3);
-            var shared = three.Types.Single(t => t.Members.Count == 2);
-            Assert.Equal(["EmbeddedBeam_1", "EmbeddedBeam_2"], shared.Members.Select(m => m.Info.Name).OrderBy(x => x));
-            // The type covers each member at every station; its steel is not less than the members' own.
-            Assert.All(shared.Members, m => Assert.All(m.As.Select((a, i) => (a, i)), x => Assert.True(shared.As[x.i] >= x.a - 1e-6)));
+            Assert.Equal(3, three.Types.Count);
+            Assert.Equal(4, three.Types.Sum(t => t.Members.Count));
+            // One cage along the whole pile (the default): one zone, the first member the longest.
+            Assert.All(three.Types, t => Assert.Single(t.Zones));
+            Assert.All(three.Types, t => Assert.Equal(t.MaxLength, t.Members[0].Length, 6));
+            Assert.All(three.Types, t => Assert.True(Math.Abs(t.Zones[0].Top - t.Head) < 1e-6 && Math.Abs(t.Zones[^1].Bottom - t.Tip) < 1e-6));
+            // The cage covers the largest demand of every member; the types are numbered from the strongest.
+            Assert.All(three.Types, t => Assert.True(t.Zones[0].Bars.AreaMm2 >= t.Members.Max(m => m.AsMax) - 1e-6));
+            Assert.True(three.Types[0].Members.Max(m => m.AsMax) >= three.Types[^1].Members.Max(m => m.AsMax));
             Assert.True(three.SteelKg >= three.OwnSteelKg * 0.999);
-            // Every pile its own type: nothing added by the typing.
             Assert.Equal(0, four.Overspend, 9);
             Assert.True(three.Overspend >= -1e-9);
-            Assert.All(three.Types, t => Assert.True(t.Zones.Count >= 1 && Math.Abs(t.Zones[0].Top - t.Head) < 1e-6 && Math.Abs(t.Zones[^1].Bottom - t.Tip) < 1e-6));
 
-            // The curve: the steel of every number of types, more types — less steel.
-            Assert.Equal(Enumerable.Range(3, 2).Reverse(), three.Curve.Select(c => c.Types));
+            // The curve: every number of types, exact — no partition into k groups is cheaper.
+            Assert.Equal(Enumerable.Range(1, 4).Reverse(), three.Curve.Select(c => c.Types));
             Assert.True(three.Curve[0].SteelKg <= three.Curve[^1].SteelKg + 1e-9);
-            // A locked group stays apart: piles 1 and 2 locked one by one give four types.
-            var locked = PileTyping.Group(d, 3, [[0], [1]]);
-            Assert.Equal(4, locked.Types.Count);
+            double Cost(IEnumerable<PileDemand> g) => g.Sum(m => m.Length) * g.Max(m => m.AsMax) * 1e-6 * 7850;
+            for (int k = 1; k <= 4; k++)
+            {
+                double brute = double.PositiveInfinity;
+                // Every assignment of 4 piles to k labels (all partitions appear among them).
+                for (int code = 0; code < Math.Pow(k, 4); code++)
+                {
+                    var label = Enumerable.Range(0, 4).Select(i => code / (int)Math.Pow(k, i) % k).ToArray();
+                    if (label.Distinct().Count() != k) continue;
+                    brute = Math.Min(brute, Enumerable.Range(0, k).Sum(l => Cost(d.Piles.Where(x => label[x.Pile] == l))));
+                }
+                Assert.Equal(brute, three.Curve.Single(c => c.Types == k).SteelKg, 6);
+            }
+
+            // A locked group stays apart.
+            var locked = PileTyping.Group(d, 2, [[0], [1]]);
+            Assert.Equal(3, locked.Types.Count);
             Assert.Equal(2, locked.Types.Count(t => t.Locked));
             Assert.Contains("закреплённые", locked.Note);
-            // A partition by hand; piles of different classes cannot share a type.
-            var manual = PileTyping.Build(d, [[0, 1], [2], [3]]);
-            Assert.Equal(three.SteelKg, manual.SteelKg, 6);
-            Assert.Throws<InvalidOperationException>(() => PileTyping.Build(d, [[0, 3], [1], [2]]));
+            // A partition by hand, piles of different length in one type: the cage is drawn along the longest.
+            var manual = PileTyping.Build(d, [[3, 0], [1], [2]]);
+            var mixed = manual.Types.Single(t => t.Members.Count == 2);
+            Assert.Equal(18, mixed.MaxLength, 1);
+            Assert.Equal(16, mixed.MinLength, 1);
+
+            // Zones along the envelope (option): still any length in a type.
+            p.Settings.UniformCage = false;
+            var zoned = PileTyping.Group(d, 2);
+            Assert.Equal(2, zoned.Types.Count);
+            p.Settings.UniformCage = true;
 
             sw.Restart();
             var checkedTypes = PileTyping.Verify(three);

@@ -283,7 +283,8 @@ function valuesAt(d, z) {
   const near = Math.abs(a.z - z) <= Math.abs(b.z - z) ? a : b;
   // The required area belongs to the station of the search (a step), the capacity to the zone of the cage.
   const type = DATA.types.find(t => t.number === d.type);
-  const zone = type?.zones.find(zz => z <= zz.top + 1e-6 && z >= zz.bottom - 1e-6);
+  const sh = d.shift ?? 0;  // zones of the type are at the levels of its longest pile
+  const zone = type?.zones.find(zz => z + sh <= zz.top + 1e-6 && z + sh >= zz.bottom - 1e-6);
   const step = d.steps?.find(st => z <= st.top + 1e-6 && z > st.bottom + 1e-6) ?? d.steps?.[d.steps.length - 1];
   return { z, nmin: lerp('nmin'), nmax: lerp('nmax'), m: lerp('m'), q: lerp('q'), as: step?.as ?? near.as, asw: step?.asw ?? near.asw, zone,
            asp: zone?.as, mult: zone?.mult, qult: zone?.qult, nultc: zone?.nultc, nultt: zone?.nultt };
@@ -370,9 +371,13 @@ function showDetail(p) {
     g.textAlign = 'right'; g.fillText(ru(z, 1), left - 8, Y(z) + 7);
   }
   const type = DATA.types.find(t => t.number === d.type);
+  // Zones of the type on this pile: shifted to its head and cut at its tip.
+  const sh = d.shift ?? 0;
+  const zoneTop = z => z.top - sh, zoneBottom = z => Math.max(z.bottom - sh, d.tip);
   if (type) type.zones.forEach((z, i) => {
+    if (zoneTop(z) <= d.tip) return;
     g.fillStyle = i % 2 ? 'rgba(46,158,91,0.05)' : 'rgba(46,158,91,0.11)';
-    g.fillRect(left, Y(z.top), right - left, Y(z.bottom) - Y(z.top));
+    g.fillRect(left, Y(zoneTop(z)), right - left, Y(zoneBottom(z)) - Y(zoneTop(z)));
   });
   g.strokeStyle = '#9aa7b0'; g.beginPath(); g.moveTo(x0, top); g.lineTo(x0, bottom); g.stroke();
   // The force.
@@ -400,8 +405,9 @@ function showDetail(p) {
       g.beginPath(); g.arc(X(v), Y(s.z), 6, 0, 7); g.fill();
     }
     if (type) type.zones.forEach(z => {
+      if (zoneTop(z) <= d.tip) return;
       g.fillStyle = '#263640'; g.textAlign = 'right';
-      g.fillText(`${z.bars}  ${q.capLabel(z)}`, right - 6, (Y(z.top) + Y(z.bottom)) / 2 + 7);
+      g.fillText(`${z.bars}  ${q.capLabel(z)}`, right - 6, (Y(zoneTop(z)) + Y(zoneBottom(z))) / 2 + 7);
     });
   }
   g.fillStyle = '#7a8a94';
@@ -409,7 +415,7 @@ function showDetail(p) {
   else { g.textAlign = 'left'; g.fillText('0', left, bottom + 32); }
   g.textAlign = 'right'; g.fillText(ru(vMax / 1.1) + ' ' + q.unit, right, bottom + 32);
   document.getElementById('zones').innerHTML = type ? '<table><tr><th>Отметки, м</th><th>Стержни</th><th>Спираль</th><th>Mult</th><th>Qult</th><th>Nult сж./раст.</th><th>K</th></tr>'
-    + type.zones.map(z => `<tr><td>${ru(z.top, 2)}…${ru(z.bottom, 2)}</td><td>${z.bars}</td><td>${z.spiral ? 'Ø' + z.spiral : '—'}</td>`
+    + type.zones.filter(z => zoneTop(z) > d.tip).map(z => `<tr><td>${ru(zoneTop(z), 2)}…${ru(zoneBottom(z), 2)}</td><td>${z.bars}</td><td>${z.spiral ? 'Ø' + z.spiral : '—'}</td>`
       + `<td>${z.mult != null ? ru(z.mult) : '—'}</td><td>${z.qult != null ? ru(z.qult) : '—'}</td>`
       + `<td>${z.nultc != null ? ru(z.nultc) + ' / ' + ru(z.nultt) : '—'}</td>`
       + `<td class="${z.k > 1 ? 'bad' : ''}" title="${z.governing ?? ''}">${z.k != null ? ru(z.k, 2) : '—'}</td></tr>`).join('') + '</table>'

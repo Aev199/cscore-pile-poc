@@ -54,8 +54,12 @@
                   <ComboBox ItemsSource="{Binding ModeOptions}" SelectedIndex="{Binding ModeIndex}" />
                 </c:Field>
                 <c:Field Header="Число типов" IsVisible="{Binding IsTyping}"
-                         ToolTip.Tip="Сваи одного типа совпадают по отметкам оголовка и низа. Точнее — по усилиям выбранных стадий: огибающие сочетают экстремумы разных стадий, в запас.">
+                         ToolTip.Tip="В тип попадают сваи любой длины и с любой отметкой оголовка: требуемая As сводится по глубине от оголовка. Точнее — по усилиям выбранных стадий: огибающие сочетают экстремумы разных стадий (растяжение с Mmax), в запас.">
                   <TextBox Text="{Binding TypeCount}" />
+                </c:Field>
+                <c:Field Header="Каркас" ValueWidth="170" IsVisible="{Binding IsTyping}"
+                         ToolTip.Tip="Постоянный — одни стержни по всей длине сваи (обычное решение). Зоны — стержни меняются по эпюре (участки не короче 2 м).">
+                  <ComboBox ItemsSource="{Binding CageOptions}" SelectedIndex="{Binding CageIndex}" />
                 </c:Field>
                 <TextBlock Classes="sub" Text="{Binding SectionText}" Margin="0,4,0,0" />
               </StackPanel>
@@ -107,6 +111,10 @@
                   <Button Grid.Column="2" Classes="tool" Content="ни одной" Command="{Binding AllPhasesCommand}" CommandParameter="0" />
                 </Grid>
               </c:Group.Header>
+              <StackPanel>
+              <Border Classes="notice warn" Margin="0,0,0,6" IsVisible="{Binding PhaseWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBlock Text="{Binding PhaseWarning}" TextWrapping="Wrap" FontSize="11" />
+              </Border>
               <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Phases}">
                   <ItemsControl.ItemTemplate>
@@ -121,6 +129,7 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </ScrollViewer>
+              </StackPanel>
             </c:Group>
 
             <c:Group Header="ПАРАМЕТРЫ">

@@ -101,6 +101,8 @@ public sealed class ProfileSettings
     public List<PeakCut> PeakCuts { get; set; } = [];
     /// <summary>Upper bound of the search: bar diameter of the adopted layout, mm.</summary>
     public double MaxBarDiameterMm { get; set; } = 40;
+    /// <summary>Typing: one cage along the whole pile (the usual design); otherwise zones along the envelope.</summary>
+    public bool UniformCage { get; set; } = true;
 }
 
 /// <summary>Whole pile or wall from PLAXIS forces: section definition, raw export, phase kinds, settings.</summary>
@@ -127,14 +129,18 @@ public sealed class ProfileProject
         return p;
     }
 
-    /// <summary>Adopts a new export: phase settings are kept by phase name.</summary>
+    /// <summary>A phase named as seismic ("Сейсмика +X", also with a Latin C) starts as a seismic combination.</summary>
+    public static bool IsSeismic(PlaxisPhase ph) =>
+        $"{ph.Name} {ph.Title}".Contains("ейсм", StringComparison.OrdinalIgnoreCase) || $"{ph.Name} {ph.Title}".Contains("seism", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Adopts a new export: phase settings are kept by phase name; a new phase named as seismic is seismic.</summary>
     public void UseSource(PlaxisExport export)
     {
         var old = Phases.ToDictionary(p => p.Name);
         Source = export;
         Phases = export.Phases.Select(ph => old.TryGetValue(ph.Name, out var s)
             ? new PhaseSetting { Id = ph.Id, Name = ph.Name, Include = s.Include, ShortTerm = s.ShortTerm, Seismic = s.Seismic, Special = s.Special }
-            : new PhaseSetting { Id = ph.Id, Name = ph.Name }).ToList();
+            : new PhaseSetting { Id = ph.Id, Name = ph.Name, Seismic = IsSeismic(ph) }).ToList();
         // The scenario follows the model: 3D — piles of the model; Embedded beam row — retaining piles; Plate — kept.
         if (export.Is3D) Settings.Scenario = ProfileScenario.Piles3D;
         else if (export.Objects.Any(o => o.Kind != "Plate")) Settings.Scenario = ProfileScenario.RetainingPiles;

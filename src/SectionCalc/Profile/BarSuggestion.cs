@@ -36,6 +36,26 @@ public static class BarSuggestion
         return sets.Where(x => x.AreaMm2 <= lean * Excess + 1e-6).OrderBy(x => x.Rows * x.Count).ThenBy(x => x.AreaMm2).First();
     }
 
+    /// <summary>The ring with the most steel that still fits, when no ring gives the required area (not 6 bars of the largest diameter).</summary>
+    static BarSet Densest(SectionProject s)
+    {
+        var g = s.Pile;
+        BarSet? best = null;
+        foreach (double d in Diameters)
+        {
+            g.BarDiameterMm = d;
+            for (int n = 200; n >= PileMinBars; n--)
+            {
+                g.BarCount = n;
+                if (!RequestBuilder.Layout(s).Fits) continue;
+                var set = new BarSet(1, n, d);
+                if (best is null || set.AreaMm2 > best.AreaMm2) best = set;
+                break;
+            }
+        }
+        return best ?? new BarSet(1, PileMinBars, Diameters[0]);
+    }
+
     public static BarChoice Choose(SectionProject section, double right, double left)
     {
         var s = ProjectStore.Deserialize(ProjectStore.Serialize(section));
@@ -51,7 +71,7 @@ public static class BarSuggestion
                 g.BarCount = n;
                 if (RequestBuilder.Layout(s).Fits) sets.Add(new BarSet(1, n, d));
             }
-            var best = Pick(sets) ?? new BarSet(1, PileMinBars, Diameters[^1]);
+            var best = Pick(sets) ?? Densest(s);
             g.BarCount = best.Count; g.BarDiameterMm = best.DiameterMm;
             return new BarChoice(s, best, null, RequestBuilder.Layout(s).Fits);
         }

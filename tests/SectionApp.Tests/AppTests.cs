@@ -262,7 +262,7 @@ public class AppTests
         Assert.Contains("оголовкам", p.Summary);
         Snapshot(window, "12-profile-group");
 
-        // Each pile on its own, then three types (heads and lengths give three classes here).
+        // Each pile on its own, then three types (piles of any length may share one).
         var (gn, gm) = (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM);
         (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM) = (3, 4);
         try
@@ -291,10 +291,13 @@ public class AppTests
             p.SelectedPiles = [pile];
             await p.MovePilesCommand.ExecuteAsync(null);
             Assert.Equal(3, p.Types.Count);
-            // A pile of another length cannot join it.
-            p.SelectedPiles = [p.Typing.Demands.Piles.Single(x => x.Info.Name == "EmbeddedBeam_4").Pile];
+            // A pile of another length joins it too: the type shows the range of lengths.
+            var other = p.Typing!.Demands.Piles.First(x => shared.Members.All(m => m.Pile != x.Pile) && Math.Abs(x.Length - shared.MaxLength) > 0.1);
+            p.TargetIndex = p.Types.ToList().FindIndex(t => t.Type.Members.Any(m => m.Pile == shared.Members[0].Pile));
+            p.SelectedPiles = [other.Pile];
             await p.MovePilesCommand.ExecuteAsync(null);
-            Assert.Contains("одинаковыми отметками", p.Errors);
+            Assert.True(string.IsNullOrEmpty(p.Errors), p.Errors);
+            Assert.Contains(p.Types, t => t.Type.Members.Count == 3 && t.Title.Contains('–'));
             // Lock a type: it stays when gathered again.
             p.SelectedTypeNumber = p.Types[0].Type.Number;
             await p.ToggleLockCommand.ExecuteAsync(null);

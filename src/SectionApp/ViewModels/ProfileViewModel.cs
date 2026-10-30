@@ -101,12 +101,15 @@ public sealed class TypeRowViewModel(PileType t)
     public PileType Type => t;
     public Avalonia.Media.IBrush Color { get; } = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromUInt32(
         (uint)TypingChart.Color(t.Number).Alpha << 24 | (uint)TypingChart.Color(t.Number).Red << 16 | (uint)TypingChart.Color(t.Number).Green << 8 | TypingChart.Color(t.Number).Blue));
-    public string Title => $"Т{t.Number} · {t.Members.Count} св. · {t.Head.ToString("0.00", Ru)}…{t.Tip.ToString("0.00", Ru)}";
+    public string Title => $"Т{t.Number} · {t.Members.Count} св. · {Length}";
+    /// <summary>Length of the piles of the type (one or a range).</summary>
+    string Length => t.MaxLength - t.MinLength < 0.05 ? $"L {t.MaxLength.ToString("0.0", Ru)} м"
+        : $"L {t.MinLength.ToString("0.0", Ru)}–{t.MaxLength.ToString("0.0", Ru)} м";
     public string Bars => string.Join(" → ", t.Zones.Select(z => z.Bars.ToString()));
     public string Detail => $"{t.SteelKg / Math.Max(1, t.Members.Count):0} кг/св. · K {ReportWriter.Utilization(t.K)}" + (t.Locked ? " · закреплён" : "");
     public string Number => $"Т{t.Number}";
     public int Count => t.Members.Count;
-    public string Levels => $"{t.Head.ToString("0.00", Ru)}…{t.Tip.ToString("0.00", Ru)}";
+    public string Levels => Length;
     public string Spiral => string.Join(" → ", t.Zones.Select(z => z.SpiralMm is double d ? $"Ø{d:0}" : "—").Distinct());
     public string Steel => (t.SteelKg / Math.Max(1, t.Members.Count)).ToString("0", Ru);
     public string K => ReportWriter.Utilization(t.K);
@@ -261,6 +264,9 @@ public partial class ProfileViewModel : ObservableObject
     [ObservableProperty] string momentSignText = "";
     [ObservableProperty] bool ignoreAxialForce;
     [ObservableProperty] bool skipInactiveZeroN = true;
+    /// <summary>Typing: 0 — one cage along the whole pile, 1 — zones along the envelope.</summary>
+    [ObservableProperty] int cageIndex;
+    public IReadOnlyList<string> CageOptions { get; } = ["постоянный по длине", "зоны по эпюре"];
     [ObservableProperty] string zeroNText = "";
     public ObservableCollection<PeakCutViewModel> PeakCuts { get; } = [];
     [ObservableProperty] bool confirmed;
@@ -303,7 +309,7 @@ public partial class ProfileViewModel : ObservableObject
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
                 or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
                 or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads) or nameof(PanelWidth) or nameof(ModeIndex)
-                or nameof(TypeCount) or nameof(SkipInactiveZeroN))
+                or nameof(TypeCount) or nameof(SkipInactiveZeroN) or nameof(CageIndex))
             Changed();
     }
 
@@ -316,6 +322,7 @@ public partial class ProfileViewModel : ObservableObject
         MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed; IgnoreAxialForce = s.IgnoreAxialForce;
         ExcavationIndex = Excavation(s.ExcavationSide); AlignPileHeads = s.AlignPileHeads; SkipInactiveZeroN = s.SkipInactiveZeroN;
         ScenarioIndex = (int)s.Scenario; ModeIndex = (int)s.Mode; TypeCount = s.TypeCount.ToString(CultureInfo.InvariantCulture);
+        CageIndex = s.UniformCage ? 0 : 1;
         PanelWidth = S(s.PanelWidthM > 0 ? s.PanelWidthM : project.Section.Wall.WidthMm / 1000);
         PeakCuts.Clear();
         foreach (var c in s.PeakCuts) PeakCuts.Add(new PeakCutViewModel(c, Changed, RemoveCut));
@@ -349,7 +356,7 @@ public partial class ProfileViewModel : ObservableObject
         s.SustainedShare = D(SustainedShare, "kдл");
         s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed; s.IgnoreAxialForce = IgnoreAxialForce;
         s.ExcavationSide = ExcavationIndex switch { 1 => 1, 2 => -1, _ => 0 }; s.AlignPileHeads = AlignPileHeads; s.SkipInactiveZeroN = SkipInactiveZeroN;
-        s.Scenario = Scenario; s.Mode = (ProfileMode)ModeIndex;
+        s.Scenario = Scenario; s.Mode = (ProfileMode)ModeIndex; s.UniformCage = CageIndex == 0;
         if (IsTyping)
         {
             if (int.TryParse(TypeCount.Trim(), out int k) && k >= 1) s.TypeCount = k; else e.Add("Число типов — целое число от 1");
@@ -364,9 +371,21 @@ public partial class ProfileViewModel : ObservableObject
         return e.Count == 0;
     }
 
+    /// <summary>Phases named as seismic but taken as basic combinations: their kind changes the result a lot (m_tr, cracks).</summary>
+    [ObservableProperty] string phaseWarning = "";
+
+    void RefreshPhaseWarning()
+    {
+        var names = project.Source is not { } src ? [] : project.Phases.Where(ph => ph.Include && !ph.Seismic && !ph.Special
+            && src.Phases.FirstOrDefault(x => x.Id == ph.Id) is { } sp && ProfileProject.IsSeismic(sp)).Select(ph => ph.Name).ToList();
+        PhaseWarning = names.Count == 0 ? ""
+            : $"Стадии {string.Join(", ", names)} названы сейсмическими, но считаются основными сочетаниями (без m_tr, с трещинами) — проверьте вид";
+    }
+
     void Changed()
     {
         if (loading) return;
+        RefreshPhaseWarning();
         if (HasResult) ResultIsStale = true;
         RefreshForces();
     }
@@ -410,10 +429,10 @@ public partial class ProfileViewModel : ObservableObject
     string DemandKey()
     {
         var s = project.Settings;
-        var (count, mode) = (s.TypeCount, s.Mode);
-        (s.TypeCount, s.Mode) = (0, ProfileMode.Typing);
+        var (count, mode, cage) = (s.TypeCount, s.Mode, s.UniformCage);
+        (s.TypeCount, s.Mode, s.UniformCage) = (0, ProfileMode.Typing, true);
         string key = Key();
-        (s.TypeCount, s.Mode) = (count, mode);
+        (s.TypeCount, s.Mode, s.UniformCage) = (count, mode, cage);
         return key;
     }
 
@@ -451,14 +470,16 @@ public partial class ProfileViewModel : ObservableObject
     /// </summary>
     async Task Apply(TypingResult r, CancellationToken token)
     {
-        r = r with { Types = r.Types.Select(t => verified.TryGetValue(t.Key, out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
+        // Checked types by their piles and the cage kind (one cage or zones).
+        string Cached(PileType t) => t.Key + (project.Settings.UniformCage ? "|uniform" : "|zones");
+        r = r with { Types = r.Types.Select(t => verified.TryGetValue(Cached(t), out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
         var check = new Progress<(int Done, int Total)>(x =>
         {
             Progress = 100.0 * x.Done / x.Total;
             Status = $"Проверка зон ядром: {x.Done} из {x.Total}";
         });
         r = await Task.Run(() => PileTyping.Verify(r, check, token, t => !t.Verified), token);
-        foreach (var t in r.Types) verified[t.Key] = t;
+        foreach (var t in r.Types) verified[Cached(t)] = t;
         typing = r;
         result = null;
         resultKey = Key();
@@ -582,8 +603,6 @@ public partial class ProfileViewModel : ObservableObject
         if (SelectedPiles.Count == 0) return "Выберите сваи на плане или в таблице";
         if (TargetIndex < 0 || TargetIndex >= groups.Count) return "Выберите тип";
         var target = groups[TargetIndex];
-        int cls = demands!.Piles[target[0]].Class;
-        if (SelectedPiles.Any(i => demands.Piles[i].Class != cls)) return "В один тип — только сваи с одинаковыми отметками оголовка и низа";
         foreach (var g in groups) g.RemoveAll(i => SelectedPiles.Contains(i));
         target.AddRange(SelectedPiles);
         return null;
@@ -594,7 +613,6 @@ public partial class ProfileViewModel : ObservableObject
     Task NewType() => Edit("Новый тип…", (groups, locked) =>
     {
         if (SelectedPiles.Count == 0) return "Выберите сваи на плане или в таблице";
-        if (SelectedPiles.Select(i => demands!.Piles[i].Class).Distinct().Count() > 1) return "В один тип — только сваи с одинаковыми отметками оголовка и низа";
         foreach (var g in groups) g.RemoveAll(i => SelectedPiles.Contains(i));
         groups.Add([.. SelectedPiles]);
         locked.Add(false);
@@ -793,6 +811,7 @@ public partial class ProfileViewModel : ObservableObject
             Phases.Add(new PhaseRowViewModel(ph, label, Changed));
         }
         HasPhases = Phases.Count > 0;
+        RefreshPhaseWarning();
         int piles = s.Objects.Select(o => o.Pile).Distinct().Count();
         string selected = s.Is3D && piles > 1 ? $"группа {piles} свай: {string.Join(", ", s.Selection)}"
             : s.Selection.Count > 0 ? $"{string.Join(", ", s.Selection)} ({s.Objects.Count} уч.)" : string.Join(", ", s.Objects.Select(o => o.Name));

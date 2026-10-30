@@ -269,7 +269,8 @@ public sealed class CagesView : Control
             var color = Paint.TypeColor(t.Number);
             context.DrawEllipse(new SolidColorBrush(color), null, new Point(x + 12, 14), 6, 6);
             context.DrawText(Paint.Format($"Т{t.Number}" + (t.Locked ? " · закреплён" : ""), 12.5, Paint.Text, bold: true), new Point(x + 22, 5));
-            context.DrawText(Paint.Format($"{t.Members.Count} св. · L {t.Head - t.Tip:0.0} м", 11, Paint.Muted), new Point(x + 8, 24));
+            string length = t.MaxLength - t.MinLength < 0.05 ? $"L {t.MaxLength:0.0} м" : $"L {t.MinLength:0.0}–{t.MaxLength:0.0} м";
+            context.DrawText(Paint.Format($"{t.Members.Count} св. · {length}", 11, Paint.Muted), new Point(x + 8, 24));
             // The pile body with the zones shaded by their area.
             double bx = x + 10, bw = 28;
             foreach (var z in t.Zones)

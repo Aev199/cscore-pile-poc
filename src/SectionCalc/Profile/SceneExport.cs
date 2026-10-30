@@ -79,7 +79,10 @@ public static class SceneExport
         Parallel.ForEach(work, new ParallelOptions { CancellationToken = cancel, MaxDegreeOfParallelism = Environment.ProcessorCount }, w =>
         {
             var members = w.Type.Members.Select(m => m.Pile).ToHashSet();
-            var ns = d.Forces.Samples.Where(x => members.Contains(x.Pile) && x.Level <= w.Zone.Top + 1e-6 && x.Level >= w.Zone.Bottom - 1e-6).Select(x => x.N).ToList();
+            // Levels of each pile moved onto the type (piles of one type may have different heads).
+            var shift = w.Type.Members.ToDictionary(m => m.Pile, m => w.Type.Shift(m));
+            var ns = d.Forces.Samples.Where(x => members.Contains(x.Pile) && x.Level + shift[x.Pile] <= w.Zone.Top + 1e-6
+                && x.Level + shift[x.Pile] >= w.Zone.Bottom - 1e-6).Select(x => x.N).ToList();
             double n = d.Project.Settings.IgnoreAxialForce || ns.Count == 0 ? 0 : ns.Max();
             var section = ProjectStore.Deserialize(ProjectStore.Serialize(d.Project.Section));
             section.Conditions.ElementLengthM = w.Type.Head - w.Type.Tip;
@@ -119,6 +122,8 @@ public static class SceneExport
             var info = forces.Piles[i];
             var type = typeOf.GetValueOrDefault(i);
             var demand = demandOf.GetValueOrDefault(i);
+            // Level of the type = level of this pile + shift.
+            double shift = type is not null && demand is not null ? type.Shift(demand) : 0;
             var stations = new JsonArray();
             foreach (var e in forces.EnvelopeOfPile(i))
             {
@@ -135,7 +140,7 @@ public static class SceneExport
                 }
                 if (type is not null)
                 {
-                    int zi = type.Zones.ToList().FindIndex(z => e.Level <= z.Top + 1e-6 && e.Level >= z.Bottom - 1e-6);
+                    int zi = type.Zones.ToList().FindIndex(z => e.Level + shift <= z.Top + 1e-6 && e.Level + shift >= z.Bottom - 1e-6);
                     if (zi >= 0)
                     {
                         o["asp"] = R(type.Zones[zi].Bars.AreaMm2 / 100, 2);
@@ -153,7 +158,7 @@ public static class SceneExport
             piles.Add(new JsonObject
             {
                 ["name"] = info.Name, ["x"] = R(info.X, 3), ["y"] = R(info.Y, 3), ["head"] = R(info.Head, 3), ["tip"] = R(info.Tip, 3),
-                ["type"] = type?.Number, ["color"] = type is null ? "#9aa7b0" : Hex(type.Number), ["d"] = diameter,
+                ["type"] = type?.Number, ["color"] = type is null ? "#9aa7b0" : Hex(type.Number), ["d"] = diameter, ["shift"] = R(shift, 3),
                 ["stations"] = stations,
                 // The intervals of the search: the required area holds over each of them.
                 ["steps"] = demand is null ? null : new JsonArray(demand.Stations.Select((st, k) => (JsonNode)new JsonObject
