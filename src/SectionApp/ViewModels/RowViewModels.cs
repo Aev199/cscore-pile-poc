@@ -104,6 +104,8 @@ public partial class BarRowViewModel(MainViewModel owner, string x, string y, st
 public sealed class CombinationRowViewModel(CombinationLine line)
 {
     public string Name => line.Name;
+    /// <summary>Name of the combination in the forces table ("С1" of "С1 · сейсмическое").</summary>
+    public string Source => line.Name.Split(" · ")[0];
     public string C0 => line.Cells[0];
     public string C1 => line.Cells[1];
     public string C2 => line.Cells[2];

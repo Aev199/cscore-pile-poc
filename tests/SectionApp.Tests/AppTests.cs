@@ -206,6 +206,12 @@ public class AppTests
         Assert.NotEmpty(vm.SummaryRows);
         Assert.Contains(vm.VerdictTone, new[] { "ok", "bad", "warn" });
         Snapshot(window, "05-pile-checked");
+        // A combination picked in the results selects its row; the diagram shows the section strength with the points.
+        vm.SelectedCombination = vm.CombinationRows[1];
+        Assert.Equal("2", vm.SelectedLoad!.Name);
+        vm.SelectedTab = MainViewModel.TabDiagram;
+        await Until(() => vm.ShowInteraction, 60000);
+        Snapshot(window, "05b-pile-diagram");
         vm.PileBarCount = "16";
         Assert.True(vm.ResultIsStale);
     }
@@ -222,7 +228,7 @@ public class AppTests
         await best.ApplyCommand.ExecuteAsync(null);
         Assert.True(vm.HasResult);
         Assert.Equal("ok", vm.VerdictTone);
-        Assert.Equal(0, vm.SelectedTab);
+        Assert.Equal(MainViewModel.TabChecks, vm.SelectedTab);
         Assert.True(vm.HasSelection);
         Snapshot(window, "07-wall-applied");
     }

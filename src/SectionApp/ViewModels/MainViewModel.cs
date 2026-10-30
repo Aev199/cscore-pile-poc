@@ -30,7 +30,7 @@ public partial class MainViewModel : ObservableObject, INotifyDataErrorInfo
     [
         nameof(Sketch), nameof(IsBusy), nameof(StatusText), nameof(Progress), nameof(ShowProgress), nameof(HasResult),
         nameof(ResultIsStale), nameof(VerdictText), nameof(VerdictTone), nameof(GoverningText), nameof(InputErrors),
-        nameof(HasInputErrors), nameof(SelectionSummary), nameof(HasSelection), nameof(SteelText), nameof(SelectedTab),
+        nameof(HasInputErrors), nameof(SelectionSummary), nameof(HasSelection), nameof(SteelText), nameof(SelectedTab), nameof(InteractionImage), nameof(InteractionStatus), nameof(InteractionPlaneIndex), nameof(SelectedCombination), nameof(ShowInteraction),
         nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(IsPile), nameof(IsCustom),
         nameof(IsGeotech), nameof(KindTitle), nameof(EtaByCscore), nameof(SelectedLoad), nameof(SelectedBar), nameof(SelectedVertex),
         nameof(AxisText), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders), nameof(ProfileMode), nameof(IsSectionMode),
@@ -372,7 +372,69 @@ public partial class MainViewModel : ObservableObject, INotifyDataErrorInfo
     public bool CanCheck => !HasInputErrors;
     [ObservableProperty] string selectionSummary = "";
     [ObservableProperty] bool hasSelection;
+    /// <summary>Tabs of the results: 0 — checks by combination, 1 — the N–M diagram, 2 — selection.</summary>
     [ObservableProperty] int selectedTab;
+    public const int TabChecks = 0, TabDiagram = 1, TabSelection = 2;
+    partial void OnSelectedTabChanged(int value) { if (value == TabDiagram) RefreshInteraction(); }
+
+    // ---- the N–M diagram: the strength of the section and the combinations ----
+
+    [ObservableProperty] Bitmap? interactionImage;
+    [ObservableProperty] string interactionStatus = "";
+    public bool ShowInteraction => InteractionImage is not null;
+    partial void OnInteractionImageChanged(Bitmap? value) => OnPropertyChanged(nameof(ShowInteraction));
+    /// <summary>0 — the plane of Mx, 1 — of My.</summary>
+    [ObservableProperty] int interactionPlaneIndex;
+    public IReadOnlyList<string> InteractionPlanes { get; } = ["N–Mx", "N–My"];
+    partial void OnInteractionPlaneIndexChanged(int value) => RefreshInteraction();
+    List<InteractionPoint>? curve;
+    string? curveKey;
+    CancellationTokenSource? curveCancel;
+
+    /// <summary>The selected combination in the results table: selects the row of the forces and the point on the diagram.</summary>
+    [ObservableProperty] CombinationRowViewModel? selectedCombination;
+    partial void OnSelectedCombinationChanged(CombinationRowViewModel? value)
+    {
+        if (value is not null && Loads.FirstOrDefault(l => l.Name.Trim() == value.Source) is { } row) SelectedLoad = row;
+    }
+    partial void OnSelectedLoadChanged(LoadRowViewModel? value) => DrawInteraction();
+
+    /// <summary>The curve depends on the section and materials, not on the forces: it is kept while they stay.</summary>
+    static string CurveKey(SectionProject p, bool planeY) => System.Text.Json.JsonSerializer.Serialize(new
+    {
+        p.Kind, Geometry = p.Kind switch { SectionKind.Pile => (object)p.Pile, SectionKind.Wall => p.Wall, _ => p.Custom },
+        p.ConcreteClass, p.RebarClass, p.Concrete, p.LongitudinalFactor, p.RscByTable, planeY,
+    });
+
+    async void RefreshInteraction()
+    {
+        if (SelectedTab != TabDiagram || TryBuild(out _) is not { } p) return;
+        bool planeY = InteractionPlaneIndex == 1;
+        string key = CurveKey(p, planeY);
+        if (key == curveKey && curve is not null) { DrawInteraction(); return; }
+        curveCancel?.Cancel();
+        var cts = curveCancel = new CancellationTokenSource();
+        InteractionStatus = "Строится диаграмма несущей способности…";
+        try
+        {
+            var points = await Task.Run(() => Interaction.Curve(p, planeY, cts.Token), cts.Token);
+            if (cts.IsCancellationRequested) return;
+            (curve, curveKey) = (points, key);
+            InteractionStatus = "";
+            DrawInteraction();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { InteractionStatus = "Диаграмма не построена: " + ex.Message; }
+    }
+
+    void DrawInteraction()
+    {
+        if (curve is null || SelectedTab != TabDiagram || TryBuild(out _, quiet: true) is not { } p) return;
+        bool planeY = InteractionPlaneIndex == 1;
+        if (curveKey != CurveKey(p, planeY)) { RefreshInteraction(); return; }
+        using var stream = new MemoryStream(Interaction.Png(curve, Interaction.Loads(p, planeY), SelectedLoad?.Name.Trim(), planeY, 1000, 600, 19));
+        InteractionImage = new Bitmap(stream);
+    }
     [ObservableProperty] LoadRowViewModel? selectedLoad;
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
@@ -931,6 +993,7 @@ public partial class MainViewModel : ObservableObject, INotifyDataErrorInfo
         CombinationRows.Clear();
         foreach (var line in ReportWriter.Combinations(r)) CombinationRows.Add(new CombinationRowViewModel(line));
         CombinationHeaders = ReportWriter.CombinationHeaders(r);
+        if (SelectedTab == TabDiagram) DrawInteraction();
         StatusText = $"Рассчитано {DateTime.Now:HH:mm:ss}";
     }
 
@@ -939,7 +1002,7 @@ public partial class MainViewModel : ObservableObject, INotifyDataErrorInfo
         lastSelection = s;
         SelectionRows.Clear();
         foreach (var o in s.Outcomes) SelectionRows.Add(new SelectionRowViewModel(o, o == s.Best, this));
-        HasSelection = true; SelectedTab = 1;
+        HasSelection = true; SelectedTab = TabSelection;
         SelectionSummary = s.Best is SelectionOutcome best
             ? $"Минимальное армирование: {best.Candidate.Description}, As = {best.Candidate.SteelAreaMm2.ToString("0", Ru)} мм²."
             : "В заданном диапазоне подходящих вариантов нет.";
@@ -961,7 +1024,7 @@ public partial class MainViewModel : ObservableObject, INotifyDataErrorInfo
             foreach (var o in keepSelection.Outcomes) SelectionRows.Add(new SelectionRowViewModel(o, o == keepSelection.Best, this));
         }
         await Check();
-        SelectedTab = 0;
+        SelectedTab = TabChecks;
     }
 
     void ClearResults()

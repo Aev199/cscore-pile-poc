@@ -131,6 +131,25 @@ public class CustomSectionTests
     }
 
     [Fact]
+    public void InteractionDiagramOfOneEngineRequest()
+    {
+        var p = SectionProject.Example(SectionKind.Wall);
+        p.RscByTable = false;
+        var curve = Interaction.Curve(p, planeY: false);
+        Assert.True(curve.Count >= Interaction.Rays - 4, $"{curve.Count} points");
+        // Pure compression: N = Rb·A + Rs·As (Rsc = Rs here).
+        var m = MaterialTables.Uls(p, new CombinationKind(false, false, false));
+        double nult = (m.Rb * 1000 * 600 + m.Rs * RequestBuilder.Layout(p).SteelAreaMm2) / 1000;
+        Assert.Equal(nult, -curve.Min(c => c.N), nult * 0.03);
+        // Symmetric bars: Mult of both signs at N = 0 are equal; tension is limited by the bars alone.
+        double Near(double sign) => curve.Where(c => Math.Sign(c.M) == sign).OrderBy(c => Math.Abs(c.N)).First().M;
+        Assert.Equal(Near(1), -Near(-1), Math.Abs(Near(1)) * 0.08);
+        Assert.True(curve.Max(c => c.N) <= m.Rs * RequestBuilder.Layout(p).SteelAreaMm2 / 1000 * 1.01);
+        var png = Interaction.Png(curve, Interaction.Loads(p, false), "1", false);
+        Assert.True(png.Length > 5000);
+    }
+
+    [Fact]
     public void ProjectRoundTrip()
     {
         var p = SectionProject.Example(SectionKind.Custom);

@@ -376,8 +376,12 @@
                               <TextBlock Classes="th" Grid.Column="5" Text="{Binding CombinationHeaders[4]}" TextAlignment="Right" Margin="0,0,14,0" />
                             </Grid>
                           </Border>
-                          <ItemsControl ItemsSource="{Binding CombinationRows}">
-                            <ItemsControl.ItemTemplate>
+                          <ListBox ItemsSource="{Binding CombinationRows}" SelectedItem="{Binding SelectedCombination}" Background="Transparent"
+                                   ToolTip.Tip="Щелчок — сочетание выделяется в таблице усилий и на диаграмме">
+                            <ListBox.Styles>
+                              <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="0" /></Style>
+                            </ListBox.Styles>
+                            <ListBox.ItemTemplate>
                               <DataTemplate x:DataType="vm:CombinationRowViewModel">
                                 <Border Classes="trow">
                                   <Grid ColumnDefinitions="1.6*,*,*,*,*,*">
@@ -390,13 +394,24 @@
                                   </Grid>
                                 </Border>
                               </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                          </ItemsControl>
+                            </ListBox.ItemTemplate>
+                          </ListBox>
                         </StackPanel>
                       </Border>
                       <TextBlock Classes="sub" Text="K — коэффициент использования; «нет» — трещины не образуются; «—» — не проверялось." />
                     </StackPanel>
                   </Panel>
+                </TabItem>
+                <TabItem Header="Диаграмма N–M">
+                  <DockPanel Margin="0,6,0,0">
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,0,0,4">
+                      <ComboBox Classes="cell" Width="90" ItemsSource="{Binding InteractionPlanes}" SelectedIndex="{Binding InteractionPlaneIndex}" />
+                      <TextBlock Grid.Column="1" Classes="sub" Margin="10,0,0,0" VerticalAlignment="Center"
+                                 Text="Прочность сечения (без ea и η); точки — расчётные сочетания, оранжевые — с моментом и в другой плоскости. Выбранное — красным." />
+                    </Grid>
+                    <TextBlock DockPanel.Dock="Top" Classes="sub" Text="{Binding InteractionStatus}" IsVisible="{Binding InteractionStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <Image Source="{Binding InteractionImage}" Stretch="Uniform" Classes.stale="{Binding ResultIsStale}" />
+                  </DockPanel>
                 </TabItem>
                 <TabItem Header="Подбор">
                   <StackPanel Spacing="8" Margin="0,8,0,0">
