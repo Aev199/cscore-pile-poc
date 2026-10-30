@@ -17,6 +17,13 @@ public partial class MainWindow : Window
             vm.Storage = () => StorageProvider;
             vm.Profile.Storage = () => StorageProvider;
             vm.ClipboardText = async () => Clipboard is { } c ? await c.TryGetTextAsync() : null;
+            // γf and kдл per row only when the rows differ or on demand: the columns are not in the visual tree.
+            void Columns()
+            {
+                foreach (var column in LoadsGrid.Columns.Where(c => c.Header is "γf" or "kдл")) column.IsVisible = vm.ShowFactorColumns;
+            }
+            Columns();
+            vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(MainViewModel.ShowFactorColumns)) Columns(); };
         };
         // Outside cell editing: Ctrl+V pastes rows from Excel, Delete removes the selected row.
         LoadsGrid.AddHandler(KeyDownEvent, (_, e) =>

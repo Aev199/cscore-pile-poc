@@ -13,7 +13,19 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            desktop.MainWindow = new MainWindow { DataContext = new MainViewModel() };
+        {
+            var vm = new MainViewModel(SessionStore.Default)
+            {
+                OpenFile = path =>
+                {
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); }
+                    catch { /* no program for the file: it is saved anyway */ }
+                },
+            };
+            var window = new MainWindow { DataContext = vm };
+            window.Closing += (_, _) => vm.SaveSession();
+            desktop.MainWindow = window;
+        }
         base.OnFrameworkInitializationCompleted();
     }
 }

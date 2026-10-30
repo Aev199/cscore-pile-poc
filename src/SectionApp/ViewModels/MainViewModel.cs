@@ -13,6 +13,16 @@ namespace SectionApp.ViewModels;
 /// <summary>One concrete outline template in the shape picker.</summary>
 public sealed record ShapeOption(ShapeKind Kind, string Name, string Icon);
 
+/// <summary>A tile of the section picker: the bored pile, the diaphragm wall or an outline template of any section.</summary>
+/// <summary>A recent project file in the drop-down at «Открыть».</summary>
+public sealed record RecentFile(string Path)
+{
+    public string Name => System.IO.Path.GetFileName(Path);
+    public string Folder => System.IO.Path.GetDirectoryName(Path) ?? "";
+}
+
+public sealed record SectionTile(SectionKind Kind, int Shape, string Name, string Icon, string? Caption = null);
+
 public partial class MainViewModel : ObservableObject
 {
     static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
@@ -24,7 +34,7 @@ public partial class MainViewModel : ObservableObject
         nameof(VerdictOk), nameof(VerdictBad), nameof(VerdictWarn), nameof(VerdictInfo), nameof(IsWall), nameof(IsPile), nameof(IsCustom),
         nameof(IsGeotech), nameof(KindTitle), nameof(EtaByCscore), nameof(SelectedLoad), nameof(SelectedBar), nameof(SelectedVertex),
         nameof(AxisText), nameof(L0Text), nameof(HasGoverning), nameof(CombinationHeaders), nameof(ProfileMode), nameof(IsSectionMode),
-        nameof(IsProfileMode), nameof(IsCustomMode), nameof(IsGeotechMode), nameof(LimitedWidth), nameof(SeismicUsed), nameof(SpecialUsed),
+        nameof(IsProfileMode), nameof(TileIndex), nameof(HasRecent), nameof(CoefficientsText), nameof(ShowFactorColumns), nameof(CommonLoadFactor), nameof(CommonSustained), nameof(LimitedWidth), nameof(SeismicUsed), nameof(SpecialUsed),
         nameof(SpecialDesign), nameof(AutoCalc), nameof(PropertiesText), nameof(IsContour), nameof(IsManual), nameof(IsPolygon),
         nameof(ShowRect), nameof(ShowDiameter), nameof(ShowInner), nameof(ShowFlanges), nameof(ShowBoxWall), nameof(ContourText),
         nameof(ShowSeismic), nameof(CanCheck), nameof(ShowHeight),
@@ -38,48 +48,79 @@ public partial class MainViewModel : ObservableObject
     SelectionResult? lastSelection;
     bool loading;
     SectionKind lastGeotech = SectionKind.Pile;
-    /// <summary>Project of the mode not on screen: each mode keeps its own title, forces and settings.</summary>
-    SectionProject other = SectionProject.Example(SectionKind.Pile);
 
-    public MainViewModel()
+    readonly SessionStore? session;
+
+    public MainViewModel() : this(null) { }
+
+    /// <param name="session">Remembers the last section and the recent files (the application; tests run without it).</param>
+    public MainViewModel(SessionStore? session)
     {
+        this.session = session;
         Profile = new ProfileViewModel(this);
         debounce.Tick += async (_, _) => { debounce.Stop(); await AutoCheck(); };
-        Load(SectionProject.Example(SectionKind.Custom));
+        // The work of the last run continues; the first run starts with an example.
+        Load(session?.LastSection() ?? SectionProject.Example(SectionKind.Custom));
+        RefreshRecent();
     }
+
+    /// <summary>Recent project files (full paths) for the drop-down at «Открыть».</summary>
+    public ObservableCollection<RecentFile> RecentFiles { get; } = [];
+    public bool HasRecent => RecentFiles.Count > 0;
+
+    void RefreshRecent()
+    {
+        RecentFiles.Clear();
+        foreach (var f in session?.RecentFiles ?? []) RecentFiles.Add(new RecentFile(f));
+        OnPropertyChanged(nameof(HasRecent));
+    }
+
+    /// <summary>Called by the window when it closes: the section is there on the next start.</summary>
+    public void SaveSession()
+    {
+        if (session is not null && TryBuild(out _, quiet: true) is { } p) session.SaveLastSection(p);
+    }
+
+    [RelayCommand]
+    void OpenRecent(RecentFile? file)
+    {
+        if (file is null) return;
+        try
+        {
+            Load(ProjectStore.Deserialize(File.ReadAllText(file.Path)));
+            ProfileMode = false;
+            session?.Remember(file.Path);
+            RefreshRecent();
+            StatusText = $"Открыт {file.Name}";
+        }
+        catch (Exception ex) { ShowErrors([$"Не удалось открыть файл: {ex.Message}"]); }
+    }
+
+    async Task<IStorageFolder?> StartFolder(IStorageProvider storage) =>
+        session?.LastFolder is { } dir && Directory.Exists(dir) ? await storage.TryGetFolderFromPathAsync(dir) : null;
 
     /// <summary>Module «Эпюры (PLAXIS)»; it takes the section from this view model.</summary>
     public ProfileViewModel Profile { get; }
 
-    // ---- modes: any section / geotechnical section / PLAXIS diagrams ----
+    // ---- two modes: one section (any outline, the pile and the wall among the templates) / PLAXIS diagrams ----
 
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsSectionMode), nameof(IsProfileMode), nameof(IsCustomMode), nameof(IsGeotechMode))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsSectionMode), nameof(IsProfileMode))]
     bool profileMode;
     public bool IsSectionMode => !ProfileMode;
     public bool IsProfileMode => ProfileMode;
-    public bool IsCustomMode => !ProfileMode && IsCustom;
-    public bool IsGeotechMode => !ProfileMode && !IsCustom;
     partial void OnProfileModeChanged(bool value) { if (value) Profile.RefreshForces(); }
 
-    [RelayCommand] void ShowCustom() { if (SwitchMode(custom: true)) ProfileMode = false; }
-    [RelayCommand] void ShowSection() { if (SwitchMode(custom: false)) ProfileMode = false; }
+    [RelayCommand] void ShowSection() => ProfileMode = false;
     [RelayCommand]
     void ShowProfile()
     {
-        // The PLAXIS module designs a pile or a wall: it works with the geotechnical section.
-        if (SwitchMode(custom: false)) ProfileMode = true;
+        // The PLAXIS module designs a pile or a wall: an arbitrary section gives way to the last of them.
+        if (IsCustom) { Kind = lastGeotech; StatusText = $"Эпюры PLAXIS — для БНС и СВГ: сечение «{KindTitle}»"; }
+        ProfileMode = true;
     }
 
-    /// <summary>Swaps the project on screen with the one of the other mode; false when the input cannot be kept.</summary>
-    bool SwitchMode(bool custom)
-    {
-        if (IsCustom == custom) return true;
-        if (TryBuild(out var errors, quiet: true) is not { } current) { ShowErrors(errors); return false; }
-        var target = other;
-        other = current;
-        Load(target);
-        return true;
-    }
+    /// <summary>Opens a saved file in its program (the report in Word); the window sets it, tests leave it empty.</summary>
+    public Action<string>? OpenFile { get; set; }
 
     /// <summary>Set by the window: file dialogs need the top-level storage provider.</summary>
     public Func<IStorageProvider?>? Storage { get; set; }
@@ -88,7 +129,7 @@ public partial class MainViewModel : ObservableObject
     public IReadOnlyList<string> RebarClasses { get; } = MaterialTables.Rebars.Select(r => r.Name).ToList();
     public IReadOnlyList<string> SecondOrderOptions { get; } = ["η по п. 8.1.15", "учтено в усилиях", "не учитывать"];
     public IReadOnlyList<string> EccentricityOptions { get; } = ["по СП 63 / заданный", "учтён в моментах"];
-    public IReadOnlyList<string> SchemeOptions { get; } = ["статически неопределимая", "статически определимая"];
+    public IReadOnlyList<string> SchemeOptions { get; } = ["стат. неопределимая", "стат. определимая"];
     public IReadOnlyList<string> CrackCategoryOptions { get; } = ["ограниченное раскрытие", "трещины не допускаются"];
     public IReadOnlyList<string> CrackRequirementOptions { get; } = ["сохранность арматуры", "ограничение проницаемости"];
     public IReadOnlyList<string> CrackMethodOptions { get; } = ["консервативный", "уточнённый"];
@@ -107,12 +148,36 @@ public partial class MainViewModel : ObservableObject
         new(ShapeKind.Polygon, "Многоугольник (вершины)", "M3,20 L6,4 L15,2 L21,10 L17,22 Z"),
     ];
 
+    /// <summary>The section picker: the pile and the wall first, then the outlines of any section.</summary>
+    public IReadOnlyList<SectionTile> Tiles => tiles ??=
+    [
+        new(SectionKind.Pile, -1, "Буронабивная свая (БНС): кольцо стержней, спираль, Q по приведённому сечению",
+            "M12,2 A10,10 0 1 1 11.99,2 Z M12,5.5 A1.2,1.2 0 1 1 11.99,5.5 Z M18.5,12 A1.2,1.2 0 1 1 18.49,12 Z M12,18.5 A1.2,1.2 0 1 1 11.99,18.5 Z M5.5,12 A1.2,1.2 0 1 1 5.49,12 Z", "БНС"),
+        new(SectionKind.Wall, -1, "Стена в грунте (СВГ): стержни у граней «+» и «−», ряды, хомуты",
+            "M2,6 H22 V18 H2 Z M5,8.5 A1,1 0 1 1 4.99,8.5 Z M12,8.5 A1,1 0 1 1 11.99,8.5 Z M19,8.5 A1,1 0 1 1 18.99,8.5 Z M5,15.5 A1,1 0 1 1 4.99,15.5 Z M12,15.5 A1,1 0 1 1 11.99,15.5 Z M19,15.5 A1,1 0 1 1 18.99,15.5 Z", "СВГ"),
+        .. ShapeOptions.Select((o, i) => new SectionTile(SectionKind.Custom, i, o.Name, o.Icon)),
+    ];
+    IReadOnlyList<SectionTile>? tiles;
+
+    /// <summary>Selected tile: the kind of the section and, for any section, its outline.</summary>
+    public int TileIndex
+    {
+        get => Kind switch { SectionKind.Pile => 0, SectionKind.Wall => 1, _ => 2 + ShapeIndex };
+        set
+        {
+            if (value < 0 || value >= Tiles.Count || value == TileIndex) return;
+            var t = Tiles[value];
+            if (t.Kind == SectionKind.Custom) ShapeIndex = t.Shape;
+            Kind = t.Kind;
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>Set by the window: clipboard text for "paste from Excel".</summary>
     public Func<Task<string?>>? ClipboardText { get; set; }
 
     // ---- section kind ----
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsPile), nameof(IsWall), nameof(IsCustom), nameof(IsGeotech), nameof(KindTitle),
-        nameof(IsCustomMode), nameof(IsGeotechMode))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsPile), nameof(IsWall), nameof(IsCustom), nameof(IsGeotech), nameof(KindTitle), nameof(TileIndex))]
     SectionKind kind = SectionKind.Custom;
     partial void OnKindChanged(SectionKind value)
     {
@@ -144,11 +209,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] string axisText = "";
 
     static CoverReference CoverOf(int index) => index switch { 1 => CoverReference.Transverse, 2 => CoverReference.Axis, _ => CoverReference.Bar };
-    static int IndexOf(CoverReference r) => r switch { CoverReference.Transverse => 1, CoverReference.Axis => 2, _ => 0 };
 
     // ---- arbitrary section ----
     [ObservableProperty, NotifyPropertyChangedFor(nameof(IsPolygon), nameof(ShowRect), nameof(ShowDiameter), nameof(ShowInner),
-        nameof(ShowFlanges), nameof(ShowBoxWall), nameof(ShowHeight))]
+        nameof(ShowFlanges), nameof(ShowBoxWall), nameof(ShowHeight), nameof(TileIndex))]
     int shapeIndex;
     ShapeKind Shape => ShapeOptions[Math.Clamp(ShapeIndex, 0, ShapeOptions.Count - 1)].Kind;
     public bool IsPolygon => Shape == ShapeKind.Polygon;
@@ -175,6 +239,18 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] string concreteClass = "B30", rebarClass = "A500", transverseClass = "A240";
     [ObservableProperty] string gb1 = "", gb2 = "", gb3 = "", gb5 = "", hardening = "", gammaS = "", gammaSw = "";
     [ObservableProperty] bool rscByTable = true;
+
+    /// <summary>The working-condition factors in one line: the values that differ from 1 (γb1 always).</summary>
+    public string CoefficientsText
+    {
+        get
+        {
+            var parts = new List<string> { $"γb1 = {Gb1}" };
+            foreach (var (name, value) in new[] { ("γb2", Gb2), ("γb3", Gb3), ("γb5", Gb5), ("γs", GammaS), ("γsw", GammaSw), ("к Eb", Hardening) })
+                if (!(TryNumber(value, out var v) && Math.Abs(v - 1) < 1e-9)) parts.Add($"{name} = {value}");
+            return string.Join("; ", parts) + (parts.Count == 1 ? "; прочие 1" : "");
+        }
+    }
 
     // ---- element and design conditions ----
     [ObservableProperty, NotifyPropertyChangedFor(nameof(L0Text))] string elementLength = "";
@@ -233,6 +309,38 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] string selectionDiameters = "", selectionSpacings = "";
 
     public ObservableCollection<LoadRowViewModel> Loads { get; } = [];
+
+    /// <summary>γf and kдл of all the rows at once (they are usually the same); empty when the rows differ.</summary>
+    public string CommonLoadFactor
+    {
+        get => Common(l => l.LoadFactor);
+        set => SetAll(l => l.LoadFactor = value);
+    }
+    public string CommonSustained
+    {
+        get => Common(l => l.SustainedShare);
+        set => SetAll(l => l.SustainedShare = value);
+    }
+    bool settingAll;
+    void SetAll(Action<LoadRowViewModel> set)
+    {
+        settingAll = true;
+        try { foreach (var l in Loads) set(l); }
+        finally { settingAll = false; }
+        FactorsChanged();
+    }
+    string Common(Func<LoadRowViewModel, string> f)
+    {
+        var values = Loads.Select(l => TryNumber(f(l), out var v) ? v : double.NaN).Distinct().ToList();
+        return values.Count == 1 && double.IsFinite(values[0]) ? S(values[0]) : "";
+    }
+    /// <summary>The γf and kдл columns: shown when the rows differ or on demand.</summary>
+    [ObservableProperty] bool showFactorColumns;
+    internal void FactorsChanged()
+    {
+        OnPropertyChanged(nameof(CommonLoadFactor)); OnPropertyChanged(nameof(CommonSustained));
+        if (!settingAll && Loads.Count > 0 && (CommonLoadFactor.Length == 0 || CommonSustained.Length == 0)) ShowFactorColumns = true;
+    }
     public ObservableCollection<CheckRowViewModel> SummaryRows { get; } = [];
     public ObservableCollection<CombinationRowViewModel> CombinationRows { get; } = [];
     [ObservableProperty] string[] combinationHeaders = ["Прочность", "N/Ncr", "Q", "acrc, прод.", "acrc, непрод."];
@@ -279,6 +387,8 @@ public partial class MainViewModel : ObservableObject
         if (HasResult) ResultIsStale = true;
         OnPropertyChanged(nameof(SeismicUsed)); OnPropertyChanged(nameof(SpecialUsed));
         if (SeismicUsed || SpecialUsed) ShowSeismic = true;
+        OnPropertyChanged(nameof(CoefficientsText));
+        FactorsChanged();
         RefreshSketch();
         debounce.Stop();
         if (AutoCalc && !HasInputErrors) debounce.Start();
@@ -325,8 +435,12 @@ public partial class MainViewModel : ObservableObject
             PositiveCount = S(p.Wall.PositiveFace.BarCount); PositiveDiameter = S(p.Wall.PositiveFace.BarDiameterMm);
             NegativeCount = S(p.Wall.NegativeFace.BarCount); NegativeDiameter = S(p.Wall.NegativeFace.BarDiameterMm);
             PositiveRows = S(p.Wall.PositiveFace.Rows); NegativeRows = S(p.Wall.NegativeFace.Rows); RowGap = S(p.Wall.PositiveFace.RowGapMm);
+            // One convention for the cover: clear distance to the longitudinal bars (SP 63); earlier files are converted.
+            var pc = Geometry.TransverseCover(p.Pile.CoverMm, p.Pile.CoverReference, p.Pile.SpiralDiameterMm, p.Pile.BarDiameterMm) + p.Pile.SpiralDiameterMm;
+            var wc = Geometry.TransverseCover(p.Wall.CoverMm, p.Wall.CoverReference, p.Wall.StirrupDiameterMm, p.Wall.PositiveFace.BarDiameterMm) + p.Wall.StirrupDiameterMm;
+            PileCover = S(pc); WallCover = S(wc);
             MinClearSpacing = S(p.Kind switch { SectionKind.Pile => p.Pile.MinClearSpacingMm, SectionKind.Wall => p.Wall.MinClearSpacingMm, _ => p.Custom.MinClearSpacingMm });
-            CoverReferenceIndex = IndexOf(p.Kind == SectionKind.Wall ? p.Wall.CoverReference : p.Pile.CoverReference);
+            CoverReferenceIndex = 0;
             var g = p.Custom;
             ShapeIndex = Math.Max(0, ShapeOptions.ToList().FindIndex(o => o.Kind == g.Shape));
             CustomWidth = S(g.WidthMm); CustomHeight = S(g.HeightMm); CustomDiameter = S(g.DiameterMm); CustomInner = S(g.InnerDiameterMm);
@@ -366,6 +480,7 @@ public partial class MainViewModel : ObservableObject
             foreach (var l in p.Loads) Loads.Add(LoadRowViewModel.From(l, this));
             SelectedLoad = Loads.FirstOrDefault();
             ShowSeismic = p.Loads.Any(l => l.Seismic || l.Special);
+            ShowFactorColumns = p.Loads.Select(l => (l.LoadFactor, l.SustainedShare)).Distinct().Count() > 1;
         }
         finally { loading = false; }
         OnPropertyChanged(nameof(SeismicUsed)); OnPropertyChanged(nameof(SpecialUsed));
@@ -854,7 +969,8 @@ public partial class MainViewModel : ObservableObject
     async Task Open()
     {
         if (Storage?.Invoke() is not { } storage) return;
-        var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Открыть проект", FileTypeFilter = [ProjectType] });
+        var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Открыть проект", FileTypeFilter = [ProjectType],
+            SuggestedStartLocation = await StartFolder(storage) });
         if (files.Count == 0) return;
         try
         {
@@ -862,6 +978,7 @@ public partial class MainViewModel : ObservableObject
             using var reader = new StreamReader(stream);
             Load(ProjectStore.Deserialize(await reader.ReadToEndAsync()));
             ProfileMode = false;
+            if (files[0].TryGetLocalPath() is { } path) { session?.Remember(path); RefreshRecent(); }
             StatusText = $"Открыт {files[0].Name}";
         }
         catch (Exception ex) { ShowErrors([$"Не удалось открыть файл: {ex.Message}"]); }
@@ -876,11 +993,13 @@ public partial class MainViewModel : ObservableObject
         var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Сохранить проект", SuggestedFileName = Safe(p.Title) + ".section.json", DefaultExtension = "json", FileTypeChoices = [ProjectType],
+            SuggestedStartLocation = await StartFolder(storage),
         });
         if (file is null) return;
         await using var stream = await file.OpenWriteAsync();
         await using var writer = new StreamWriter(stream);
         await writer.WriteAsync(ProjectStore.Serialize(p));
+        if (file.TryGetLocalPath() is { } path) { session?.Remember(path); RefreshRecent(); }
         StatusText = $"Сохранён {file.Name}";
     }
 
@@ -893,6 +1012,7 @@ public partial class MainViewModel : ObservableObject
         var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Сохранить отчёт", SuggestedFileName = "Отчёт — " + Safe(lastResult.Project.Title) + ".docx", DefaultExtension = "docx", FileTypeChoices = [WordType],
+            SuggestedStartLocation = await StartFolder(storage),
         });
         if (file is null) return;
         try
@@ -904,6 +1024,12 @@ public partial class MainViewModel : ObservableObject
                 await source.CopyToAsync(target);
             File.Delete(temp);
             StatusText = $"Отчёт сохранён: {file.Name}";
+            // The report opens in Word at once.
+            if (file.TryGetLocalPath() is { } path)
+            {
+                session?.RememberFolder(path);
+                OpenFile?.Invoke(path);
+            }
         }
         catch (Exception ex) { ShowErrors([$"Не удалось сохранить отчёт: {ex.Message}"]); }
     }

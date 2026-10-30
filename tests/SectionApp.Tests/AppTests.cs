@@ -23,7 +23,7 @@ public class AppTests
     static (MainWindow, MainViewModel) Open(bool pile = true, bool custom = false)
     {
         var vm = new MainViewModel { AutoCalc = false };
-        if (!custom) { vm.ShowSectionCommand.Execute(null); if (pile) vm.SetPileCommand.Execute(null); else vm.SetWallCommand.Execute(null); }
+        if (!custom) { if (pile) vm.SetPileCommand.Execute(null); else vm.SetWallCommand.Execute(null); }
         var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -58,7 +58,7 @@ public class AppTests
         var vm = new MainViewModel();
         var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
         window.Show();
-        Assert.True(vm.IsCustomMode);
+        Assert.True(vm.IsSectionMode && vm.IsCustom);
         Assert.True(vm.AutoCalc);
         // No button: the example is calculated on start.
         await Until(() => vm.HasResult && !vm.IsBusy);
@@ -123,21 +123,77 @@ public class AppTests
     }
 
     [AvaloniaFact]
-    public void ModesKeepTheirSections()
+    public void PileAndWallAreTemplatesOfTheSection()
     {
         var (_, vm) = Open(custom: true);
         vm.CustomWidth = "450";
-        vm.ShowSectionCommand.Execute(null);
-        Assert.True(vm.IsGeotechMode);
+        // The pile and the wall are the first tiles of the picker; the loads stay.
+        int loads = vm.Loads.Count;
+        vm.TileIndex = 0;
         Assert.True(vm.IsPile);
-        vm.SetWallCommand.Execute(null);
-        vm.WallThickness = "800";
-        vm.ShowCustomCommand.Execute(null);
-        Assert.Equal("450", vm.CustomWidth);
-        // Back to geotechnics: the last kind (wall) with its thickness.
-        vm.ShowProfileCommand.Execute(null);
+        vm.TileIndex = 1;
         Assert.True(vm.IsWall);
+        vm.WallThickness = "800";
+        Assert.Equal(loads, vm.Loads.Count);
+        vm.TileIndex = 2 + vm.ShapeOptions.ToList().FindIndex(o => o.Kind == ShapeKind.Tee);
+        Assert.True(vm.IsCustom && vm.ShowFlanges);
+        Assert.Equal("450", vm.CustomWidth);
+        // PLAXIS designs a pile or a wall: the last of them (the wall) with its thickness.
+        vm.ShowProfileCommand.Execute(null);
+        Assert.True(vm.IsProfileMode && vm.IsWall);
         Assert.Equal("800", vm.WallThickness);
+        // γf and kдл of all rows at once.
+        vm.CommonLoadFactor = "1,2";
+        Assert.All(vm.Loads, l => Assert.Equal("1,2", l.LoadFactor));
+        Assert.False(vm.ShowFactorColumns);
+        vm.Loads[0].SustainedShare = "0,5";
+        Assert.Equal("", vm.CommonSustained);
+        Assert.True(vm.ShowFactorColumns);
+        // Factors in one line: the ones that differ from 1.
+        vm.Gb3 = "0,85";
+        Assert.Contains("γb3 = 0,85", vm.CoefficientsText);
+    }
+
+    [AvaloniaFact]
+    public void LastSectionAndRecentFilesAreRemembered()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"section-session-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new SessionStore(dir);
+            var first = new MainViewModel(store) { AutoCalc = false };
+            first.SetWallCommand.Execute(null);
+            first.Title = "Стена секции 3";
+            first.SaveSession();
+            // The next start continues the work.
+            var next = new MainViewModel(store) { AutoCalc = false };
+            Assert.Equal("Стена секции 3", next.Title);
+            Assert.True(next.IsWall);
+            Assert.False(next.HasRecent);
+            // A file opened or saved goes first into the recent list and opens from it.
+            string file = Path.Combine(dir, "pile.section.json");
+            ProjectStore.Save(SectionProject.Example(SectionKind.Pile), file);
+            store.Remember(file);
+            var third = new MainViewModel(store) { AutoCalc = false };
+            Assert.Equal("pile.section.json", Assert.Single(third.RecentFiles).Name);
+            third.OpenRecentCommand.Execute(third.RecentFiles[0]);
+            Assert.True(third.IsPile);
+            Assert.Equal(dir, store.LastFolder);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [AvaloniaFact]
+    public void CoverOfEarlierFilesIsConvertedToClearCover()
+    {
+        var (_, vm) = Open();
+        var p = SectionProject.Example(SectionKind.Pile);
+        p.Pile.CoverReference = CoverReference.Transverse; p.Pile.CoverMm = 50; p.Pile.SpiralDiameterMm = 10;
+        vm.Load(p);
+        Assert.Equal("60", vm.PileCover);
+        var q = vm.TryBuild(out _)!;
+        Assert.Equal(CoverReference.Bar, q.Pile.CoverReference);
+        Assert.Equal(p.Pile.AxisDistanceMm, q.Pile.AxisDistanceMm, 6);
     }
 
     [AvaloniaFact]

@@ -9,6 +9,9 @@
         Icon="avares://SectionApp/Assets/app.ico"
         Width="1440" Height="900" MinWidth="1180" MinHeight="720"
         WindowStartupLocation="CenterScreen">
+  <Window.KeyBindings>
+    <KeyBinding Gesture="F5" Command="{Binding CheckCommand}" />
+  </Window.KeyBindings>
   <DockPanel>
     <!-- Title bar: two modes — any section, geotechnical (pile and wall, PLAXIS diagrams) -->
     <Border DockPanel.Dock="Top" Height="42" Background="{StaticResource GbTitlebarBg}" Padding="16,0,18,0">
@@ -18,9 +21,7 @@
           <TextBlock Text="CScore" Foreground="#7F929B" FontSize="11" VerticalAlignment="Bottom" Margin="0,0,0,1" />
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal">
-          <Button Classes="nav" Classes.active="{Binding IsCustomMode}" Content="Любое сечение" Command="{Binding ShowCustomCommand}" />
-          <TextBlock Classes="navGroup" Text="ГЕОТЕХНИКА" />
-          <Button Classes="nav" Classes.active="{Binding IsGeotechMode}" Content="БНС · СВГ" Command="{Binding ShowSectionCommand}" />
+          <Button Classes="nav" Classes.active="{Binding IsSectionMode}" Content="Сечение" Command="{Binding ShowSectionCommand}" />
           <Button Classes="nav" Classes.active="{Binding IsProfileMode}" Content="Эпюры PLAXIS" Command="{Binding ShowProfileCommand}" />
         </StackPanel>
         <TextBlock Grid.Column="3" Text="СП 63.13330.2018 с Изм. 1" Foreground="#7F929B" FontSize="10.5" VerticalAlignment="Center" />
@@ -36,10 +37,7 @@
         <!-- Toolbar: name, state, file, actions -->
         <Border DockPanel.Dock="Top" Classes="toolbar">
           <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" IsVisible="{Binding IsGeotech}" Margin="0,0,10,0">
-              <Button Classes="seg first small" Classes.selected="{Binding IsPile}" Command="{Binding SetPileCommand}" Content="БНС" ToolTip.Tip="Буронабивная свая, круглое сечение" />
-              <Button Classes="seg last small" Classes.selected="{Binding IsWall}" Command="{Binding SetWallCommand}" Content="СВГ" ToolTip.Tip="Стена в грунте, прямоугольное сечение" />
-            </StackPanel>
+
             <TextBox Grid.Column="1" Classes="title" Text="{Binding Title}" Width="280" Watermark="Название расчёта" VerticalAlignment="Center" />
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0">
               <ProgressBar Width="90" Value="{Binding Progress}" IsVisible="{Binding ShowProgress}" IsIndeterminate="{Binding !Progress}" VerticalAlignment="Center" />
@@ -49,11 +47,28 @@
             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
               <Button Classes="tool" Content="Новый" Command="{Binding NewCommand}" />
               <Button Classes="tool" Content="Открыть…" Command="{Binding OpenCommand}" HotKey="Ctrl+O" />
+              <Button Classes="tool" Content="▾" Padding="4,0" IsVisible="{Binding HasRecent}" ToolTip.Tip="Недавние файлы" Margin="-4,0,0,0">
+                <Button.Flyout>
+                  <Flyout Placement="BottomEdgeAlignedLeft">
+                    <ItemsControl ItemsSource="{Binding RecentFiles}" Width="380">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:RecentFile">
+                          <Button Classes="tool" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Height="NaN" Padding="8,4"
+                                  Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenRecentCommand}" CommandParameter="{Binding}">
+                            <StackPanel>
+                              <TextBlock Text="{Binding Name}" FontSize="12" />
+                              <TextBlock Text="{Binding Folder}" FontSize="10.5" Foreground="{StaticResource GbGrey}" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
               <Button Classes="tool" Content="Сохранить…" Command="{Binding SaveCommand}" HotKey="Ctrl+S" />
             </StackPanel>
             <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-              <CheckBox IsChecked="{Binding AutoCalc}" Content="Автопересчёт" FontSize="11.5" ToolTip.Tip="Пересчитывать сразу после изменения данных" />
-              <Button Classes="primary" Content="Рассчитать" Command="{Binding CheckCommand}" HotKey="F5" ToolTip.Tip="F5" IsVisible="{Binding !AutoCalc}" />
               <Button Content="Подобрать" Command="{Binding SelectCommand}" ToolTip.Tip="Подбор армирования по диапазону из вкладки «Подбор»" />
               <Button Classes="apply" Content="Отчёт Word…" Command="{Binding ExportReportCommand}" />
             </StackPanel>
@@ -67,18 +82,19 @@
               <StackPanel Margin="0,0,0,8">
 
                 <!-- Arbitrary section: outline -->
-                <c:Group Header="СЕЧЕНИЕ" IsVisible="{Binding IsCustom}" BorderThickness="0">
+                <c:Group Header="СЕЧЕНИЕ">
                   <StackPanel>
-                    <ListBox Classes="shapes" ItemsSource="{Binding ShapeOptions}" SelectedIndex="{Binding ShapeIndex}" Margin="0,0,0,8">
-                      <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
+                    <ListBox Classes="shapes" ItemsSource="{Binding Tiles}" SelectedIndex="{Binding TileIndex}" Margin="0,0,0,8">
+                      <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" ItemSpacing="0" LineSpacing="4" /></ItemsPanelTemplate></ListBox.ItemsPanel>
                       <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ShapeOption">
+                        <DataTemplate x:DataType="vm:SectionTile">
                           <Panel Background="Transparent" ToolTip.Tip="{Binding Name}">
-                            <Path Data="{Binding Icon}" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Path Data="{Binding Icon}" Width="20" Height="20" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
                           </Panel>
                         </DataTemplate>
                       </ListBox.ItemTemplate>
                     </ListBox>
+                    <StackPanel IsVisible="{Binding IsCustom}">
                     <c:Field Header="b, мм" IsVisible="{Binding ShowRect}"><TextBox Text="{Binding CustomWidth}" /></c:Field>
                     <c:Field Header="bf, мм — ширина полки" IsVisible="{Binding ShowFlanges}"><TextBox Text="{Binding FlangeWidth}" /></c:Field>
                     <c:Field Header="h, мм" IsVisible="{Binding ShowHeight}"><TextBox Text="{Binding CustomHeight}" /></c:Field>
@@ -102,6 +118,34 @@
                         </DataGrid.Columns>
                       </DataGrid>
                     </StackPanel>
+                    </StackPanel>
+                    <StackPanel IsVisible="{Binding IsPile}">
+                    <c:Field Header="D, мм"><TextBox Text="{Binding PileDiameter}" /></c:Field>
+                    <c:Field Header="Стержней, шт."><TextBox Text="{Binding PileBarCount}" /></c:Field>
+                    <c:Field Header="Ø стержней, мм"><TextBox Text="{Binding PileBarDiameter}" /></c:Field>
+                    <c:Field Header="Ø навивки, мм"><TextBox Text="{Binding PileSpiral}" /></c:Field>
+                    <c:Field Header="Защитный слой, мм" ToolTip.Tip="До продольных стержней в свету (СП 63); ниже — до оси и до спирали"><TextBox Text="{Binding PileCover}" /></c:Field>
+                    <TextBlock Classes="sub" Text="{Binding AxisText}" TextAlignment="Right" />
+                    <c:Field Header="Мин. просвет, мм"><TextBox Text="{Binding MinClearSpacing}" /></c:Field>
+                  </StackPanel>
+                    <StackPanel IsVisible="{Binding IsWall}">
+                    <c:Field Header="b, мм — ширина (вдоль стены)"><TextBox Text="{Binding WallWidth}" /></c:Field>
+                    <c:Field Header="h, мм — толщина"><TextBox Text="{Binding WallThickness}" /></c:Field>
+                    <c:Field Header="Грань «+»: n × Ø" ValueWidth="130">
+                      <Grid ColumnDefinitions="*,16,*"><TextBox Text="{Binding PositiveCount}" /><TextBlock Grid.Column="1" Text="×" HorizontalAlignment="Center" VerticalAlignment="Center" /><TextBox Grid.Column="2" Text="{Binding PositiveDiameter}" /></Grid>
+                    </c:Field>
+                    <c:Field Header="Грань «−»: n × Ø" ValueWidth="130">
+                      <Grid ColumnDefinitions="*,16,*"><TextBox Text="{Binding NegativeCount}" /><TextBlock Grid.Column="1" Text="×" HorizontalAlignment="Center" VerticalAlignment="Center" /><TextBox Grid.Column="2" Text="{Binding NegativeDiameter}" /></Grid>
+                    </c:Field>
+                    <c:Field Header="Рядов «+» / «−»" ValueWidth="130">
+                      <Grid ColumnDefinitions="*,16,*"><TextBox Text="{Binding PositiveRows}" /><TextBlock Grid.Column="1" Text="/" HorizontalAlignment="Center" VerticalAlignment="Center" /><TextBox Grid.Column="2" Text="{Binding NegativeRows}" /></Grid>
+                    </c:Field>
+                    <c:Field Header="Зазор между рядами, мм"><TextBox Text="{Binding RowGap}" /></c:Field>
+                    <c:Field Header="Ø хомута, мм"><TextBox Text="{Binding WallStirrup}" /></c:Field>
+                    <c:Field Header="Защитный слой, мм" ToolTip.Tip="До продольных стержней в свету (СП 63); ниже — до оси"><TextBox Text="{Binding WallCover}" /></c:Field>
+                    <TextBlock Classes="sub" Text="{Binding AxisText}" TextAlignment="Right" />
+                    <c:Field Header="Мин. просвет, мм"><TextBox Text="{Binding MinClearSpacing}" /></c:Field>
+                  </StackPanel>
                   </StackPanel>
                 </c:Group>
 
@@ -142,48 +186,16 @@
                   </StackPanel>
                 </c:Group>
 
-                <!-- Bored pile -->
-                <c:Group Header="СЕЧЕНИЕ БНС" IsVisible="{Binding IsPile}">
-                  <StackPanel>
-                    <c:Field Header="D, мм"><TextBox Text="{Binding PileDiameter}" /></c:Field>
-                    <c:Field Header="Стержней, шт."><TextBox Text="{Binding PileBarCount}" /></c:Field>
-                    <c:Field Header="Ø стержней, мм"><TextBox Text="{Binding PileBarDiameter}" /></c:Field>
-                    <c:Field Header="Ø навивки, мм"><TextBox Text="{Binding PileSpiral}" /></c:Field>
-                    <c:Field Header="Защитный слой, мм"><TextBox Text="{Binding PileCover}" /></c:Field>
-                    <c:Field Header="отсчитывается" ValueWidth="190"><ComboBox ItemsSource="{Binding CoverReferenceOptions}" SelectedIndex="{Binding CoverReferenceIndex}" /></c:Field>
-                    <TextBlock Classes="sub" Text="{Binding AxisText}" TextAlignment="Right" />
-                    <c:Field Header="Мин. просвет, мм"><TextBox Text="{Binding MinClearSpacing}" /></c:Field>
-                  </StackPanel>
-                </c:Group>
-
-                <!-- Diaphragm wall -->
-                <c:Group Header="СЕЧЕНИЕ СВГ" IsVisible="{Binding IsWall}">
-                  <StackPanel>
-                    <c:Field Header="b, мм — ширина (вдоль стены)"><TextBox Text="{Binding WallWidth}" /></c:Field>
-                    <c:Field Header="h, мм — толщина"><TextBox Text="{Binding WallThickness}" /></c:Field>
-                    <c:Field Header="Грань «+»: n × Ø" ValueWidth="130">
-                      <Grid ColumnDefinitions="*,16,*"><TextBox Text="{Binding PositiveCount}" /><TextBlock Grid.Column="1" Text="×" HorizontalAlignment="Center" VerticalAlignment="Center" /><TextBox Grid.Column="2" Text="{Binding PositiveDiameter}" /></Grid>
-                    </c:Field>
-                    <c:Field Header="Грань «−»: n × Ø" ValueWidth="130">
-                      <Grid ColumnDefinitions="*,16,*"><TextBox Text="{Binding NegativeCount}" /><TextBlock Grid.Column="1" Text="×" HorizontalAlignment="Center" VerticalAlignment="Center" /><TextBox Grid.Column="2" Text="{Binding NegativeDiameter}" /></Grid>
-                    </c:Field>
-                    <c:Field Header="Рядов «+» / «−»" ValueWidth="130">
-                      <Grid ColumnDefinitions="*,16,*"><TextBox Text="{Binding PositiveRows}" /><TextBlock Grid.Column="1" Text="/" HorizontalAlignment="Center" VerticalAlignment="Center" /><TextBox Grid.Column="2" Text="{Binding NegativeRows}" /></Grid>
-                    </c:Field>
-                    <c:Field Header="Зазор между рядами, мм"><TextBox Text="{Binding RowGap}" /></c:Field>
-                    <c:Field Header="Ø хомута, мм"><TextBox Text="{Binding WallStirrup}" /></c:Field>
-                    <c:Field Header="Защитный слой, мм"><TextBox Text="{Binding WallCover}" /></c:Field>
-                    <c:Field Header="отсчитывается" ValueWidth="190"><ComboBox ItemsSource="{Binding CoverReferenceOptions}" SelectedIndex="{Binding CoverReferenceIndex}" /></c:Field>
-                    <TextBlock Classes="sub" Text="{Binding AxisText}" TextAlignment="Right" />
-                    <c:Field Header="Мин. просвет, мм"><TextBox Text="{Binding MinClearSpacing}" /></c:Field>
-                  </StackPanel>
-                </c:Group>
-
                 <c:Group Header="МАТЕРИАЛЫ">
                   <StackPanel>
                     <c:Field Header="Бетон (тяжёлый)"><ComboBox ItemsSource="{Binding ConcreteClasses}" SelectedItem="{Binding ConcreteClass}" /></c:Field>
                     <c:Field Header="Продольная арматура"><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding RebarClass}" /></c:Field>
                     <c:Field Header="Поперечная арматура"><ComboBox ItemsSource="{Binding RebarClasses}" SelectedItem="{Binding TransverseClass}" /></c:Field>
+                    <c:Group IsExpanded="False" Margin="-14,2,-14,2">
+                      <c:Group.Header>
+                        <TextBlock Text="{Binding CoefficientsText}" FontWeight="Normal" ToolTip.Tip="Коэффициенты условий работы: показаны отличные от 1" />
+                      </c:Group.Header>
+                      <StackPanel>
                     <Grid ColumnDefinitions="*,6,*,6,*,6,*" RowDefinitions="Auto,Auto" Margin="0,4,0,4">
                       <TextBlock Classes="sub" Text="γb1" Margin="0,0,0,2" ToolTip.Tip="В кратковременных сочетаниях γb1 = 1" />
                       <TextBlock Classes="sub" Grid.Column="2" Text="γb2" Margin="0,0,0,2" />
@@ -202,6 +214,8 @@
                       <TextBox Grid.Row="1" Grid.Column="2" Classes="cell" Text="{Binding GammaSw}" />
                       <TextBox Grid.Row="1" Grid.Column="4" Classes="cell" Text="{Binding Hardening}" />
                     </Grid>
+                      </StackPanel>
+                    </c:Group>
                     <CheckBox IsChecked="{Binding RscByTable}" Content="Rsc по табл. 6.14" FontSize="11.5"
                               ToolTip.Tip="A500: Rsc = 435 МПа, в кратковременных сочетаниях 400 МПа. Без галочки Rsc = Rs." />
                   </StackPanel>
@@ -300,7 +314,7 @@
                 <Border DockPanel.Dock="Top" Classes="panelHead">
                   <Grid ColumnDefinitions="Auto,Auto,*,Auto">
                     <TextBlock Classes="panelTitle" Text="Усилия" />
-                    <TextBlock Grid.Column="1" Classes="sub" Text="расчётные · N &lt; 0 — сжатие" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Classes="sub" Text="N &lt; 0 — сжатие" Margin="10,0,0,0" VerticalAlignment="Center" />
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="0">
                       <Button Classes="tool" Content="+ Строка" Command="{Binding AddLoadCommand}" ToolTip.Tip="γf, kдл и вид — как у выбранной строки" />
                       <Button Classes="tool" Content="Копия" Command="{Binding DuplicateLoadCommand}" />
@@ -311,6 +325,13 @@
                     </StackPanel>
                   </Grid>
                 </Border>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="12,8,12,0">
+                  <TextBlock Classes="sub" Text="Для всех строк:  γf" VerticalAlignment="Center" Margin="0" />
+                  <TextBox Classes="cell" Width="56" Text="{Binding CommonLoadFactor}" Watermark="разные" VerticalAlignment="Center" />
+                  <TextBlock Classes="sub" Text="kдл" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip.Tip="Доля длительной нагрузки: нормативные длительные = kдл × нормативные" />
+                  <TextBox Classes="cell" Width="56" Text="{Binding CommonSustained}" Watermark="разные" VerticalAlignment="Center" />
+                  <CheckBox IsChecked="{Binding ShowFactorColumns}" Content="задавать по строкам" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
                 <DataGrid x:Name="LoadsGrid" Classes="loads" ItemsSource="{Binding Loads}" SelectedItem="{Binding SelectedLoad}" Margin="10" BorderThickness="1"
                           AutoGenerateColumns="False" CanUserSortColumns="False" CanUserReorderColumns="False" CanUserResizeColumns="True"
                           SelectionMode="Single" GridLinesVisibility="All" HeadersVisibility="Column">
@@ -320,8 +341,8 @@
                     <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="Mx, кН·м" Binding="{Binding Mx}" Width="*" CellStyleClasses="num" />
                     <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="My, кН·м" Binding="{Binding My}" Width="*" CellStyleClasses="num" />
                     <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="Q, кН" Binding="{Binding Q}" Width="0.85*" CellStyleClasses="num" />
-                    <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="γf" Binding="{Binding LoadFactor}" Width="0.6*" CellStyleClasses="num" />
-                    <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="kдл" Binding="{Binding SustainedShare}" Width="0.6*" CellStyleClasses="num" />
+                    <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="γf" Binding="{Binding LoadFactor}" Width="0.6*" CellStyleClasses="num" IsVisible="False" />
+                    <DataGridTextColumn x:DataType="vm:LoadRowViewModel" Header="kдл" Binding="{Binding SustainedShare}" Width="0.6*" CellStyleClasses="num" IsVisible="False" />
                     <DataGridTemplateColumn Header="Вид" Width="122">
                       <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate x:DataType="vm:LoadRowViewModel">
@@ -455,6 +476,8 @@
                       <StackPanel Spacing="2">
                         <TextBlock Text="{Binding VerdictText}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock Text="{Binding GoverningText}" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding HasGoverning}" />
+                        <Button Classes="small primary" Content="Подобрать армирование" Command="{Binding SelectCommand}" IsVisible="{Binding VerdictBad}" Margin="0,6,0,0"
+                                ToolTip.Tip="Самый лёгкий вариант из диапазона на вкладке «Подбор»" />
                       </StackPanel>
                     </Border>
                     <ItemsControl ItemsSource="{Binding SummaryRows}" Classes.stale="{Binding ResultIsStale}">
