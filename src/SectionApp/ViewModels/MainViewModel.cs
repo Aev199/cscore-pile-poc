@@ -23,7 +23,7 @@ public sealed record RecentFile(string Path)
 
 public sealed record SectionTile(SectionKind Kind, int Shape, string Name, string Icon, string? Caption = null);
 
-public partial class MainViewModel : ObservableObject
+public partial class MainViewModel : ObservableObject, INotifyDataErrorInfo
 {
     static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
     static readonly HashSet<string> NonInputs =
@@ -495,17 +495,24 @@ public partial class MainViewModel : ObservableObject
     internal SectionProject? TryBuild(out List<string> errors, bool quiet = false)
     {
         var e = new List<string>();
+        var fields = new Dictionary<string, string>();
         bool report = true;
-        double D(string text, string label)
+        // The field of a bad number is marked in the form: its property is the argument expression ("PileDiameter").
+        void Bad(string message, string field)
+        {
+            e.Add(message);
+            if (field.All(char.IsLetterOrDigit)) fields.TryAdd(field, message);
+        }
+        double D(string text, string label, [System.Runtime.CompilerServices.CallerArgumentExpression(nameof(text))] string field = "")
         {
             if (TryNumber(text, out var v)) return v;
-            if (report) e.Add($"«{label}»: введите число");
+            if (report) Bad($"«{label}»: введите число", field);
             return 0;
         }
-        int I(string text, string label)
+        int I(string text, string label, [System.Runtime.CompilerServices.CallerArgumentExpression(nameof(text))] string field = "")
         {
             if (int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)) return v;
-            if (report) e.Add($"«{label}»: введите целое число");
+            if (report) Bad($"«{label}»: введите целое число", field);
             return 0;
         }
         var p = new SectionProject
@@ -606,16 +613,32 @@ public partial class MainViewModel : ObservableObject
         s.CustomSpacings = Numbers(SelectionSpacings, "Подбор: шаги");
         report = true;
         foreach (var row in Loads) p.Loads.Add(row.ToModel(e));
+        SetFieldErrors(fields);
         errors = e.Distinct().ToList();
         if (errors.Count > 0) return null;
         errors.AddRange(RequestBuilder.Validate(p));
         return quiet || errors.Count == 0 ? p : null;
 
-        List<double> Numbers(string text, string label) =>
-            text.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries).Select(t => D(t, label)).ToList();
+        List<double> Numbers(string text, string label, [System.Runtime.CompilerServices.CallerArgumentExpression(nameof(text))] string field = "") =>
+            text.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries).Select(t => D(t, label, field)).ToList();
     }
 
     static string S(double v) => v.ToString("0.###", Ru);
+
+    // ---- errors at the fields (red frame and the message in the field) ----
+
+    Dictionary<string, string> fieldErrors = [];
+    public event EventHandler<DataErrorsChangedEventArgs>? ErrorsChanged;
+    bool INotifyDataErrorInfo.HasErrors => fieldErrors.Count > 0;
+    public System.Collections.IEnumerable GetErrors(string? propertyName) =>
+        propertyName is not null && fieldErrors.TryGetValue(propertyName, out var m) ? new[] { m } : Array.Empty<string>();
+
+    void SetFieldErrors(Dictionary<string, string> next)
+    {
+        var changed = fieldErrors.Keys.Union(next.Keys).Where(k => fieldErrors.GetValueOrDefault(k) != next.GetValueOrDefault(k)).ToList();
+        fieldErrors = next;
+        foreach (var k in changed) ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(k));
+    }
 
     /// <summary>Number in Russian or invariant notation ("1,15" or "1.15"); spaces as thousand separators.</summary>
     internal static bool TryNumber(string? text, out double value)

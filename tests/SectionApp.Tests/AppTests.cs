@@ -448,7 +448,12 @@ public class AppTests
         await vm.CheckCommand.ExecuteAsync(null);
         Assert.False(vm.HasResult);
         Assert.Contains("Диаметр D", vm.InputErrors);
+        // The field itself is marked: the message goes to its binding.
+        var marked = ((System.ComponentModel.INotifyDataErrorInfo)vm).GetErrors(nameof(vm.PileDiameter)).Cast<string>();
+        Assert.Contains("Диаметр D", Assert.Single(marked));
         Snapshot(window, "09-input-error");
+        vm.PileDiameter = "800";
+        Assert.Empty(((System.ComponentModel.INotifyDataErrorInfo)vm).GetErrors(nameof(vm.PileDiameter)).Cast<string>());
         window.Close();
     }
 }

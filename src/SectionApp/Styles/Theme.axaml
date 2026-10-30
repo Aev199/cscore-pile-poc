@@ -596,6 +596,24 @@
     <Setter Property="ColumnHeaderHeight" Value="26" />
   </Style>
 
+  <!-- Errors at a field: the red frame of the field (Fluent :error) and the message in its tooltip, no text under it. -->
+  <Style Selector="DataValidationErrors">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Panel x:CompileBindings="False" DataContext="{TemplateBinding Owner}" Background="Transparent">
+          <ToolTip.Tip>
+            <ItemsControl ItemsSource="{Binding (DataValidationErrors.Errors)}" />
+          </ToolTip.Tip>
+          <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
+        </Panel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="TextBox:error /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{StaticResource GbError}" />
+    <Setter Property="Background" Value="{StaticResource GbErrorSoft}" />
+  </Style>
+
   <Style Selector="ProgressBar">
     <Setter Property="Foreground" Value="{StaticResource GbAccent}" />
     <Setter Property="Background" Value="{StaticResource GbSectionBg}" />
