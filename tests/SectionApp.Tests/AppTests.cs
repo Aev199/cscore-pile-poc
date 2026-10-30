@@ -308,9 +308,13 @@ public class AppTests
         while (!Directory.Exists(Path.Combine(root, "examples", "profile"))) root = Path.GetDirectoryName(root)!;
         p.UseExport(SectionCalc.Profile.PlaxisBridge.Parse(File.ReadAllText(Path.Combine(root, "examples", "profile", "pile-group-3d.plaxis.json"))));
         Assert.True(p.Is3D);
+        // A 3D group of piles starts as typing; here first the diagrams of the group.
+        Assert.Equal(2, p.ModeIndex);
+        p.ModeIndex = 0;
         Assert.False(p.ShowPileSpacing);
         Assert.Contains("группа 4 свай", p.SourceText);
         p.StationStep = "3";
+        p.ConfirmForces = _ => Task.FromResult(true);
         p.Confirmed = true;
         await p.CalculateCommand.ExecuteAsync(null);
         Assert.True(p.HasResult, p.Errors);
@@ -388,9 +392,15 @@ public class AppTests
         p.AddCutCommand.Execute(null);
         var cut = Assert.Single(p.PeakCuts);
         cut.Top = "-5"; cut.Bottom = "-7"; cut.Shear = true;
+        // The confirmation is a dialog with what to compare against Output; declined — nothing is calculated.
+        string? asked = null;
+        p.ConfirmForces = text => { asked = text; return Task.FromResult(false); };
         await p.CalculateCommand.ExecuteAsync(null);
         Assert.Contains("Сверьте", p.Errors);
-        p.Confirmed = true;
+        Assert.Contains("kN", asked);
+        Assert.Contains("Phase_1", asked);
+        Assert.False(p.HasResult);
+        p.ConfirmForces = _ => Task.FromResult(true);
         Snapshot(window, "10-profile-forces");
         await p.CalculateCommand.ExecuteAsync(null);
         Assert.True(p.HasResult, p.Errors);

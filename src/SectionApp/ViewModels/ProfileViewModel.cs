@@ -210,7 +210,8 @@ public partial class ProfileViewModel : ObservableObject
     [ObservableProperty] string inputPort;
     [ObservableProperty] bool showOutputDirect;
     /// <summary>0 — Output envelopes per branch; 1 — forces of every stage (pick the stages in the list).</summary>
-    [ObservableProperty] int forcesIndex;
+    /// <summary>Forces of the selected phases by default: N, M and Q of one phase act together (envelopes combine extremes).</summary>
+    [ObservableProperty] int forcesIndex = 1;
     [ObservableProperty] string password = "";
     public ObservableCollection<PlaxisObjectViewModel> Objects { get; } = [];
     public ObservableCollection<PhaseRowViewModel> Phases { get; } = [];
@@ -306,6 +307,8 @@ public partial class ProfileViewModel : ObservableObject
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
+        // New units or sign: the forces are confirmed again.
+        if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(MomentSignIndex)) Confirmed = false;
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
                 or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
                 or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads) or nameof(PanelWidth) or nameof(ModeIndex)
@@ -507,6 +510,7 @@ public partial class ProfileViewModel : ObservableObject
             + (d.Piles.Any(x => x.Exceeded.Any(e => e)) ? ". Есть сечения, где не хватает и полного кольца Ø40" : "")
             + (typing.Note is null ? "" : ". " + typing.Note);
         Status = $"Типизация: {typing.Types.Count} типов (таблицы: {d.TablePoints} точек)";
+        Suggested = PileTyping.Suggested(typing.Curve) ?? 0;
         syncing = true;
         CurveCount = typing.Types.Count;
         syncing = false;
@@ -551,6 +555,12 @@ public partial class ProfileViewModel : ObservableObject
         SelectedType = Types.FirstOrDefault(t => t.Type.Number == value.TypeNumber);
         ShowTypeDetails();
     }
+
+    /// <summary>The knee of the steel curve: one more type saves less than 3 % of the steel.</summary>
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(SuggestedText), nameof(HasSuggestion))] int suggested;
+    public bool HasSuggestion => Suggested > 0 && typing is not null && Suggested != typing.Types.Count;
+    public string SuggestedText => $"Рекомендуется {Suggested}: следующий тип экономит меньше 3 % стали";
+    [RelayCommand] void UseSuggested() { if (Suggested > 0) CurveCount = Suggested; }
 
     /// <summary>The steel curve: a click sets the number of types and gathers again.</summary>
     partial void OnCurveCountChanged(int value)
@@ -767,6 +777,11 @@ public partial class ProfileViewModel : ObservableObject
     void Adopt(PlaxisExport export)
     {
         project.UseSource(export);
+        // The task follows the model: a 3D group of piles — typing, otherwise the required reinforcement.
+        int piles = export.Objects.Select(o => o.Pile).Distinct().Count();
+        project.Settings.Mode = export.Is3D && piles > 1 ? ProfileMode.Typing : ProfileMode.Required;
+        project.Settings.Confirmed = false;
+        loading = true; ModeIndex = (int)project.Settings.Mode; loading = false;
         ShowSource();
         ClearResult();
         RefreshForces();
@@ -792,7 +807,9 @@ public partial class ProfileViewModel : ObservableObject
         ScenarioIndex = (int)project.Settings.Scenario;
         loading = false;
         main.IsPile = Scenario != ProfileScenario.Wall;
+        loading = true;
         MomentSignIndex = project.Settings.MomentSign > 0 ? 0 : 1;
+        loading = false;
         ExcavationIndex = Excavation(project.Settings.ExcavationSide);
         ExcavationText = s.MomentSign?.Excavation is "right" or "left"
             ? $"Предложено по перемещениям стены (фаза {s.MomentSign.Phase}): стена смещается в сторону котлована"
@@ -827,7 +844,18 @@ public partial class ProfileViewModel : ObservableObject
     {
         RefreshForces();
         if (forces is null) { if (Errors.Length == 0) Errors = "Загрузите усилия PLAXIS"; return; }
-        if (!project.Settings.Confirmed) { Errors = "Сверьте с Output единицы, масштаб и знак момента и отметьте «Сверено»"; return; }
+        if (!project.Settings.Confirmed)
+        {
+            // Once per loaded model: the units, the scale and the sign of M are shown and confirmed.
+            if (ConfirmForces is null || !await ConfirmForces(ForcesSummary()))
+            {
+                Errors = "Сверьте с Output единицы, масштаб и знак момента";
+                return;
+            }
+            Confirmed = true;
+            RefreshForces();
+            if (forces is null) return;
+        }
         if (IsTyping) { await CalculateTyping(); return; }
         var p = project;
         bool check = IsCheck;
@@ -1058,6 +1086,28 @@ public partial class ProfileViewModel : ObservableObject
 
     /// <summary>For tests and the demo: use an export without PLAXIS.</summary>
     internal void UseExport(PlaxisExport export) => Adopt(export);
+
+    /// <summary>Asks the engineer to confirm the forces (the window shows a dialog); null — the flag only.</summary>
+    public Func<string, Task<bool>>? ConfirmForces { get; set; }
+
+    /// <summary>What the engineer checks against Output: units, the largest values per element, the sign of M.</summary>
+    internal string ForcesSummary()
+    {
+        var s = project.Settings;
+        var lines = new List<string> { $"Единицы выгрузки: сила — {s.ForceUnit}, длина — {s.LengthUnit}." };
+        if (forces is { Samples.Count: > 0 } f)
+        {
+            string R(double v) => v.ToString("0", Ru);
+            lines.Add($"На элемент (после пересчёта {(IsWall ? "на захватку" : Is3D ? "на сваю" : "на сваю по шагу")}): "
+                + $"N {R(f.Samples.Min(x => x.N))}…{R(f.Samples.Max(x => x.N))} кН, |M| до {R(f.Samples.Max(x => Math.Abs(x.M)))} кН·м, |Q| до {R(f.Samples.Max(x => Math.Abs(x.Q)))} кН.");
+        }
+        if (IsWall) lines.Add(MomentSignText);
+        var kinds = project.Phases.Where(x => x.Include).Select(x => $"{x.Name} — {PhaseRowViewModel.KindOptions[x.Seismic ? 2 : x.Special ? 3 : x.ShortTerm ? 1 : 0].ToLower(Ru)}");
+        lines.Add("Стадии: " + string.Join("; ", kinds) + ".");
+        if (PhaseWarning.Length > 0) lines.Add(PhaseWarning);
+        lines.Add("Совпадают ли значения с Output?");
+        return string.Join("\n\n", lines);
+    }
     internal void Confirm() => Confirmed = true;
     internal Task RunCalculation() => Calculate();
     internal ReinforcementProfile? Result => result;

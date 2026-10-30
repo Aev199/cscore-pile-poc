@@ -21,7 +21,8 @@
           <Button Classes="tool" Content="Остановить" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-          <CheckBox IsChecked="{Binding Confirmed}" Content="Усилия сверены с Output" FontSize="11.5" ToolTip.Tip="Единицы, масштаб и (для стены) знак M. Без подтверждения расчёт не выполняется." />
+          <TextBlock Text="✓ усилия сверены" FontSize="11" Foreground="{StaticResource GbSuccess}" VerticalAlignment="Center" IsVisible="{Binding Confirmed}"
+                     ToolTip.Tip="Единицы, масштаб и знак M подтверждены; при смене единиц или знака программа спросит снова" />
           <Button Classes="primary" Content="Рассчитать" Command="{Binding CalculateCommand}" HotKey="F5" ToolTip.Tip="F5" />
           <Button Classes="apply" Content="{Binding ExportText}" Command="{Binding ExportRevitCommand}" />
         </StackPanel>
@@ -37,35 +38,7 @@
       <Border Grid.Column="0" Classes="panel" Width="344" Margin="0,0,10,0" IsVisible="{Binding ShowSettings}">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="0,0,0,8">
-            <c:Group Header="ЗАДАЧА">
-              <StackPanel>
-                <ComboBox ItemsSource="{Binding ScenarioOptions}" SelectedIndex="{Binding ScenarioIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,6"
-                          ToolTip.Tip="Сценарий задаёт тип сечения (СВГ или БНС) и пересчёт усилий PLAXIS на элемент" />
-                <c:Field Header="Ширина захватки, м" IsVisible="{Binding IsWall}" ToolTip.Tip="Усилия Plate — на 1 п.м; СВГ рассчитывается на захватку: b = ширина захватки">
-                  <TextBox Text="{Binding PanelWidth}" />
-                </c:Field>
-                <c:Field Header="Шаг свай, м" IsVisible="{Binding ShowPileSpacing}" ToolTip.Tip="Усилия Plate / Embedded beam row — на 1 п.м; на сваю = × шаг">
-                  <TextBox Text="{Binding PileSpacing}" />
-                </c:Field>
-                <CheckBox IsVisible="{Binding Is3D}" IsChecked="{Binding AlignPileHeads}" Content="Совместить сваи по оголовкам" FontSize="11.5"
-                          ToolTip.Tip="Эпюры свай группы откладываются от оголовков: при разных отметках голов армирование едино по длине сваи" />
-                <c:Field Header="Расчёт" ValueWidth="190"
-                         ToolTip.Tip="Подбор — требуемая As по длине (для Revit). Проверка — сечение из режима «БНС · СВГ» по всей длине. Типизация (3D) — каждая свая отдельно, затем объединение в заданное число типов.">
-                  <ComboBox ItemsSource="{Binding ModeOptions}" SelectedIndex="{Binding ModeIndex}" />
-                </c:Field>
-                <c:Field Header="Число типов" IsVisible="{Binding IsTyping}"
-                         ToolTip.Tip="В тип попадают сваи любой длины и с любой отметкой оголовка: требуемая As сводится по глубине от оголовка. Точнее — по усилиям выбранных стадий: огибающие сочетают экстремумы разных стадий (растяжение с Mmax), в запас.">
-                  <TextBox Text="{Binding TypeCount}" />
-                </c:Field>
-                <c:Field Header="Каркас" ValueWidth="170" IsVisible="{Binding IsTyping}"
-                         ToolTip.Tip="Постоянный — одни стержни по всей длине сваи (обычное решение). Зоны — стержни меняются по эпюре (участки не короче 2 м).">
-                  <ComboBox ItemsSource="{Binding CageOptions}" SelectedIndex="{Binding CageIndex}" />
-                </c:Field>
-                <TextBlock Classes="sub" Text="{Binding SectionText}" Margin="0,4,0,0" />
-              </StackPanel>
-            </c:Group>
-
-            <c:Group Header="УСИЛИЯ PLAXIS">
+            <c:Group Header="1 · ЗАГРУЗКА ИЗ PLAXIS">
               <StackPanel>
                 <ComboBox ItemsSource="{Binding ForcesOptions}" SelectedIndex="{Binding ForcesIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,6"
                           ToolTip.Tip="Огибающие — построенные Output по веткам стадий (Safety исключаются). Стадии — усилия каждой стадии; отметьте нужные ниже." />
@@ -102,11 +75,10 @@
                 </c:Group>
               </StackPanel>
             </c:Group>
-
             <c:Group IsVisible="{Binding HasPhases}">
               <c:Group.Header>
                 <Grid ColumnDefinitions="*,Auto,Auto">
-                  <TextBlock Text="СТАДИИ" VerticalAlignment="Center" />
+                  <TextBlock Text="2 · СТАДИИ И ИХ ВИД" VerticalAlignment="Center" />
                   <Button Grid.Column="1" Classes="tool" Content="все" Command="{Binding AllPhasesCommand}" CommandParameter="1" />
                   <Button Grid.Column="2" Classes="tool" Content="ни одной" Command="{Binding AllPhasesCommand}" CommandParameter="0" />
                 </Grid>
@@ -131,6 +103,35 @@
               </ScrollViewer>
               </StackPanel>
             </c:Group>
+            <c:Group Header="3 · ЗАДАЧА">
+              <StackPanel>
+                <ComboBox ItemsSource="{Binding ScenarioOptions}" SelectedIndex="{Binding ScenarioIndex}" HorizontalAlignment="Stretch" Margin="0,0,0,6" IsVisible="{Binding !Is3D}"
+                          ToolTip.Tip="Сценарий задаёт тип сечения (СВГ или БНС) и пересчёт усилий PLAXIS на элемент" />
+                <c:Field Header="Ширина захватки, м" IsVisible="{Binding IsWall}" ToolTip.Tip="Усилия Plate — на 1 п.м; СВГ рассчитывается на захватку: b = ширина захватки">
+                  <TextBox Text="{Binding PanelWidth}" />
+                </c:Field>
+                <c:Field Header="Шаг свай, м" IsVisible="{Binding ShowPileSpacing}" ToolTip.Tip="Усилия Plate / Embedded beam row — на 1 п.м; на сваю = × шаг">
+                  <TextBox Text="{Binding PileSpacing}" />
+                </c:Field>
+                <CheckBox IsVisible="{Binding Is3D}" IsChecked="{Binding AlignPileHeads}" Content="Совместить сваи по оголовкам" FontSize="11.5"
+                          ToolTip.Tip="Эпюры свай группы откладываются от оголовков: при разных отметках голов армирование едино по длине сваи" />
+                <c:Field Header="Расчёт" ValueWidth="190"
+                         ToolTip.Tip="Подбор — требуемая As по длине (для Revit). Проверка — сечение из режима «БНС · СВГ» по всей длине. Типизация (3D) — каждая свая отдельно, затем объединение в заданное число типов.">
+                  <ComboBox ItemsSource="{Binding ModeOptions}" SelectedIndex="{Binding ModeIndex}" />
+                </c:Field>
+                <c:Field Header="Число типов" IsVisible="{Binding IsTyping}"
+                         ToolTip.Tip="В тип попадают сваи любой длины и с любой отметкой оголовка: требуемая As сводится по глубине от оголовка. Точнее — по усилиям выбранных стадий: огибающие сочетают экстремумы разных стадий (растяжение с Mmax), в запас.">
+                  <TextBox Text="{Binding TypeCount}" />
+                </c:Field>
+                <c:Field Header="Каркас" ValueWidth="170" IsVisible="{Binding IsTyping}"
+                         ToolTip.Tip="Постоянный — одни стержни по всей длине сваи (обычное решение). Зоны — стержни меняются по эпюре (участки не короче 2 м).">
+                  <ComboBox ItemsSource="{Binding CageOptions}" SelectedIndex="{Binding CageIndex}" />
+                </c:Field>
+                <TextBlock Classes="sub" Text="{Binding SectionText}" Margin="0,4,0,0" />
+              </StackPanel>
+            </c:Group>
+
+
 
             <c:Group Header="ПАРАМЕТРЫ">
               <StackPanel>
@@ -210,6 +211,8 @@
                 <TextBox Text="{Binding TypeCount}" Width="64" HorizontalContentAlignment="Right" />
                 <Button Classes="primary" Content="Собрать" Command="{Binding CalculateCommand}" ToolTip.Tip="Автоматическое объединение; закреплённые типы сохраняются" />
               </StackPanel>
+              <Button Classes="tool" Content="{Binding SuggestedText}" Command="{Binding UseSuggestedCommand}" IsVisible="{Binding HasSuggestion}" Padding="0" HorizontalAlignment="Left"
+                      Foreground="{StaticResource GbAccent}" ToolTip.Tip="Собрать с рекомендуемым числом типов" />
             </StackPanel>
             <c:SteelCurve Grid.Column="2" Height="110" Typing="{Binding Typing}" SelectedCount="{Binding CurveCount}"
                           ToolTip.Tip="Сталь по огибающим в зависимости от числа типов; щелчок по точке задаёт число типов" />

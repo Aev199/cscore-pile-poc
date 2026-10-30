@@ -16,6 +16,7 @@ public partial class MainWindow : Window
             if (DataContext is not MainViewModel vm) return;
             vm.Storage = () => StorageProvider;
             vm.Profile.Storage = () => StorageProvider;
+            vm.Profile.ConfirmForces = text => new ConfirmWindow("Усилия PLAXIS", text, "Да, совпадают", "Нет, проверить").ShowDialog<bool>(this);
             vm.ClipboardText = async () => Clipboard is { } c ? await c.TryGetTextAsync() : null;
             // γf and kдл per row only when the rows differ or on demand: the columns are not in the visual tree.
             void Columns()

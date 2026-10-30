@@ -403,6 +403,18 @@ public static class PileTyping
         return Finish(d, chosen, locked, note, curve);
     }
 
+    /// <summary>
+    /// The suggested number of types: the knee of the curve, the smallest number after which one more type saves less
+    /// than <paramref name="share"/> of the steel.
+    /// </summary>
+    public static int? Suggested(IReadOnlyList<(int Types, double SteelKg)> curve, double share = 0.03)
+    {
+        var byCount = curve.GroupBy(c => c.Types).ToDictionary(g => g.Key, g => g.Min(c => c.SteelKg));
+        foreach (int k in byCount.Keys.Order())
+            if (byCount.TryGetValue(k + 1, out var next) && byCount[k] - next < share * byCount[k]) return k;
+        return byCount.Count == 0 ? null : byCount.Keys.Max();
+    }
+
     /// <summary>Types of a given partition of the piles (manual editing), numbered in its order; zones not yet checked.</summary>
     public static TypingResult Build(PileDemands d, IReadOnlyList<IReadOnlyList<int>> groups, IReadOnlyList<bool>? locked = null)
     {

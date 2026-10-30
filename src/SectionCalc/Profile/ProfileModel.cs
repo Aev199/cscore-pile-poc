@@ -133,14 +133,25 @@ public sealed class ProfileProject
     public static bool IsSeismic(PlaxisPhase ph) =>
         $"{ph.Name} {ph.Title}".Contains("ейсм", StringComparison.OrdinalIgnoreCase) || $"{ph.Name} {ph.Title}".Contains("seism", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Adopts a new export: phase settings are kept by phase name; a new phase named as seismic is seismic.</summary>
+    /// <summary>The kind of a new phase by its name: seismic, special (accidental), short-term; basic otherwise.</summary>
+    internal static PhaseSetting KindByName(PhaseSetting s, PlaxisPhase ph)
+    {
+        string text = $"{ph.Name} {ph.Title}";
+        bool Has(params string[] words) => words.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
+        s.Seismic = IsSeismic(ph);
+        s.Special = !s.Seismic && Has("особ", "авар", "accident");
+        s.ShortTerm = Has("кратковр", "short");
+        return s;
+    }
+
+    /// <summary>Adopts a new export: phase settings are kept by phase name; a new phase takes its kind from its name.</summary>
     public void UseSource(PlaxisExport export)
     {
         var old = Phases.ToDictionary(p => p.Name);
         Source = export;
         Phases = export.Phases.Select(ph => old.TryGetValue(ph.Name, out var s)
             ? new PhaseSetting { Id = ph.Id, Name = ph.Name, Include = s.Include, ShortTerm = s.ShortTerm, Seismic = s.Seismic, Special = s.Special }
-            : new PhaseSetting { Id = ph.Id, Name = ph.Name, Seismic = IsSeismic(ph) }).ToList();
+            : KindByName(new PhaseSetting { Id = ph.Id, Name = ph.Name }, ph)).ToList();
         // The scenario follows the model: 3D — piles of the model; Embedded beam row — retaining piles; Plate — kept.
         if (export.Is3D) Settings.Scenario = ProfileScenario.Piles3D;
         else if (export.Objects.Any(o => o.Kind != "Plate")) Settings.Scenario = ProfileScenario.RetainingPiles;

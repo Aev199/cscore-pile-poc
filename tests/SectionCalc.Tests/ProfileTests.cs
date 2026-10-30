@@ -615,6 +615,31 @@ public class ProfileTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void SuggestedTypeCountIsTheKneeOfTheCurve()
+    {
+        // 1 → 2 saves 30 %, 2 → 3 saves 10 %, 3 → 4 saves 2 %: three types.
+        var curve = new List<(int, double)> { (4, 98), (3, 100), (2, 111), (1, 160) };
+        Assert.Equal(3, PileTyping.Suggested(curve));
+        Assert.Equal(1, PileTyping.Suggested([(1, 100), (2, 99)]));
+    }
+
+    [Fact]
+    public void NewPhasesTakeTheirKindFromTheName()
+    {
+        var p = new ProfileProject();
+        p.UseSource(new PlaxisExport
+        {
+            Info = new() { UnitForce = "kN", UnitLength = "m" },
+            Phases = [new() { Id = 1, Name = "Phase_1", Title = "Нагрузки длительные" }, new() { Id = 2, Name = "Phase_2", Title = "Cейсмика +X" },
+                new() { Id = 3, Name = "Phase_3", Title = "Аварийная нагрузка" }, new() { Id = 4, Name = "Phase_4", Title = "Кратковременная (кран)" }],
+        });
+        Assert.False(p.Phases[0].Seismic || p.Phases[0].Special || p.Phases[0].ShortTerm);
+        Assert.True(p.Phases[1].Seismic);
+        Assert.True(p.Phases[2].Special);
+        Assert.True(p.Phases[3].ShortTerm);
+    }
+
+    [Fact]
     public void RowsOfOneNameAreCheckedTogether()
     {
         // Rows of several stations of a pile share the name of the envelope corner.
