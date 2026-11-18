@@ -163,10 +163,10 @@ public class ProfileTests(ITestOutputHelper output)
         var copy = ProfileProject.Deserialize(p.Serialize());
         Assert.Equal(p.Serialize(), copy.Serialize());
         Assert.Equal(3, copy.Source!.Data.Count);
-        // A new export keeps the phase settings by name.
+        // A new export does not inherit the phase settings: Phase_N names are local to a model.
         copy.UseSource(WallExport());
-        Assert.False(copy.Phases[0].Include);
-        Assert.True(copy.Phases[2].Seismic);
+        Assert.True(copy.Phases[0].Include);
+        Assert.False(copy.Phases[2].Seismic);
         Assert.False(copy.Settings.Confirmed);
     }
 
@@ -740,11 +740,99 @@ public class ProfileTests(ITestOutputHelper output)
         var p = Wall();
         var f = ForceProfile.Build(p);
         var quick = f.Stations(p);
+        p.Settings.ExhaustiveStates = true;
         var full = f.Stations(p, allStates: true);
         Assert.True(full.Sum(s => s.Rsu.Count) > quick.Sum(s => s.Rsu.Count));
         foreach (var sample in f.Samples)
             Assert.Contains(full.SelectMany(s => s.Rsu), r => Math.Abs(r.N - sample.N) < 1e-6
                 && Math.Abs(r.Mx - sample.M) < 1e-6 && Math.Abs(r.Q - Math.Abs(sample.Q)) < 1e-6);
+        // Reduced: fewer states, each one of the full set.
+        p.Settings.ExhaustiveStates = false;
+        var reduced = f.Stations(p, allStates: true);
+        Assert.True(reduced.Sum(s => s.Rsu.Count) <= full.Sum(s => s.Rsu.Count));
+        for (int i = 0; i < full.Count; i++)
+            Assert.All(reduced[i].Rsu, r => Assert.Contains(full[i].Rsu, x => x.N == r.N && x.Mx == r.Mx && x.Q == r.Q));
+    }
+
+    [Fact]
+    public void ReductionKeepsAStateOnEachSideOfEveryDroppedOne()
+    {
+        var random = new Random(7);
+        var rows = Enumerable.Range(0, 3000).Select(i => new LoadRow
+        {
+            Name = $"r{i}", N = -Math.Round(random.NextDouble() * 40) * 50, Mx = Math.Round(random.NextDouble() * 300),
+            Q = Math.Round(random.NextDouble() * 20) * 5, ShortTerm = i % 3 == 0, Seismic = i % 7 == 0,
+        }).ToList();
+        var kept = StateReduction.Reduce(rows, dominance: true);
+        Assert.True(kept.Count < rows.Count / 5, $"kept {kept.Count}");
+        static object Kind(LoadRow l) => (l.ShortTerm, l.Seismic, l.Special, l.LoadFactor, l.SustainedShare);
+        foreach (var b in rows.Except(kept))
+        {
+            bool Covers(LoadRow a) => !ReferenceEquals(a, b) && Kind(a).Equals(Kind(b)) && Math.Abs(a.Mx) >= Math.Abs(b.Mx) && a.Q >= b.Q;
+            bool same = kept.Any(a => a.N == b.N && a.Mx == b.Mx && a.Q == b.Q && Kind(a).Equals(Kind(b)));
+            Assert.True(same || kept.Any(a => Covers(a) && a.N <= b.N) && kept.Any(a => Covers(a) && a.N >= b.N), b.Name);
+        }
+        // The scalar extrema of every kind stay.
+        foreach (var g in rows.GroupBy(Kind))
+        {
+            Assert.Contains(kept, a => Kind(a).Equals(g.Key) && a.Mx == g.Max(x => x.Mx));
+            Assert.Contains(kept, a => Kind(a).Equals(g.Key) && a.Q == g.Max(x => x.Q));
+            Assert.Contains(kept, a => Kind(a).Equals(g.Key) && a.N == g.Min(x => x.N));
+            Assert.Contains(kept, a => Kind(a).Equals(g.Key) && a.N == g.Max(x => x.N));
+        }
+        // An asymmetric wall is not reduced (only duplicates go).
+        var wall = Wall();
+        wall.Section.Wall.NegativeFace.BarDiameterMm += 4;
+        Assert.False(StateReduction.Reducible(wall));
+    }
+
+    [Fact]
+    public void CageZoneTakesOnlyTheStatesInsideItAndReductionKeepsK()
+    {
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(GroupExport(envelope: false));
+        p.Settings.Mode = ProfileMode.Check;
+        p.Settings.StationStepM = 3;
+        var d = PileTyping.ForCheck(p);
+        var given = SavedPileType.Restore(d, [PileTyping.GivenType(d, [0]), PileTyping.GivenType(d, [1])], true);
+        var type = given.Types[0];
+        // The zone 2…4.5 m below the head: a station step of 3 m must not bring in the head peak.
+        var zone = type.Zones[0] with { Top = type.Head - 2, Bottom = type.Head - 4.5 };
+        var rows = PileTyping.ZoneRows(d, type, zone, reduce: false);
+        Assert.NotEmpty(rows);
+        static double Z(LoadRow r) => double.Parse(r.Name[(r.Name.LastIndexOf("z=") + 2)..].Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture);
+        Assert.All(rows, r => Assert.InRange(Z(r), type.Head - 4.5 - 1e-6, type.Head - 2 + 1e-6));
+        // Both boundaries are present (interpolated or nodes).
+        Assert.Contains(rows, r => Math.Abs(Z(r) - (type.Head - 2)) < 1e-6);
+        Assert.Contains(rows, r => Math.Abs(Z(r) - (type.Head - 4.5)) < 1e-6);
+
+        var reduced = PileTyping.ZoneRows(d, type, zone, reduce: true);
+        Assert.True(reduced.Count < rows.Count);
+        var section = ProjectStore.Deserialize(ProjectStore.Serialize(p.Section));
+        section.Conditions.ElementLengthM = type.MaxLength;
+        var full = RequiredReinforcement.KFor(section, rows, default);
+        var fast = RequiredReinforcement.KFor(section, reduced, default);
+        Assert.NotNull(full.K);
+        Assert.Equal(full.K!.Value, fast.K!.Value, 9);
+    }
+
+    [Fact]
+    public void SavedPartitionInDesignTakesTheCurrentCages()
+    {
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(GroupExport(envelope: false));
+        p.Settings.Mode = ProfileMode.Typing;
+        p.Settings.StationStepM = 3;
+        p.Settings.Confirmed = true;
+        var d = PileTyping.Demand(p);
+        var built = PileTyping.Build(d, [[0], [1]], [true, false]);
+        var saved = SavedPileType.Capture(built);
+        // Old cages of the saved file (a different demand, another cage kind) are not taken over by design.
+        foreach (var t in saved) t.Zones = [t.Zones[0] with { Bottom = 1 }, t.Zones[0] with { Top = 1, Bars = new BarSet(1, 4, 12) }];
+        var restored = SavedPileType.Restore(d, saved, check: false);
+        Assert.Equal(built.Types.Select(t => t.Key), restored.Types.Select(t => t.Key));
+        Assert.Equal(built.Types.SelectMany(t => t.Zones), restored.Types.SelectMany(t => t.Zones));
+        Assert.True(restored.Types[0].Locked);
     }
 
     [Fact]
@@ -779,7 +867,9 @@ public class ProfileTests(ITestOutputHelper output)
         var checkedTypes = PileTyping.Verify(restored, redesign: false);
         Assert.Equal(restored.Types[0].Zones.Select(z => (z.Bars, z.PitchMm)), checkedTypes.Types[0].Zones.Select(z => (z.Bars, z.PitchMm)));
         Assert.All(checkedTypes.Types, t => Assert.True(t.Verified));
-        Assert.True(checkedTypes.Types[0].K is null or > 1);
+        // The given bars are checked as they are: the head zone governs (the moment decreases with depth).
+        Assert.True(checkedTypes.Types[0].Zones[0].K is double top && top > checkedTypes.Types[0].Zones[1].K);
+        Assert.Contains("z=0", checkedTypes.Types[0].Zones[0].Governing);
         reopened.PileTypes[1].Piles = [reopened.PileTypes[0].Piles[0]];
         Assert.Throws<InvalidOperationException>(() => SavedPileType.Restore(d, reopened.PileTypes, true));
     }

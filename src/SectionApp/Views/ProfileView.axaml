@@ -146,6 +146,8 @@
                 <c:Field Header="γf для нормативных" ToolTip.Tip="Трещины: нормативные = расчётные / γf"><TextBox Text="{Binding ServiceDivisor}" /></c:Field>
                 <c:Field Header="kдл"><TextBox Text="{Binding SustainedShare}" /></c:Field>
                 <CheckBox IsChecked="{Binding IgnoreAxialForce}" Content="Не учитывать N (N = 0)" FontSize="11.5" ToolTip.Tip="В запас при изгибе, когда N ограждения не определено" />
+                <CheckBox IsChecked="{Binding ExhaustiveStates}" Content="Проверять все совместные состояния" FontSize="11.5"
+                          ToolTip.Tip="Без отбора состояний, которые не могут быть определяющими (при меньшем и большем N есть состояния с не меньшими |M| и Q). Точно и для несимметричных сечений, но значительно медленнее" />
                 <CheckBox IsChecked="{Binding SkipInactiveZeroN}" Content="Nmax = 0 огибающей — свая не устроена" FontSize="11.5"
                           ToolTip.Tip="Огибающая ветки охватывает и стадии до устройства сваи (N = 0). Если Nmax = 0 по всей длине при сжатии в Nmin, пара «N = 0 с Mmax» не учитывается — иначе изгиб без сжатия завышает армирование" />
                 <TextBlock Classes="sub" Text="{Binding ZeroNText}" IsVisible="{Binding ZeroNText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -280,10 +282,11 @@
             <TabItem Header="Армирование типа" IsVisible="{Binding IsCheck}">
               <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,4">
-                  <TextBlock Text="Изменения не применены" IsVisible="{Binding CageEditsPending}" Foreground="DarkOrange" />
+                  <TextBlock Text="{Binding PendingText}" IsVisible="{Binding CageEditsPending}" Foreground="DarkOrange" VerticalAlignment="Center" />
                   <TextBlock Text="Глубины от оголовка, м; диаметры и шаг, мм" VerticalAlignment="Center" />
                   <Button Content="Разделить зону" Command="{Binding SplitCageZoneCommand}" />
                   <Button Content="Применить и проверить" Command="{Binding ApplyCageCommand}" />
+                  <Button Content="Отменить изменения" Command="{Binding DiscardCageCommand}" IsVisible="{Binding CageEditsPending}" />
                 </StackPanel>
                 <DataGrid ItemsSource="{Binding CageZones}" SelectedItem="{Binding SelectedCageZone}" IsReadOnly="False" CanUserSortColumns="False" GridLinesVisibility="Horizontal">
                   <DataGrid.Columns>

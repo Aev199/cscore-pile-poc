@@ -103,6 +103,10 @@ public sealed class ProfileSettings
     public double MaxBarDiameterMm { get; set; } = 40;
     /// <summary>Typing: one cage along the whole pile (the usual design); otherwise zones along the envelope.</summary>
     public bool UniformCage { get; set; } = true;
+    /// <summary>
+    /// Check every simultaneous state: no reduction by <see cref="StateReduction"/> (slow; for doubtful sections).
+    /// </summary>
+    public bool ExhaustiveStates { get; set; }
 }
 
 /// <summary>Whole pile or wall from PLAXIS forces: section definition, raw export, phase kinds, settings.</summary>
@@ -145,7 +149,7 @@ public sealed class ProfileProject
         return s;
     }
 
-    /// <summary>Adopts a new export: phase settings are kept by phase name; a new phase takes its kind from its name.</summary>
+    /// <summary>Adopts a new export: phase settings and pile types start anew; a phase takes its kind from its name.</summary>
     public void UseSource(PlaxisExport export)
     {
         // Phase_N and pile names are local to a model, not persistent cross-model IDs.

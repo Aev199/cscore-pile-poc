@@ -136,7 +136,8 @@ public static class PileTyping
         var forces = ForceProfile.Build(p);
         var piles = forces.Piles.Select((info, i) =>
         {
-            var stations = forces.Stations(p, i, allStates: true);
+            // The plan and the charts only: the zones take their states by their own depths (ZoneRows).
+            var stations = forces.Stations(p, i);
             double area = 0; // No required-area calculation in Check; diagrams must not present given As as required.
             return new PileDemand(i, info, 0, stations, Enumerable.Repeat(area, stations.Count).ToArray(),
                 new double[stations.Count], new bool[stations.Count]);
@@ -309,7 +310,7 @@ public static class PileTyping
     }
 
     /// <summary>Members with the longest first: the type is drawn along it.</summary>
-    static List<PileDemand> Ordered(IEnumerable<PileDemand> members) =>
+    internal static List<PileDemand> Ordered(IEnumerable<PileDemand> members) =>
         members.OrderByDescending(m => m.Length).ThenByDescending(m => m.Info.Head).ThenBy(m => m.Pile).ToList();
 
     /// <summary>Steel of a group with one cage along every pile: the largest demand of the group over the length of each member, kg.</summary>
@@ -538,34 +539,44 @@ public static class PileTyping
     }
 
     /// <summary>
-    /// Every zone checked with every simultaneous state of its piles. Only design may change bars;
-    /// verification of accepted cages (redesign=false) never changes geometry or reinforcement.
+    /// Every zone checked with every simultaneous state of its piles inside the zone (with the values interpolated at
+    /// its boundaries), less the states that cannot govern (<see cref="StateReduction"/>). Only design may change
+    /// bars; verification of accepted cages (redesign=false) never changes geometry or reinforcement.
     /// </summary>
+    /// <param name="batchProgress">Rows checked, rows to check (grows when a zone is redesigned), zones done, zones.</param>
     public static TypingResult Verify(TypingResult r, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default,
-        Func<PileType, bool>? only = null, bool redesign = true, Action<int, int, int, int, int>? batchProgress = null)
+        Func<PileType, bool>? only = null, bool redesign = true, Action<int, int, int, int>? batchProgress = null)
     {
         var d = r.Demands;
-        var work = r.Types.Where(t => only?.Invoke(t) ?? true).SelectMany(t => t.Zones.Select((z, i) => (Type: t, Index: i))).ToList();
+        var checkedTypes = r.Types.Where(t => only?.Invoke(t) ?? true).ToList();
+        foreach (var t in checkedTypes) SavedPileType.ValidateZones(t.Zones, t.Head, t.Tip);
+        var work = checkedTypes.SelectMany(t => t.Zones.Select((z, i) => (Type: t, Index: i))).ToList();
         var zones = r.Types.ToDictionary(t => t.Number, t => t.Zones.ToArray());
-        int done = 0;
-        Parallel.ForEach(work, new ParallelOptions { CancellationToken = cancel, MaxDegreeOfParallelism = Environment.ProcessorCount }, item =>
+        bool reduce = StateReduction.Reducible(d.Project);
+        var rowsOf = new List<LoadRow>[work.Count];
+        Parallel.For(0, work.Count, new ParallelOptions { CancellationToken = cancel, MaxDegreeOfParallelism = Environment.ProcessorCount },
+            w => rowsOf[w] = ZoneRows(d, work[w].Type, work[w].Type.Zones[work[w].Index], reduce));
+        int done = 0, rowsDone = 0, rowsTotal = rowsOf.Sum(x => x.Count);
+        void Report(int delta, int extra = 0)
         {
-            var (type, index) = item;
+            int total = Interlocked.Add(ref rowsTotal, extra);
+            batchProgress?.Invoke(Interlocked.Add(ref rowsDone, delta), total, Volatile.Read(ref done), work.Count);
+        }
+        Report(0);
+        Parallel.For(0, work.Count, new ParallelOptions { CancellationToken = cancel, MaxDegreeOfParallelism = Environment.ProcessorCount }, w =>
+        {
+            var (type, index) = work[w];
             var zone = zones[type.Number][index];
-            // The longest member: its element length enters η (on the safe side for the shorter ones).
-            SavedPileType.ValidateZones(type.Zones, type.Head, type.Tip);
-            // Include all stations intersecting the zone, so a boundary cannot hide a peak.
-            var rows = new List<LoadRow>();
-            foreach (var m in type.Members)
-                for (int s = 0; s < m.Stations.Count; s++)
-                {
-                    var st = m.Stations[s];
-                    if (st.Bottom + type.Shift(m) > zone.Top + 1e-6 || st.Top + type.Shift(m) < zone.Bottom - 1e-6) continue;
-                    rows.AddRange(st.Rsu);
-                }
-            // All simultaneous states in every intersecting station, including both sides of a zone boundary.
-            var chosen = rows.DistinctBy(l => (l.N, l.Mx, l.My, l.Q, l.LoadFactor, l.SustainedShare, l.ShortTerm, l.Seismic, l.Special)).ToList();
-            void Report(int attempt, int done, int total) => batchProgress?.Invoke(type.Number, index + 1, attempt, done, total);
+            var chosen = rowsOf[w];
+            bool firstRun = true;
+            (double? K, string? Gov) Check(SectionProject section)
+            {
+                // The first run of a zone is counted in the total already; a redesign adds its rows.
+                if (!firstRun) Report(0, chosen.Count);
+                firstRun = false;
+                int last = 0;
+                return RequiredReinforcement.KFor(section, chosen, cancel, (n, _) => { Report(n - last); last = n; });
+            }
             for (int round = 0; round < 4 && chosen.Count > 0; round++)
             {
                 var section = ProjectStore.Deserialize(ProjectStore.Serialize(d.Project.Section));
@@ -573,7 +584,7 @@ public static class PileTyping
                 if (zone.PitchMm is double pitch) section.Conditions.ShearPitchMm = pitch;
                 section.Pile.BarCount = zone.Bars.Count; section.Pile.BarDiameterMm = zone.Bars.DiameterMm;
                 if (zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
-                var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel, (n, total) => Report(round + 1, n, total));
+                var (k, gov) = Check(section);
                 double? before = zone.K;
                 zone = zone with { K = k, Governing = gov };
                 if (!redesign || k is null || k <= 1) break;
@@ -615,16 +626,37 @@ public static class PileTyping
                     if (zone.PitchMm is double pitch) section.Conditions.ShearPitchMm = pitch;
                     section.Pile.BarCount = thinner.Count; section.Pile.BarDiameterMm = thinner.DiameterMm;
                     if (zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
-                    var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel, (n, total) => Report(step + 1, n, total));
+                    var (k, gov) = Check(section);
                     if (k is not double kk || kk > 0.97) break;
                     zone = zone with { Bars = thinner, K = kk, Governing = gov };
                 }
             }
+            if (chosen.Count == 0) zone = zone with { K = null, Governing = "Нет усилий в зоне" };
             zones[type.Number][index] = zone;
             progress?.Report((Interlocked.Increment(ref done), work.Count));
+            Report(0);
         });
         var types = r.Types.Select(t => only is not null && !only(t) ? t
             : t with { Zones = zones[t.Number], SteelKg = ZoneSteel(d, t.Members, zones[t.Number]) }).ToList();
         return r with { Types = types };
+    }
+
+    /// <summary>
+    /// States of the members inside the zone (levels of the type, a shorter member moved by its shift); outside a
+    /// member nothing. The stations are not used: a station across the boundary would load the zone with the forces
+    /// up to half a step beyond it.
+    /// </summary>
+    internal static List<LoadRow> ZoneRows(PileDemands d, PileType type, TypeZone zone, bool reduce)
+    {
+        var rows = new List<LoadRow>();
+        foreach (var m in type.Members)
+        {
+            // Sample level = model level + its own shift; type level = model level + the shift of the type.
+            double move = m.Info.Shift - type.Shift(m);
+            double top = Math.Min(zone.Top + move, m.Info.Head + m.Info.Shift), bottom = Math.Max(zone.Bottom + move, m.Info.Tip + m.Info.Shift);
+            if (top < bottom - 1e-9) continue;
+            rows.AddRange(d.Forces.States(d.Project, m.Pile, top, bottom, reduce));
+        }
+        return StateReduction.Reduce(rows, reduce);
     }
 }

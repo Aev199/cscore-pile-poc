@@ -339,6 +339,16 @@ public class AppTests
         p.CageZones[0].Pitch = "150";
         p.CageZones[1].Pitch = "250";
         Assert.True(p.CageEditsPending);
+        // Another type selected: the edits of type 2 are kept, and the partition cannot change under them.
+        p.SelectedTypeNumber = 1;
+        Assert.True(p.CageEditsPending);
+        Assert.Single(p.CageZones);
+        await p.NewTypeCommand.ExecuteAsync(null);
+        Assert.Contains("не применены", p.Errors);
+        Assert.Equal(2, p.Types.Count);
+        p.SelectedTypeNumber = 2;
+        Assert.Equal("10", p.CageZones[0].Count);
+        Assert.Equal("250", p.CageZones[1].Pitch);
         await p.ApplyCageCommand.ExecuteAsync(null);
         Assert.Empty(p.Errors);
         Assert.False(p.CageEditsPending);

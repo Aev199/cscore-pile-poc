@@ -14,10 +14,11 @@ public partial class CageZoneRow : ObservableObject
     [ObservableProperty] string spiral = "10";
     [ObservableProperty] string pitch = "200";
 
-    public static CageZoneRow FromZone(TypeZone z, double head, double defaultPitch) => new()
+    /// <summary>A zone without its own spiral or pitch is checked with those of the section: they are shown.</summary>
+    public static CageZoneRow FromZone(TypeZone z, double head, double defaultPitch, double defaultSpiral) => new()
     {
         From = S(head - z.Top), To = S(head - z.Bottom), Count = S(z.Bars.Count), Diameter = S(z.Bars.DiameterMm),
-        Spiral = S(z.SpiralMm ?? 10), Pitch = S(z.PitchMm ?? defaultPitch),
+        Spiral = S(z.SpiralMm ?? defaultSpiral), Pitch = S(z.PitchMm ?? defaultPitch),
     };
     static string S(double x) => x.ToString("0.###", CultureInfo.InvariantCulture);
     public TypeZone ToZone(double head)

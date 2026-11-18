@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace SectionCalc.Profile;
 
 /// <summary>
@@ -276,50 +278,78 @@ public sealed class ForceProfile
         double topLevel = pile is null ? TopLevel : samples.Max(x => x.Level), bottomLevel = pile is null ? BottomLevel : samples.Min(x => x.Level);
         int count = Math.Max(1, (int)Math.Ceiling((topLevel - bottomLevel) / step - 1e-9));
         var phases = p.Phases.ToDictionary(ph => ph.Id);
-        // Envelope corners are separate curves: interpolate each one on its own.
-        var byPhase = samples.GroupBy(x => (x.Phase, x.Corner, x.Pile)).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Level).ToList());
+        var byPhase = pile is int one ? Curves(one) : ByPhase(samples);
+        bool reduce = allStates && StateReduction.Reducible(p);
         var stations = new List<Station>();
         for (int i = 0; i <= count; i++)
         {
             double level = Math.Max(bottomLevel, topLevel - i * step);
             double top = Math.Min(topLevel, level + step / 2), bottom = Math.Max(bottomLevel, level - step / 2);
-            var rows = new List<LoadRow>();
-            foreach (var group in byPhase.Where(kv => phases.ContainsKey(kv.Key.Phase))
-                         .GroupBy(kv => CombinationKind.Of(Row(phases[kv.Key.Phase]))))
-            {
-                var candidates = group.SelectMany(kv => Window(kv.Value, top, bottom)).ToList();
-                if (candidates.Count == 0) continue;
-                if (IsEnvelope)
-                {
-                    rows.AddRange(EnvelopeRows(p, candidates, phases, this));
-                    continue;
-                }
-                var picked = new List<(string Label, ForceSample S)>
-                {
-                    ("Mmax", candidates.MaxBy(x => x.M)!), ("Mmin", candidates.MinBy(x => x.M)!),
-                    ("Nmax", candidates.MaxBy(x => x.N)!), ("Nmin", candidates.MinBy(x => x.N)!),
-                    ("Qmax", candidates.MaxBy(x => Math.Abs(x.Q))!),
-                };
-                // Final verification retains every simultaneous state, not only scalar extrema.
-                if (allStates)
-                    picked.AddRange(candidates.Distinct().Where(c => !picked.Any(x => x.S == c))
-                        .Select(c => ("состояние", c)));
-                foreach (var same in picked.GroupBy(x => x.S))
-                {
-                    var sample = same.Key;
-                    var ph = phases[sample.Phase];
-                    var row = Row(ph);
-                    row.Name = $"{PileLabel(sample.Pile)}{ph.Name}: {string.Join(", ", same.Select(x => x.Label))} · z={sample.Level - Piles[sample.Pile].Shift:0.###}";
-                    row.N = p.Settings.IgnoreAxialForce ? 0 : sample.N; row.Q = Math.Abs(sample.Q);
-                    // Wall: Mx > 0 stretches the positive (right) face.
-                    row.Mx = p.Section.Kind == SectionKind.Wall ? p.Settings.MomentSign * sample.M : Math.Abs(sample.M);
-                    row.LoadFactor = p.Settings.ServiceDivisor; row.SustainedShare = p.Settings.SustainedShare;
-                    rows.Add(row);
-                }
-            }
-            stations.Add(new Station(level, top, bottom, rows));
+            stations.Add(new Station(level, top, bottom, RowsIn(p, byPhase, phases, top, bottom, allStates, reduce)));
         }
         return stations;
+    }
+
+    /// <summary>
+    /// Every simultaneous state of one pile between two levels (its own levels, with its shift), with the values
+    /// interpolated at both ends: the rows of a cage zone, independent of the stations.
+    /// </summary>
+    /// <param name="reduce">Drop the states that cannot govern (<see cref="StateReduction"/>); null — as the project allows.</param>
+    public List<LoadRow> States(ProfileProject p, int pile, double top, double bottom, bool? reduce = null)
+    {
+        var phases = p.Phases.ToDictionary(ph => ph.Id);
+        return RowsIn(p, Curves(pile), phases, top, bottom, true, reduce ?? StateReduction.Reducible(p));
+    }
+
+    // Envelope corners are separate curves: interpolate each one on its own.
+    static Dictionary<(int Phase, int Corner, int Pile), List<ForceSample>> ByPhase(IEnumerable<ForceSample> samples) =>
+        samples.GroupBy(x => (x.Phase, x.Corner, x.Pile)).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Level).ToList());
+
+    readonly ConcurrentDictionary<int, Dictionary<(int Phase, int Corner, int Pile), List<ForceSample>>> curves = new();
+    Dictionary<(int Phase, int Corner, int Pile), List<ForceSample>> Curves(int pile) =>
+        curves.GetOrAdd(pile, i => ByPhase(Samples.Where(x => x.Pile == i)));
+
+    List<LoadRow> RowsIn(ProfileProject p, Dictionary<(int Phase, int Corner, int Pile), List<ForceSample>> byPhase,
+        Dictionary<int, PhaseSetting> phases, double top, double bottom, bool allStates, bool reduce)
+    {
+        var rows = new List<LoadRow>();
+        foreach (var group in byPhase.Where(kv => phases.ContainsKey(kv.Key.Phase))
+                     .GroupBy(kv => CombinationKind.Of(Row(phases[kv.Key.Phase]))))
+        {
+            var candidates = group.SelectMany(kv => Window(kv.Value, top, bottom)).ToList();
+            if (candidates.Count == 0) continue;
+            if (IsEnvelope)
+            {
+                rows.AddRange(EnvelopeRows(p, candidates, phases, this));
+                continue;
+            }
+            var picked = new List<(string Label, ForceSample S)>
+            {
+                ("Mmax", candidates.MaxBy(x => x.M)!), ("Mmin", candidates.MinBy(x => x.M)!),
+                ("Nmax", candidates.MaxBy(x => x.N)!), ("Nmin", candidates.MinBy(x => x.N)!),
+                ("Qmax", candidates.MaxBy(x => Math.Abs(x.Q))!),
+            };
+            // Final verification retains every simultaneous state, not only scalar extrema.
+            if (allStates)
+            {
+                var seen = picked.Select(x => x.S).ToHashSet();
+                picked.AddRange(candidates.Where(seen.Add).Select(c => ("состояние", c)));
+            }
+            foreach (var same in picked.GroupBy(x => x.S))
+            {
+                var sample = same.Key;
+                var ph = phases[sample.Phase];
+                var row = Row(ph);
+                row.Name = $"{PileLabel(sample.Pile)}{ph.Name}: {string.Join(", ", same.Select(x => x.Label))} · z={sample.Level - Piles[sample.Pile].Shift:0.###}";
+                row.N = p.Settings.IgnoreAxialForce ? 0 : sample.N; row.Q = Math.Abs(sample.Q);
+                // Wall: Mx > 0 stretches the positive (right) face.
+                row.Mx = p.Section.Kind == SectionKind.Wall ? p.Settings.MomentSign * sample.M : Math.Abs(sample.M);
+                row.LoadFactor = p.Settings.ServiceDivisor; row.SustainedShare = p.Settings.SustainedShare;
+                rows.Add(row);
+            }
+        }
+        // States that cannot govern (see StateReduction); the scalar extrema are only a part of them.
+        return allStates ? StateReduction.Reduce(rows, reduce) : rows;
     }
 
     /// <summary>

@@ -264,6 +264,7 @@ public partial class ProfileViewModel : ObservableObject
     bool syncing;
     [ObservableProperty] string momentSignText = "";
     [ObservableProperty] bool ignoreAxialForce;
+    [ObservableProperty] bool exhaustiveStates;
     [ObservableProperty] bool skipInactiveZeroN = true;
     /// <summary>Typing: 0 — one cage along the whole pile, 1 — zones along the envelope.</summary>
     [ObservableProperty] int cageIndex;
@@ -312,7 +313,7 @@ public partial class ProfileViewModel : ObservableObject
         if (!loading && e.PropertyName is nameof(ForceUnit) or nameof(LengthUnit) or nameof(PileSpacing) or nameof(StationStep)
                 or nameof(MinPercent) or nameof(ServiceDivisor) or nameof(SustainedShare) or nameof(MomentSignIndex) or nameof(Confirmed)
                 or nameof(IgnoreAxialForce) or nameof(ExcavationIndex) or nameof(AlignPileHeads) or nameof(PanelWidth) or nameof(ModeIndex)
-                or nameof(TypeCount) or nameof(SkipInactiveZeroN) or nameof(CageIndex))
+                or nameof(TypeCount) or nameof(SkipInactiveZeroN) or nameof(CageIndex) or nameof(ExhaustiveStates))
             Changed();
     }
 
@@ -325,7 +326,7 @@ public partial class ProfileViewModel : ObservableObject
         MomentSignIndex = s.MomentSign > 0 ? 0 : 1; Confirmed = s.Confirmed; IgnoreAxialForce = s.IgnoreAxialForce;
         ExcavationIndex = Excavation(s.ExcavationSide); AlignPileHeads = s.AlignPileHeads; SkipInactiveZeroN = s.SkipInactiveZeroN;
         ScenarioIndex = (int)s.Scenario; ModeIndex = (int)s.Mode; TypeCount = s.TypeCount.ToString(CultureInfo.InvariantCulture);
-        CageIndex = s.UniformCage ? 0 : 1;
+        CageIndex = s.UniformCage ? 0 : 1; ExhaustiveStates = s.ExhaustiveStates;
         PanelWidth = S(s.PanelWidthM > 0 ? s.PanelWidthM : project.Section.Wall.WidthMm / 1000);
         PeakCuts.Clear();
         foreach (var c in s.PeakCuts) PeakCuts.Add(new PeakCutViewModel(c, Changed, RemoveCut));
@@ -360,6 +361,7 @@ public partial class ProfileViewModel : ObservableObject
         s.MomentSign = MomentSignIndex == 0 ? 1 : -1; s.Confirmed = Confirmed; s.IgnoreAxialForce = IgnoreAxialForce;
         s.ExcavationSide = ExcavationIndex switch { 1 => 1, 2 => -1, _ => 0 }; s.AlignPileHeads = AlignPileHeads; s.SkipInactiveZeroN = SkipInactiveZeroN;
         s.Scenario = Scenario; s.Mode = (ProfileMode)ModeIndex; s.UniformCage = CageIndex == 0;
+        s.ExhaustiveStates = ExhaustiveStates;
         if (IsTyping)
         {
             if (int.TryParse(TypeCount.Trim(), out int k) && k >= 1) s.TypeCount = k; else e.Add("Число типов — целое число от 1");
@@ -444,6 +446,7 @@ public partial class ProfileViewModel : ObservableObject
         await Busy("Проверка заданных каркасов…", async token =>
         {
             ColorModeIndex = 0;
+            if (drafts.Count > 0) throw new InvalidOperationException(PendingMessage);
             demands = await Task.Run(() => PileTyping.ForCheck(project), token);
             demandsKey = null; // Direct checking has no interpolation tables; never reuse it for design.
             verified.Clear();
@@ -465,13 +468,45 @@ public partial class ProfileViewModel : ObservableObject
 
     public ObservableCollection<CageZoneRow> CageZones { get; } = [];
     [ObservableProperty] bool cageEditsPending;
+    [ObservableProperty] string pendingText = "";
     [ObservableProperty] CageZoneRow? selectedCageZone;
+    /// <summary>Edited, not applied zone tables by the piles of their type: switching the type keeps them.</summary>
+    readonly Dictionary<string, (int Number, List<CageZoneRow> Rows)> drafts = [];
+    string? shownKey;
+    string PendingMessage => $"Изменения зон не применены ({string.Join(", ", drafts.Values.Select(x => $"Т{x.Number}"))}): «Применить и проверить» или «Отменить изменения»";
 
     void WatchCageEdits()
     {
         foreach (var row in CageZones) { row.PropertyChanged -= CageEdited; row.PropertyChanged += CageEdited; }
     }
-    void CageEdited(object? sender, PropertyChangedEventArgs e) => CageEditsPending = true;
+    void CageEdited(object? sender, PropertyChangedEventArgs e) => KeepDraft();
+
+    void KeepDraft()
+    {
+        if (shownKey is null) return;
+        drafts[shownKey] = (SelectedTypeNumber, CageZones.ToList());
+        ShowPending();
+    }
+
+    void ShowPending()
+    {
+        CageEditsPending = drafts.Count > 0;
+        PendingText = drafts.Count == 0 ? "" : "Изменения не применены: " + string.Join(", ", drafts.Values.Select(x => $"Т{x.Number}"));
+    }
+
+    void ClearDrafts()
+    {
+        drafts.Clear();
+        ShowPending();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    void DiscardCage()
+    {
+        if (shownKey is not null) drafts.Remove(shownKey);
+        ShowPending();
+        ShowTypeDetails();
+    }
 
     [RelayCommand(CanExecute = nameof(CanEdit))]
     void SplitCageZone()
@@ -483,10 +518,10 @@ public partial class ProfileViewModel : ObservableObject
             var z = row.ToZone(0);
             double mid = (z.Top + z.Bottom) / 2;
             int i = CageZones.IndexOf(row);
-            CageZones[i] = CageZoneRow.FromZone(z with { Bottom = mid }, 0, 200);
-            CageZones.Insert(i + 1, CageZoneRow.FromZone(z with { Top = mid }, 0, 200));
+            CageZones[i] = CageZoneRow.FromZone(z with { Bottom = mid }, 0, z.PitchMm ?? 200, z.SpiralMm ?? 10);
+            CageZones.Insert(i + 1, CageZoneRow.FromZone(z with { Top = mid }, 0, z.PitchMm ?? 200, z.SpiralMm ?? 10));
             WatchCageEdits();
-            CageEditsPending = true;
+            KeepDraft();
         }
         catch (InvalidOperationException ex) { Errors = ex.Message; }
     }
@@ -503,7 +538,16 @@ public partial class ProfileViewModel : ObservableObject
             SavedPileType.ValidateZones(zones, t.Head, t.Tip);
             var edited = t with { Zones = zones };
             var r = typing with { Types = typing.Types.Select(x => x.Number == t.Number ? edited : x).ToList() };
+            var draft = drafts.GetValueOrDefault(t.Key);
+            drafts.Remove(t.Key);
             await Busy("Проверка заданного каркаса…", token => Apply(r, token));
+            // Not applied (an error, a stop): the edits stay.
+            static object Geometry(TypeZone z) => (z.Top, z.Bottom, z.Bars, z.SpiralMm, z.PitchMm);
+            var now = typing?.Types.FirstOrDefault(x => x.Key == t.Key);
+            bool applied = now is not null && now.Zones.Select(Geometry).SequenceEqual(zones.Select(Geometry));
+            if (!applied && draft.Rows is not null) drafts[t.Key] = draft;
+            ShowPending();
+            ShowTypeDetails();
         }
         catch (InvalidOperationException ex) { Errors = ex.Message; }
     }
@@ -533,8 +577,10 @@ public partial class ProfileViewModel : ObservableObject
             var d = demands;
             Status = "Группировка свай по типам…";
             Progress = 0;
+            // The steel curve belongs to the demands: kept for the saved partition while they are the same.
+            var curve = typing is not null && ReferenceEquals(typing.Demands, d) ? typing.Curve : [];
             var grouped = await Task.Run(() => project.PileTypes.Count > 0
-                ? SavedPileType.Restore(d, project.PileTypes, check: false)
+                ? SavedPileType.Restore(d, project.PileTypes, check: false) with { Curve = curve }
                 : PileTyping.Group(d, count, locked), token);
             await Apply(grouped, token);
         });
@@ -546,20 +592,28 @@ public partial class ProfileViewModel : ObservableObject
     /// </summary>
     async Task Apply(TypingResult r, CancellationToken token)
     {
-        // Checked types by their piles and the cage kind (one cage or zones).
-        string Cached(PileType t) => t.Key + (project.Settings.UniformCage ? "|uniform" : "|zones");
-        if (!IsCheck) r = r with { Types = r.Types.Select(t => verified.TryGetValue(Cached(t), out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
+        // Checked types by their piles and the cage kind (one cage or zones); a given cage also by its zones, so moving
+        // piles or editing one type does not check the unchanged types again.
+        var inv = CultureInfo.InvariantCulture;
+        string Zones(PileType t) => string.Join(";", t.Zones.Select(z => string.Join(",", z.Top.ToString("R", inv), z.Bottom.ToString("R", inv),
+            z.Bars.Rows, z.Bars.Count, z.Bars.DiameterMm.ToString("R", inv), z.SpiralMm?.ToString("R", inv), z.PitchMm?.ToString("R", inv))));
+        string Cached(PileType t) => IsCheck ? "check|" + t.Key + "|" + Zones(t) : t.Key + (project.Settings.UniformCage ? "|uniform" : "|zones");
+        r = r with { Types = r.Types.Select(t => verified.TryGetValue(Cached(t), out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
         Status = "Проверка каркасов…";
         Progress = 0;
-        IProgress<(int Type, int Zone, int Attempt, int Done, int Total)> check =
-            new Progress<(int Type, int Zone, int Attempt, int Done, int Total)>(x =>
+        int shown = 0;
+        IProgress<(int Done, int Total, int Zones, int ZoneCount)> check =
+            new Progress<(int Done, int Total, int Zones, int ZoneCount)>(x =>
             {
+                // Reports of parallel zones may arrive out of order: the counter only grows.
+                if (x.Done < shown) return;
+                shown = x.Done;
                 Progress = 100.0 * x.Done / Math.Max(1, x.Total);
-                Status = $"Тип {x.Type}, зона {x.Zone}, вариант {x.Attempt}: проверено {x.Done} из {x.Total} сочетаний";
+                Status = $"Проверка каркасов: зон {x.Zones} из {x.ZoneCount}, сочетаний {x.Done} из {x.Total}";
             });
         bool redesign = !IsCheck;
         r = await Task.Run(() => PileTyping.Verify(r, cancel: token, only: t => !t.Verified, redesign: redesign,
-            batchProgress: (t, z, a, n, total) => check.Report((t, z, a, n, total))), token);
+            batchProgress: (n, total, z, zones) => check.Report((n, total, z, zones))), token);
         foreach (var t in r.Types) verified[Cached(t)] = t;
         typing = r;
         project.PileTypes = SavedPileType.Capture(r);
@@ -663,9 +717,13 @@ public partial class ProfileViewModel : ObservableObject
         var t = typing?.Types.FirstOrDefault(x => x.Number == SelectedTypeNumber);
         if (t is null) { StationSketch = null; StationText = ""; return; }
         CageZones.Clear();
-        foreach (var z in t.Zones) CageZones.Add(CageZoneRow.FromZone(z, t.Head, project.Section.Conditions.ShearPitchMm));
+        shownKey = null;
+        var given = typing!.Demands.Project.Section;
+        if (drafts.TryGetValue(t.Key, out var draft)) foreach (var row in draft.Rows) CageZones.Add(row);
+        else foreach (var z in t.Zones) CageZones.Add(CageZoneRow.FromZone(z, t.Head, given.Conditions.ShearPitchMm, given.Pile.SpiralDiameterMm));
         WatchCageEdits();
-        CageEditsPending = false;
+        shownKey = t.Key;
+        ShowPending();
         var strongest = t.Zones.MaxBy(z => z.Bars.AreaMm2)!;
         var section = ProjectStore.Deserialize(ProjectStore.Serialize(typing!.Demands.Project.Section));
         section.Pile.BarCount = strongest.Bars.Count; section.Pile.BarDiameterMm = strongest.Bars.DiameterMm;
@@ -685,6 +743,7 @@ public partial class ProfileViewModel : ObservableObject
     {
         if (typing is null || demands is null) return;
         if (ResultIsStale) { Errors = "Данные изменены — выполните расчёт заново"; return; }
+        if (drafts.Count > 0) { Errors = PendingMessage; return; }
         var groups = Partition();
         var locked = typing.Types.Select(t => t.Locked).ToList();
         if (change(groups, locked) is string problem) { Errors = problem; return; }
@@ -983,7 +1042,7 @@ public partial class ProfileViewModel : ObservableObject
             string key = Key();
             result = await Task.Run(() => check ? RequiredReinforcement.Check(p, progress, token) : RequiredReinforcement.Run(p, progress, token), token);
             resultKey = key;
-            typing = null; Types.Clear(); PileRows.Clear();
+            typing = null; Types.Clear(); PileRows.Clear(); ClearDrafts();
             OnPropertyChanged(nameof(Typing)); OnPropertyChanged(nameof(HasTyping)); OnPropertyChanged(nameof(HasNoTyping));
             ShowResult();
         });
@@ -1052,14 +1111,14 @@ public partial class ProfileViewModel : ObservableObject
     void ClearResult()
     {
         result = null; HasResult = false; ResultIsStale = false; Stations.Clear(); Summary = ""; SelectedStation = null;
-        typing = null; demands = null; Types.Clear(); PileRows.Clear(); verified.Clear();
+        typing = null; demands = null; Types.Clear(); PileRows.Clear(); verified.Clear(); ClearDrafts();
         OnPropertyChanged(nameof(Typing)); OnPropertyChanged(nameof(HasTyping)); OnPropertyChanged(nameof(HasNoTyping));
     }
 
     [RelayCommand(CanExecute = nameof(CanRun))]
     async Task ExportRevit()
     {
-        if (CageEditsPending) { Errors = "Примените изменения арматуры перед выгрузкой"; return; }
+        if (drafts.Count > 0) { Errors = PendingMessage; return; }
         if (typing is not null && !ResultIsStale)
         {
             if (Storage?.Invoke() is not { } st) return;
@@ -1118,7 +1177,7 @@ public partial class ProfileViewModel : ObservableObject
     [RelayCommand]
     async Task SaveProject()
     {
-        if (CageEditsPending) { Errors = "Примените изменения арматуры перед сохранением"; return; }
+        if (drafts.Count > 0) { Errors = PendingMessage; return; }
         if (project.Source is null) { Errors = "Нет данных для сохранения"; return; }
         if (main.TryBuild(out _, quiet: true) is { } section) project.Section = section;
         var errors = new List<string>();

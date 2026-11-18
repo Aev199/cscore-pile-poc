@@ -13,27 +13,35 @@ public sealed class SavedPileType
         Zones = t.Zones.Select(z => z with { Top = t.Head - z.Top, Bottom = t.Head - z.Bottom, K = null, Governing = null }).ToList(),
     }).ToList();
 
+    /// <summary>
+    /// The saved partition into types. Checking (check=true) takes the saved cages as they are; design (check=false)
+    /// keeps only the piles of each type and its lock: the cages follow the current demands, as after «Собрать».
+    /// </summary>
     public static TypingResult Restore(PileDemands demands, IReadOnlyList<SavedPileType> saved, bool check)
     {
         var byName = demands.Piles.ToDictionary(p => p.Info.Name, p => p.Pile);
         var members = saved.SelectMany(t => t.Piles).ToList();
         if (members.Count != byName.Count || members.Distinct().Count() != members.Count || members.Any(n => !byName.ContainsKey(n)))
             throw new InvalidOperationException("Состав сохранённых типов не совпадает с выгрузкой: каждая свая должна входить ровно в один тип");
+        if (saved.Any(t => t.Piles.Count == 0)) throw new InvalidOperationException("Пустой тип свай");
+        if (!check)
+        {
+            var design = PileTyping.Build(demands,
+                saved.Select(t => (IReadOnlyList<int>)t.Piles.Select(n => byName[n]).ToList()).ToList(), saved.Select(t => t.Locked).ToList());
+            return design;
+        }
         var types = new List<PileType>();
-        var automatic = check ? null : PileTyping.Build(demands,
-            saved.Select(t => (IReadOnlyList<int>)t.Piles.Select(n => byName[n]).ToList()).ToList(), saved.Select(t => t.Locked).ToList());
         foreach (var entry in saved)
         {
-            if (entry.Piles.Count == 0) throw new InvalidOperationException("Пустой тип свай");
-            var piles = entry.Piles.Select(n => demands.Piles[byName[n]]).OrderByDescending(p => p.Length).ToList();
+            // The same order as the design: the first member (its head) is the origin of the zone depths.
+            var piles = PileTyping.Ordered(entry.Piles.Select(n => demands.Piles[byName[n]]));
             var first = piles[0];
             var zones = entry.Zones.Select(z => z with { Top = first.Info.Head - z.Top, Bottom = first.Info.Head - z.Bottom, K = null, Governing = null }).ToList();
             ValidateZones(zones, first.Info.Head, first.Info.Tip);
-            var basis = automatic?.Types[types.Count] ?? new PileType(types.Count + 1, piles, first.Stations.Select(s => s.Level).ToArray(),
-                first.As, first.Asw, zones, 0, 0);
-            types.Add(basis with { Zones = zones, Locked = entry.Locked });
+            types.Add(new PileType(types.Count + 1, piles, first.Stations.Select(s => s.Level).ToArray(), first.As, first.Asw, zones, 0, 0)
+                { Locked = entry.Locked });
         }
-        return new TypingResult(demands, types, check ? "Заданное армирование; автоматическое изменение отключено" : null) { SeparateSteelKg = automatic?.SeparateSteelKg ?? 0 };
+        return new TypingResult(demands, types, "Заданное армирование; автоматическое изменение отключено");
     }
 
     public static void ValidateZones(IReadOnlyList<TypeZone> zones, double head, double tip)
