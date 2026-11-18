@@ -79,7 +79,7 @@ public sealed class ForceProfile
         for (int i = 0; i < pileNames.Count; i++)
         {
             var nodes = used.Where(d => pileOf.GetValueOrDefault(d.Object) == i).SelectMany(d => d.Nodes).ToList();
-            if (nodes.Count == 0) continue;
+            if (nodes.Count == 0) throw new InvalidOperationException($"Нет усилий выбранных стадий для сваи {pileNames[i]}; проверьте состав выгрузки");
             string name = pileNames[i].Length > 0 ? pileNames[i] : string.Join(", ", src.Objects.Select(o => o.Name));
             double head = nodes.Max(n => n[zi]) * l, tip = nodes.Min(n => n[zi]) * l;
             double spread = is3D
@@ -267,7 +267,7 @@ public sealed class ForceProfile
     /// РСУ per combination kind: Mmax, Mmin, Nmax, Nmin, |Q|max with the accompanying forces.
     /// </summary>
     /// <param name="pile">Only this pile of a group, along its own length (the piles one by one).</param>
-    public List<Station> Stations(ProfileProject p, int? pile = null)
+    public List<Station> Stations(ProfileProject p, int? pile = null, bool allStates = false)
     {
         double step = p.Settings.StationStepM;
         if (!(step > 0)) throw new InvalidOperationException("Шаг сечений должен быть больше 0");
@@ -300,12 +300,16 @@ public sealed class ForceProfile
                     ("Nmax", candidates.MaxBy(x => x.N)!), ("Nmin", candidates.MinBy(x => x.N)!),
                     ("Qmax", candidates.MaxBy(x => Math.Abs(x.Q))!),
                 };
+                // Final verification retains every simultaneous state, not only scalar extrema.
+                if (allStates)
+                    picked.AddRange(candidates.Distinct().Where(c => !picked.Any(x => x.S == c))
+                        .Select(c => ("состояние", c)));
                 foreach (var same in picked.GroupBy(x => x.S))
                 {
                     var sample = same.Key;
                     var ph = phases[sample.Phase];
                     var row = Row(ph);
-                    row.Name = $"{PileLabel(sample.Pile)}{ph.Name}: {string.Join(", ", same.Select(x => x.Label))}";
+                    row.Name = $"{PileLabel(sample.Pile)}{ph.Name}: {string.Join(", ", same.Select(x => x.Label))} · z={sample.Level - Piles[sample.Pile].Shift:0.###}";
                     row.N = p.Settings.IgnoreAxialForce ? 0 : sample.N; row.Q = Math.Abs(sample.Q);
                     // Wall: Mx > 0 stretches the positive (right) face.
                     row.Mx = p.Section.Kind == SectionKind.Wall ? p.Settings.MomentSign * sample.M : Math.Abs(sample.M);

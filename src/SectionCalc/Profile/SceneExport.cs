@@ -87,6 +87,7 @@ public static class SceneExport
             var section = ProjectStore.Deserialize(ProjectStore.Serialize(d.Project.Section));
             section.Conditions.ElementLengthM = w.Type.Head - w.Type.Tip;
             section.Pile.BarCount = w.Zone.Bars.Count; section.Pile.BarDiameterMm = w.Zone.Bars.DiameterMm;
+            if (w.Zone.PitchMm is double pitch) section.Conditions.ShearPitchMm = pitch;
             if (w.Zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
             var (nc, nt) = Nult(section, cancel);
             result[(w.Type.Number, w.Index)] = new ZoneCapacity(n, Mult(section, n, cancel), Qult(section, n, cancel), nc, nt);
@@ -132,7 +133,7 @@ public static class SceneExport
                     ["z"] = R(e.Level, 3), ["nmin"] = R(e.NMin, 1), ["nmax"] = R(e.NMax, 1),
                     ["m"] = R(Math.Max(Math.Abs(e.MMin), Math.Abs(e.MMax)), 1), ["q"] = R(e.QAbsMax, 1),
                 };
-                if (demand is not null)
+                if (demand is not null && p.Settings.Mode != ProfileMode.Check)
                 {
                     int k = Containing(demand.Stations, e.Level);
                     o["as"] = R(demand.As[k] / 100, 2);
@@ -161,7 +162,7 @@ public static class SceneExport
                 ["type"] = type?.Number, ["color"] = type is null ? "#9aa7b0" : Hex(type.Number), ["d"] = diameter, ["shift"] = R(shift, 3),
                 ["stations"] = stations,
                 // The intervals of the search: the required area holds over each of them.
-                ["steps"] = demand is null ? null : new JsonArray(demand.Stations.Select((st, k) => (JsonNode)new JsonObject
+                ["steps"] = demand is null || p.Settings.Mode == ProfileMode.Check ? null : new JsonArray(demand.Stations.Select((st, k) => (JsonNode)new JsonObject
                 {
                     ["top"] = R(st.Top, 3), ["bottom"] = R(st.Bottom, 3), ["as"] = R(demand.As[k] / 100, 2),
                     ["asw"] = double.IsFinite(demand.Asw[k]) ? R(demand.Asw[k], 2) : null,
@@ -175,7 +176,7 @@ public static class SceneExport
             ["zones"] = new JsonArray(t.Zones.Select((z, i) => (JsonNode)new JsonObject
             {
                 ["top"] = R(z.Top, 3), ["bottom"] = R(z.Bottom, 3), ["bars"] = z.Bars.ToString(), ["as"] = R(z.Bars.AreaMm2 / 100, 2),
-                ["spiral"] = z.SpiralMm, ["k"] = z.K is double k ? R(k, 3) : null, ["governing"] = z.Governing,
+                ["spiral"] = z.SpiralMm, ["pitch"] = z.PitchMm ?? p.Section.Conditions.ShearPitchMm, ["k"] = z.K is double k ? R(k, 3) : null, ["governing"] = z.Governing,
                 ["mult"] = capacities?.TryGetValue((t.Number, i), out var c) == true ? R(c.Mult, 1) : null,
                 ["n"] = capacities?.TryGetValue((t.Number, i), out var c2) == true ? R(c2.N, 1) : null,
                 ["qult"] = capacities?.TryGetValue((t.Number, i), out var c3) == true && c3.Qult is double qz ? R(qz, 1) : null,

@@ -205,17 +205,22 @@
       <Grid Grid.Column="1" Grid.ColumnSpan="2" RowDefinitions="Auto,10,*,10,230,Auto" IsVisible="{Binding HasTyping}">
         <Border Classes="panel" Padding="14,8">
           <Grid ColumnDefinitions="Auto,16,*,16,Auto">
-            <StackPanel VerticalAlignment="Center" Spacing="6">
+            <StackPanel VerticalAlignment="Center" Spacing="6" IsVisible="{Binding IsTyping}">
               <TextBlock Classes="panelTitle" Text="Число типов" />
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <TextBox Text="{Binding TypeCount}" Width="64" HorizontalContentAlignment="Right" />
-                <Button Classes="primary" Content="Собрать" Command="{Binding CalculateCommand}" ToolTip.Tip="Автоматическое объединение; закреплённые типы сохраняются" />
+                <Button Classes="primary" Content="Собрать" Command="{Binding RegroupCommand}" ToolTip.Tip="Автоматическое объединение; закреплённые типы сохраняются" />
               </StackPanel>
               <Button Classes="tool" Content="{Binding SuggestedText}" Command="{Binding UseSuggestedCommand}" IsVisible="{Binding HasSuggestion}" Padding="0" HorizontalAlignment="Left"
                       Foreground="{StaticResource GbAccent}" ToolTip.Tip="Собрать с рекомендуемым числом типов" />
             </StackPanel>
-            <c:SteelCurve Grid.Column="2" Height="110" Typing="{Binding Typing}" SelectedCount="{Binding CurveCount}"
+            <c:SteelCurve Grid.Column="2" Height="110" IsVisible="{Binding IsTyping}" Typing="{Binding Typing}" SelectedCount="{Binding CurveCount}"
                           ToolTip.Tip="Сталь по огибающим в зависимости от числа типов; щелчок по точке задаёт число типов" />
+            <StackPanel Grid.Column="2" IsVisible="{Binding IsCheck}" VerticalAlignment="Center" Spacing="6">
+              <TextBlock Text="Проверка заданных каркасов" FontWeight="SemiBold" />
+              <TextBlock Text="Состав типов меняется на плане. Арматура — в таблице «Армирование типа»." TextWrapping="Wrap" />
+              <Button Content="Проверить все типы" Command="{Binding CalculateCommand}" HorizontalAlignment="Left" />
+            </StackPanel>
             <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="6" Width="300">
               <TextBlock Text="{Binding SelectionText}" FontSize="11.5" />
               <StackPanel Orientation="Horizontal" Spacing="6">
@@ -223,7 +228,7 @@
                 <Button Content="Перенести" Command="{Binding MovePilesCommand}" ToolTip.Tip="Выбранные сваи — в тип из списка" />
                 <Button Content="Новый тип" Command="{Binding NewTypeCommand}" ToolTip.Tip="Выбранные сваи — в отдельный тип" />
               </StackPanel>
-              <Button Classes="small" Content="Закрепить / открепить тип" Command="{Binding ToggleLockCommand}" ToolTip.Tip="Выбранный тип не меняется при автоматической сборке" />
+              <Button Classes="small" Content="Закрепить / открепить тип" IsVisible="{Binding IsTyping}" Command="{Binding ToggleLockCommand}" ToolTip.Tip="Выбранный тип не меняется при автоматической сборке" />
             </StackPanel>
           </Grid>
         </Border>
@@ -270,6 +275,26 @@
                   <DataGridTextColumn x:DataType="vm:TypeRowViewModel" Header="Закреплён" Binding="{Binding Locked}" Width="105" />
                 </DataGrid.Columns>
               </DataGrid>
+            </TabItem>
+            <TabItem Header="Армирование типа" IsVisible="{Binding IsCheck}">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,4">
+                  <TextBlock Text="Изменения не применены" IsVisible="{Binding CageEditsPending}" Foreground="DarkOrange" />
+                  <TextBlock Text="Глубины от оголовка, м; диаметры и шаг, мм" VerticalAlignment="Center" />
+                  <Button Content="Разделить зону" Command="{Binding SplitCageZoneCommand}" />
+                  <Button Content="Применить и проверить" Command="{Binding ApplyCageCommand}" />
+                </StackPanel>
+                <DataGrid ItemsSource="{Binding CageZones}" SelectedItem="{Binding SelectedCageZone}" IsReadOnly="False" CanUserSortColumns="False" GridLinesVisibility="Horizontal">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn x:DataType="vm:CageZoneRow" Header="От" Binding="{Binding From}" Width="*" />
+                    <DataGridTextColumn x:DataType="vm:CageZoneRow" Header="До" Binding="{Binding To}" Width="*" />
+                    <DataGridTextColumn x:DataType="vm:CageZoneRow" Header="Стержней" Binding="{Binding Count}" Width="*" />
+                    <DataGridTextColumn x:DataType="vm:CageZoneRow" Header="Ø стержней" Binding="{Binding Diameter}" Width="*" />
+                    <DataGridTextColumn x:DataType="vm:CageZoneRow" Header="Ø спирали" Binding="{Binding Spiral}" Width="*" />
+                    <DataGridTextColumn x:DataType="vm:CageZoneRow" Header="Шаг спирали" Binding="{Binding Pitch}" Width="*" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
             </TabItem>
             <TabItem Header="Сваи">
               <DataGrid ItemsSource="{Binding PileRows}" SelectedItem="{Binding SelectedPileRow}" Classes="loads" IsReadOnly="True" CanUserSortColumns="True" GridLinesVisibility="Horizontal">

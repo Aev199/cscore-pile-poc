@@ -145,9 +145,9 @@ public static class TypingChart
         float l2 = left + wAs + gap, w2 = box.Right - l2;
         Label(canvas, "Asw/sw, см²/м", l2 + w2 / 2, box.Top + font.Size * 1.4f, SKTextAlign.Center, font, text);
         double pitch = r.Demands.Project.Section.Conditions.ShearPitchMm;
-        double SpiralAsw(double d) => 2 * Math.PI * d * d / 4 / pitch * 10;
+        double SpiralAsw(double d, TypeZone z) => 2 * Math.PI * d * d / 4 / (z.PitchMm ?? pitch) * 10;
         double max2 = Math.Max(1e-6, Math.Max(type.Asw.Where(double.IsFinite).DefaultIfEmpty(0).Max(),
-            type.Zones.Select(z => z.SpiralMm is double d ? SpiralAsw(d) : 0).DefaultIfEmpty(0).Max())) * 1.1;
+            type.Zones.Select(z => z.SpiralMm is double d ? SpiralAsw(d, z) : 0).DefaultIfEmpty(0).Max())) * 1.1;
         float X2(double v) => l2 + (float)(v / max2) * w2;
         using (var fill = new SKPaint { Color = color.WithAlpha(50), IsAntialias = true })
             for (int i = 0; i < type.Levels.Length; i++)
@@ -160,8 +160,8 @@ public static class TypingChart
         foreach (var z in type.Zones)
             if (z.SpiralMm is double d)
             {
-                canvas.DrawRect(new SKRect(l2, Y(z.Top), X2(SpiralAsw(d)), Y(z.Bottom)), spiral);
-                Label(canvas, $"Ø{d:0}", X2(SpiralAsw(d)) - 3, (Y(z.Top) + Y(z.Bottom)) / 2 + small.Size * 0.35f, SKTextAlign.Right, small, text);
+                canvas.DrawRect(new SKRect(l2, Y(z.Top), X2(SpiralAsw(d, z)), Y(z.Bottom)), spiral);
+                Label(canvas, $"Ø{d:0}", X2(SpiralAsw(d, z)) - 3, (Y(z.Top) + Y(z.Bottom)) / 2 + small.Size * 0.35f, SKTextAlign.Right, small, text);
             }
     }
 

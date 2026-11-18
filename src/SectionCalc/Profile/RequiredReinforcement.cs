@@ -55,7 +55,7 @@ public static class RequiredReinforcement
     public static ReinforcementProfile Check(ProfileProject project, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default)
     {
         var forces = ForceProfile.Build(project);
-        var stations = forces.Stations(project);
+        var stations = forces.Stations(project, allStates: true);
         var section = Clone(project.Section);
         section.Conditions.ElementLengthM = Math.Max(0.1, Math.Round(forces.Length, 3));
         section.Conditions.OnePlane = section.Kind == SectionKind.Wall;
@@ -93,14 +93,9 @@ public static class RequiredReinforcement
                     rows.AddRange(Engine.Check(WithLoads(section, normal), cancel).Rows.Where(x => Demand.Contains(x.CheckId) || Shears.Contains(x.CheckId)));
                 if (section.Conditions.ShearCheck && shearOnly.Count > 0)
                     rows.AddRange(Engine.Check(WithLoads(section, shearOnly), cancel).Rows.Where(x => Shears.Contains(x.CheckId)));
-                bool indet = rows.Any(x => x.Status == "indeterminate" && Demand.Contains(x.CheckId));
-                bool shearOpen = rows.Any(x => x.Status == "indeterminate" && Shears.Contains(x.CheckId));
-                var gov = rows.Where(x => x.Utilization is not null && (x.CheckId != "member_stability" || x.IsFailure))
-                    .MaxBy(x => x.Utilization);
-                double? k = gov?.Utilization;
-                string status = indet ? "indeterminate" : k > 1 ? "exceeded" : "ok";
-                results[i] = new StationResult(station, right, left, asw, status, gov?.Title, gov?.Combination, k,
-                    indet ? "Расчёт ядра не сошёлся" : shearOpen ? "Q не проверен: подтвердите модель поперечного армирования" : null, 1);
+                var assessment = Assess(rows);
+                results[i] = new StationResult(station, right, left, asw, assessment.Status,
+                    assessment.Governing?.Title, assessment.Governing?.Combination, assessment.K, assessment.Note, 1);
             }
             progress?.Report((Interlocked.Increment(ref done), stations.Count));
         });
@@ -153,9 +148,28 @@ public static class RequiredReinforcement
             found.AddRange(Engine.Check(WithLoads(section, normal), cancel).Rows.Where(x => Demand.Contains(x.CheckId) || Shears.Contains(x.CheckId)));
         if (section.Conditions.ShearCheck && shearOnly.Count > 0)
             found.AddRange(Engine.Check(WithLoads(section, shearOnly), cancel).Rows.Where(x => Shears.Contains(x.CheckId)));
-        var gov = found.Where(x => x.Utilization is not null && (x.CheckId != "member_stability" || x.IsFailure)).MaxBy(x => x.Utilization);
-        if (found.Any(x => x.Status == "indeterminate" && Demand.Contains(x.CheckId))) return (null, "Расчёт ядра не сошёлся");
-        return (gov?.Utilization, gov?.Title);
+        var assessment = Assess(found);
+        return (assessment.Status == "indeterminate" ? null : assessment.K,
+            assessment.Note ?? (assessment.Governing is { } gov ? $"{gov.Title} · {gov.Combination}" : null));
+    }
+
+    internal sealed record Assessment(string Status, double? K, CheckRow? Governing, string? Note);
+
+    internal static Assessment Assess(IReadOnlyList<CheckRow> rows)
+    {
+        var gov = rows.Where(x => x.Utilization is double k && double.IsFinite(k)
+                && (x.CheckId != "member_stability" || x.IsFailure)).MaxBy(x => x.Utilization);
+        // Requested checks that could not be evaluated never contribute a successful verdict.
+        var open = rows.FirstOrDefault(x => x.Status is "indeterminate" or "engineering_review"
+            || x.Status == "not_evaluated" && !x.Reason.EndsWith("not_requested")
+            || x.Utilization is double k && !double.IsFinite(k));
+        if (rows.Any(x => x.IsFailure) || gov?.Utilization > 1)
+            return new("exceeded", gov?.Utilization, gov, open is null ? null : $"Не завершена проверка: {open.Title}");
+        if (open?.Status == "engineering_review")
+            return new("indeterminate", gov?.Utilization, gov, $"Требуется инженерная оценка: {open.Title} · {open.Combination}");
+        if (open is not null || gov is null)
+            return new("indeterminate", gov?.Utilization, gov, open is null ? "Нет завершённых проверок" : $"Не завершена проверка: {open.Title} ({open.Reason})");
+        return new("ok", gov.Utilization, gov, null);
     }
 
     internal sealed record Face(int Index, int Bars, double Min, double Max);
