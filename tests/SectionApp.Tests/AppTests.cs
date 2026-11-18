@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using SectionApp;
 using SectionCalc;
 using SectionApp.ViewModels;
@@ -301,6 +302,65 @@ public class AppTests
             e.Data.Add(new() { Object = 0, Phase = ph.Id, Nodes = nodes });
         }
         return e;
+    }
+
+    [AvaloniaFact]
+    public async Task GivenPileCagesUseExistingCheckUiAndSurviveReopening()
+    {
+        var (window, vm) = Open(pile: true);
+        vm.ShowProfileCommand.Execute(null);
+        var p = vm.Profile;
+        p.ModeIndex = 1;
+        var e = new SectionCalc.Profile.PlaxisExport
+        {
+            Info = new() { Title = "Проверка РД", UnitForce = "kN", UnitLength = "m" },
+            Columns = ["x", "y", "z", "n", "m2", "m3", "q12", "q13"],
+            Objects = [new() { Id = 0, Name = "P1", Pile = "P1", Kind = "EmbeddedBeam" }, new() { Id = 1, Name = "P2", Pile = "P2", Kind = "EmbeddedBeam" }],
+            Phases = [new() { Id = 0, Name = "Phase_1" }],
+            Data = [new() { Object = 0, Phase = 0, Nodes = [[0, 0, 0, -100, 20, 0, 0, 0], [0, 0, -4, -100, 10, 0, 0, 0]] },
+                new() { Object = 1, Phase = 0, Nodes = [[3, 0, 0, -100, 30, 0, 0, 0], [3, 0, -4, -100, 15, 0, 0, 0]] }],
+        };
+        p.UseExport(e);
+        Assert.Equal(1, p.ModeIndex); // Import must not send a checker into automatic design.
+        p.StationStep = "4";
+        p.ConfirmForces = _ => Task.FromResult(true);
+        await p.CalculateCommand.ExecuteAsync(null);
+        Assert.True(p.HasTyping, p.Errors);
+        Assert.Single(p.Types);
+        Assert.Equal(0, p.Typing!.Demands.TablePoints);
+        p.SelectedPiles = [1];
+        await p.NewTypeCommand.ExecuteAsync(null);
+        Assert.Equal(2, p.Types.Count);
+        p.SelectedTypeNumber = 2;
+        p.SplitCageZoneCommand.Execute(null);
+        Assert.Equal(2, p.CageZones.Count);
+        p.CageZones[0].Count = "10";
+        p.CageZones[0].Diameter = "28";
+        p.CageZones[0].Pitch = "150";
+        p.CageZones[1].Pitch = "250";
+        Assert.True(p.CageEditsPending);
+        await p.ApplyCageCommand.ExecuteAsync(null);
+        Assert.Empty(p.Errors);
+        Assert.False(p.CageEditsPending);
+        var saved = SectionCalc.Profile.ProfileProject.Deserialize(p.ProjectJson());
+        Assert.Equal(2, saved.PileTypes.Count);
+        Assert.Equal(10, saved.PileTypes[1].Zones[0].Bars.Count);
+        Assert.Equal(150, saved.PileTypes[1].Zones[0].PitchMm);
+        p.Open(saved);
+        Assert.False(p.HasResult); // Old K is not trusted as a fresh calculation.
+        await p.CalculateCommand.ExecuteAsync(null);
+        Assert.Empty(p.Errors);
+        Assert.Equal(2, p.Types.Count);
+        Assert.Equal(10, p.Types[1].Type.Zones[0].Bars.Count);
+        Assert.Equal(250, p.Types[1].Type.Zones[1].PitchMm);
+        window.GetVisualDescendants().OfType<Avalonia.Controls.TabItem>()
+            .First(t => t.Header?.ToString() == "Армирование типа").IsSelected = true;
+        Dispatcher.UIThread.RunJobs();
+        Snapshot(window, "given-pile-cages");
+        // New import clears model-local assignments and does not inherit Phase_1 classifications.
+        p.UseExport(e);
+        var fresh = SectionCalc.Profile.ProfileProject.Deserialize(p.ProjectJson());
+        Assert.Empty(fresh.PileTypes);
     }
 
     [AvaloniaFact]

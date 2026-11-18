@@ -409,39 +409,15 @@ class Output:
             labels.append((row.name, row.title))
         self.phases, self.phase_labels = phases, labels
 
-    PHASE_CACHE = os.path.join(tempfile.gettempdir(), 'section-app-plaxis-phases.json')
-
-    def cache_key(self):
-        title = text(getattr(self.g, 'GeneralInfo', None), 'Title') if getattr(self.g, 'GeneralInfo', None) is not None else ''
-        return f'{getattr(self, "port", None)}|{len(self.phases)}|{len(self.objects)}|{title}'
-
     def phase_names(self):
-        """
-        {name: phase} of all Output phases. Reading a name loads every property of the phase (seconds each in a large
-        3D model), so the names of an Output left open are remembered: the same Output (port, model, number of phases
-        and structures) is not read again.
-        """
-        key = self.cache_key()
-        try:
-            with open(self.PHASE_CACHE, encoding='utf-8') as f:
-                cached = json.load(f)
-            if cached.get('key') == key and len(cached.get('names', [])) == len(self.phases):
-                log('Output: имена фаз — из запомненного для этого Output')
-                return dict(zip(cached['names'], self.phases))
-        except (OSError, ValueError):
-            pass
-        log('Output: фазы по имени недоступны — чтение списка фаз')
+        """Read phase identities from this connection; ports and titles are not model identities."""
+        log('Output: чтение имён фаз текущей модели')
         names = []
-        for i, p in enumerate(self.phases):
+        for i, phase in enumerate(self.phases):
             try:
-                names.append(limited(lambda: name_of(p), 60, f'имя фазы Output №{i}'))
+                names.append(limited(lambda: name_of(phase), 60, f'имя фазы Output №{i}'))
             except TimeoutError:
                 raise ExportError(f'PLAXIS Output не отвечает на чтение фазы №{i}')
-        try:
-            with open(self.PHASE_CACHE, 'w', encoding='utf-8') as f:
-                json.dump({'key': key, 'names': names}, f, ensure_ascii=False)
-        except OSError:
-            pass
         return dict(zip(names, self.phases))
 
     def phase_label(self, i):
@@ -510,19 +486,6 @@ class Output:
         }
 
 
-def open_output(connector, port, rows, selected):
-    """An Output already open (the last one used): None if it does not answer at once or shows another model."""
-    try:
-        output = Output(connector(port, 'Output (открытый)'))
-        if len(output.phases) > len(rows):
-            raise ExportError(f'фаз в Output {len(output.phases)}, в Input {len(rows)}')
-        resolve(output, selected)
-    except Exception as exc:
-        log(f'Открытый Output на порту {port} не подходит ({exc}) — Output откроется заново')
-        return None
-    log(f'Используется уже открытый Output на порту {port}')
-    return output
-
 
 def from_input(g_i, connector, output_port=None, per_phase=False, reuse_port=None):
     """Selected structures of Input, results of all non-Safety phases read from Output."""
@@ -549,10 +512,10 @@ def from_input(g_i, connector, output_port=None, per_phase=False, reuse_port=Non
     log('Input: типы расчёта: ' + '; '.join(f'{r.name} {r.raw or "?"}' for r in rows))
     if not used:
         raise ExportError('В проекте нет фаз, кроме Safety')
-    output = open_output(connector, reuse_port, rows, selected) if output_port is None and reuse_port else None
-    if output is not None:
-        output_port = reuse_port
-    elif output_port is None:
+    # A remembered port can belong to another model with the same element names.
+    # Only Input.view establishes which Output belongs to the current Input.
+    output = None
+    if output_port is None:
         log(f'Input: открытие Output на фазе {name_of(used[-1])}')
         try:
             output_port = int(g_i.view(used[-1]))

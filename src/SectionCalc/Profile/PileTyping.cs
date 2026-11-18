@@ -10,7 +10,10 @@ public sealed record PileDemand(int Pile, PileInfo Info, int Class, IReadOnlyLis
 }
 
 /// <summary>Zone of a reinforcement type: bars and spiral from its top to its bottom; K of the check by the engine.</summary>
-public sealed record TypeZone(double Top, double Bottom, BarSet Bars, double? SpiralMm, double? K, string? Governing);
+public sealed record TypeZone(double Top, double Bottom, BarSet Bars, double? SpiralMm, double? K, string? Governing)
+{
+    public double? PitchMm { get; init; }
+}
 
 /// <summary>
 /// A reinforcement type: piles that share one cage design; the envelope of their demands by the depth below the head.
@@ -126,6 +129,33 @@ public static class PileTyping
         ShortTerm = like.ShortTerm, Seismic = like.Seismic, Special = like.Special,
     };
 
+    public static PileDemands ForCheck(ProfileProject project)
+    {
+        var p = ProfileProject.Deserialize(project.Serialize());
+        p.Settings.AlignPileHeads = false;
+        var forces = ForceProfile.Build(p);
+        var piles = forces.Piles.Select((info, i) =>
+        {
+            var stations = forces.Stations(p, i, allStates: true);
+            double area = 0; // No required-area calculation in Check; diagrams must not present given As as required.
+            return new PileDemand(i, info, 0, stations, Enumerable.Repeat(area, stations.Count).ToArray(),
+                new double[stations.Count], new bool[stations.Count]);
+        }).ToList();
+        return new PileDemands { Project = p, Forces = forces, Piles = piles, Classes = 1, ShearChecked = project.Section.Conditions.ShearCheck };
+    }
+
+    public static SavedPileType GivenType(PileDemands d, IEnumerable<int> indices)
+    {
+        var members = indices.Select(i => d.Piles[i]).ToList();
+        var s = d.Project.Section;
+        return new SavedPileType
+        {
+            Piles = members.Select(m => m.Info.Name).ToList(),
+            Zones = [new TypeZone(0, members.Max(m => m.Length), new BarSet(1, s.Pile.BarCount, s.Pile.BarDiameterMm),
+                s.Pile.SpiralDiameterMm, null, null) { PitchMm = s.Conditions.ShearPitchMm }],
+        };
+    }
+
     /// <summary>The required reinforcement of every pile (the long part: the tables are computed by the engine).</summary>
     public static PileDemands Demand(ProfileProject project, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default)
     {
@@ -146,7 +176,7 @@ public static class PileTyping
             classOf[i] = c;
         }
         var prepared = classes.Select(c => RequiredReinforcement.Prepare(project, c.Head - c.Tip)).ToArray();
-        var stations = Enumerable.Range(0, piles.Count).Select(i => forces.Stations(p, i)).ToArray();
+        var stations = Enumerable.Range(0, piles.Count).Select(i => forces.Stations(p, i, allStates: true)).ToArray();
         bool shear = project.Section.Conditions.ShearCheck;
 
         // Table points per class and combination kind over the range of the rows.
@@ -500,7 +530,7 @@ public static class PileTyping
             foreach (var z in zones)
             {
                 double dl = Math.Max(0, z.Top - Math.Max(z.Bottom, bottom));
-                double spiral = z.SpiralMm is double sd ? Math.PI * sd * sd / 4 * 1e-6 * ring / pitch : 0;
+                double spiral = z.SpiralMm is double sd ? Math.PI * sd * sd / 4 * 1e-6 * ring / (z.PitchMm / 1000 ?? pitch) : 0;
                 kg += (z.Bars.AreaMm2 * 1e-6 + spiral) * dl * SteelDensity;
             }
         }
@@ -508,11 +538,11 @@ public static class PileTyping
     }
 
     /// <summary>
-    /// Every zone of every type checked by the engine with its bars and spiral for the governing rows of its piles
-    /// (the largest table demand); a zone with K &gt; 1 gets stronger bars (or spiral) and is checked again.
+    /// Every zone checked with every simultaneous state of its piles. Only design may change bars;
+    /// verification of accepted cages (redesign=false) never changes geometry or reinforcement.
     /// </summary>
     public static TypingResult Verify(TypingResult r, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default,
-        Func<PileType, bool>? only = null)
+        Func<PileType, bool>? only = null, bool redesign = true)
     {
         var d = r.Demands;
         var work = r.Types.Where(t => only?.Invoke(t) ?? true).SelectMany(t => t.Zones.Select((z, i) => (Type: t, Index: i))).ToList();
@@ -523,37 +553,33 @@ public static class PileTyping
             var (type, index) = item;
             var zone = zones[type.Number][index];
             // The longest member: its element length enters η (on the safe side for the shorter ones).
-            var prep = d.Prepared[type.Members[0].Class];
-            // Rows of the zone: of every member, its stations inside the zone; the strongest by the table demand.
-            var rows = new List<(LoadRow Row, double A, double W)>();
+            SavedPileType.ValidateZones(type.Zones, type.Head, type.Tip);
+            // Include all stations intersecting the zone, so a boundary cannot hide a peak.
+            var rows = new List<LoadRow>();
             foreach (var m in type.Members)
                 for (int s = 0; s < m.Stations.Count; s++)
                 {
                     var st = m.Stations[s];
-                    double level = st.Level + type.Shift(m);
-                    if (level > zone.Top + 1e-6 || level < zone.Bottom - 1e-6) continue;
-                    foreach (var row in st.Rsu) rows.Add((row, m.As[s], m.Asw[s]));
+                    if (st.Bottom + type.Shift(m) > zone.Top + 1e-6 || st.Top + type.Shift(m) < zone.Bottom - 1e-6) continue;
+                    rows.AddRange(st.Rsu);
                 }
-            // The table ranks the rows only roughly (it lies on the safe side by interpolation): the strongest by the
-            // table, by the moment and by the shear are all checked.
-            var chosen = rows.Where(x => Normal(x.Row)).OrderByDescending(x => x.A).ThenByDescending(x => Math.Abs(x.Row.Mx)).Take(8)
-                .Concat(rows.Where(x => Normal(x.Row)).OrderByDescending(x => Math.Abs(x.Row.Mx)).Take(3))
-                .Concat(rows.Where(x => x.Row.Q > 0).OrderByDescending(x => double.IsNaN(x.W) ? 0 : x.W).ThenByDescending(x => x.Row.Q).Take(d.ShearChecked ? 2 : 0))
-                .Select(x => x.Row).Distinct().ToList();
+            // All simultaneous states in every intersecting station, including both sides of a zone boundary.
+            var chosen = rows.Distinct().ToList();
             for (int round = 0; round < 4 && chosen.Count > 0; round++)
             {
                 var section = ProjectStore.Deserialize(ProjectStore.Serialize(d.Project.Section));
-                section.Conditions.ElementLengthM = prep.Section.Conditions.ElementLengthM;
+                section.Conditions.ElementLengthM = type.MaxLength;
+                if (zone.PitchMm is double pitch) section.Conditions.ShearPitchMm = pitch;
                 section.Pile.BarCount = zone.Bars.Count; section.Pile.BarDiameterMm = zone.Bars.DiameterMm;
                 if (zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
                 var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel);
                 double? before = zone.K;
                 zone = zone with { K = k, Governing = gov };
-                if (k is double kk && kk <= 1) break;
+                if (!redesign || k is null || k <= 1) break;
                 // The engine does not converge or nothing helps any more: the section itself does not hold it.
                 string limit = gov is not null && IsShear(gov) ? "Q не обеспечивается сечением сваи (пик усилий? диаметр сваи?)"
                     : "сечение сваи не вмещает требуемую арматуру (пик усилий у оголовка? диаметр сваи?)";
-                if (k is null || round == 3 || before is double b && k is double now && b - now < 0.01)
+                if (round == 3 || before is double b && k is double now && b - now < 0.01)
                 {
                     zone = zone with { Governing = $"{gov} — {limit}" };
                     break;
@@ -576,7 +602,7 @@ public static class PileTyping
                 }
             }
             // A cage well below its limit (the tables lie on the safe side) gets thinner bars while the engine passes it.
-            if (zone.K is double light && light < 0.85 && zone.Governing is { } g0 && !IsShear(g0) && !g0.Contains('—'))
+            if (redesign && zone.K is double light && light < 0.85 && zone.Governing is { } g0 && !IsShear(g0) && !g0.Contains('—'))
             {
                 for (int step = 0; step < 3; step++)
                 {
@@ -584,7 +610,8 @@ public static class PileTyping
                     if (di <= 0) break;
                     var thinner = new BarSet(zone.Bars.Rows, zone.Bars.Count, BarSuggestion.Diameters[di - 1]);
                     var section = ProjectStore.Deserialize(ProjectStore.Serialize(d.Project.Section));
-                    section.Conditions.ElementLengthM = prep.Section.Conditions.ElementLengthM;
+                    section.Conditions.ElementLengthM = type.MaxLength;
+                    if (zone.PitchMm is double pitch) section.Conditions.ShearPitchMm = pitch;
                     section.Pile.BarCount = thinner.Count; section.Pile.BarDiameterMm = thinner.DiameterMm;
                     if (zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
                     var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel);

@@ -110,7 +110,7 @@ public sealed class TypeRowViewModel(PileType t)
     public string Number => $"Т{t.Number}";
     public int Count => t.Members.Count;
     public string Levels => Length;
-    public string Spiral => string.Join(" → ", t.Zones.Select(z => z.SpiralMm is double d ? $"Ø{d:0}" : "—").Distinct());
+    public string Spiral => string.Join(" → ", t.Zones.Select(z => z.SpiralMm is double d ? $"Ø{d:0}" + (z.PitchMm is double pitch ? $"/{pitch:0}" : "") : "—").Distinct());
     public string Steel => (t.SteelKg / Math.Max(1, t.Members.Count)).ToString("0", Ru);
     public string K => ReportWriter.Utilization(t.K);
     public string Locked => t.Locked ? "да" : "";
@@ -119,7 +119,7 @@ public sealed class TypeRowViewModel(PileType t)
 }
 
 /// <summary>One pile in the table: its type, own demand and how much the type gives it.</summary>
-public sealed class PileRowViewModel(PileDemand p, PileType t)
+public sealed class PileRowViewModel(PileDemand p, PileType t, bool checking = false)
 {
     static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
     public PileDemand Pile => p;
@@ -127,10 +127,10 @@ public sealed class PileRowViewModel(PileDemand p, PileType t)
     public string Type => $"Т{t.Number}";
     public int TypeNumber => t.Number;
     public string Levels => $"{p.Info.Head.ToString("0.00", Ru)}…{p.Info.Tip.ToString("0.00", Ru)}";
-    public string AsMax => (p.As.Max() / 100).ToString("0.0", Ru);
+    public string AsMax => checking ? "—" : (p.As.Max() / 100).ToString("0.0", Ru);
     /// <summary>Stations where this pile sets the envelope of its type (above the minimum).</summary>
     public int Governs => p.As.Select((a, i) => (a, i)).Count(x => x.i < t.As.Length && x.a >= t.As[x.i] * 0.999 && x.a > p.As.Min() * 1.01);
-    public string GovernsText => Governs > 0 ? $"{Governs} сеч." : "";
+    public string GovernsText => !checking && Governs > 0 ? $"{Governs} сеч." : "";
     /// <summary>Steel of the type cage over the pile's own required steel.</summary>
     public string Excess
     {
@@ -232,12 +232,12 @@ public partial class ProfileViewModel : ObservableObject
     public ProfileScenario Scenario => (ProfileScenario)ScenarioIndex;
     public bool Is3D => Scenario == ProfileScenario.Piles3D;
     public bool ShowPileSpacing => Scenario == ProfileScenario.RetainingPiles;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsCheck), nameof(IsTyping), nameof(IsStations), nameof(TableTitle), nameof(ExportText), nameof(HasTyping), nameof(HasNoTyping))] int modeIndex;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsCheck), nameof(IsTyping), nameof(IsStations), nameof(TableTitle), nameof(ExportText), nameof(HasTyping), nameof(HasNoTyping), nameof(ColorModes))] int modeIndex;
     public bool IsCheck => ModeIndex == 1;
     public bool IsTyping => ModeIndex == 2;
     public bool IsStations => !IsTyping;
     public string TableTitle => IsTyping ? "Типы свай" : IsCheck ? "Проверка сечения" : "Требуемое армирование";
-    public string ExportText => IsTyping ? "Сохранить таблицу…" : "Сохранить для Revit…";
+    public string ExportText => IsTyping || IsCheck && Is3D ? "Сохранить таблицу…" : "Сохранить для Revit…";
     [ObservableProperty] string typeCount = "3";
     public ObservableCollection<TypeRowViewModel> Types { get; } = [];
     public ObservableCollection<PileRowViewModel> PileRows { get; } = [];
@@ -249,14 +249,14 @@ public partial class ProfileViewModel : ObservableObject
     readonly Dictionary<string, PileType> verified = [];
     /// <summary>The typing result for the plan, the cages and the curve.</summary>
     public TypingResult? Typing => typing;
-    public bool HasTyping => typing is not null && IsTyping;
+    public bool HasTyping => typing is not null && (IsTyping || IsCheck && Is3D);
     public bool HasNoTyping => !HasTyping;
     [ObservableProperty] bool showSettings = true;
     [ObservableProperty] int selectedTypeNumber;
     [ObservableProperty] IReadOnlyList<int> selectedPiles = [];
     [ObservableProperty] int curveCount;
     [ObservableProperty] int colorModeIndex;
-    public IReadOnlyList<string> ColorModes { get; } = ["Цвет — тип", "Цвет — требуемая As"];
+    public IReadOnlyList<string> ColorModes => IsCheck ? ["Цвет — тип"] : ["Цвет — тип", "Цвет — требуемая As"];
     [ObservableProperty] string selectionText = "";
     public ObservableCollection<string> TypeTargets { get; } = [];
     [ObservableProperty] int targetIndex;
@@ -439,6 +439,75 @@ public partial class ProfileViewModel : ObservableObject
         return key;
     }
 
+    async Task CalculatePileCheck()
+    {
+        await Busy("Проверка заданных каркасов…", async token =>
+        {
+            ColorModeIndex = 0;
+            demands = await Task.Run(() => PileTyping.ForCheck(project), token);
+            demandsKey = null; // Direct checking has no interpolation tables; never reuse it for design.
+            verified.Clear();
+            if (project.PileTypes.Count == 0)
+                project.PileTypes = [PileTyping.GivenType(demands, Enumerable.Range(0, demands.Piles.Count))];
+            var r = SavedPileType.Restore(demands, project.PileTypes, check: true);
+            await Apply(r, token);
+        });
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRun))]
+    async Task Regroup()
+    {
+        if (!IsTyping) return;
+        // Explicit regrouping is distinct from rechecking the saved manual partition.
+        project.PileTypes.Clear();
+        await Calculate();
+    }
+
+    public ObservableCollection<CageZoneRow> CageZones { get; } = [];
+    [ObservableProperty] bool cageEditsPending;
+    [ObservableProperty] CageZoneRow? selectedCageZone;
+
+    void WatchCageEdits()
+    {
+        foreach (var row in CageZones) { row.PropertyChanged -= CageEdited; row.PropertyChanged += CageEdited; }
+    }
+    void CageEdited(object? sender, PropertyChangedEventArgs e) => CageEditsPending = true;
+
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    void SplitCageZone()
+    {
+        var row = SelectedCageZone ?? CageZones.LastOrDefault();
+        if (row is null) return;
+        try
+        {
+            var z = row.ToZone(0);
+            double mid = (z.Top + z.Bottom) / 2;
+            int i = CageZones.IndexOf(row);
+            CageZones[i] = CageZoneRow.FromZone(z with { Bottom = mid }, 0, 200);
+            CageZones.Insert(i + 1, CageZoneRow.FromZone(z with { Top = mid }, 0, 200));
+            WatchCageEdits();
+            CageEditsPending = true;
+        }
+        catch (InvalidOperationException ex) { Errors = ex.Message; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    async Task ApplyCage()
+    {
+        if (!IsCheck || typing is null || ResultIsStale) { Errors = "Сначала пересчитайте текущие данные в режиме проверки"; return; }
+        var t = typing.Types.FirstOrDefault(t => t.Number == SelectedTypeNumber);
+        if (t is null) return;
+        try
+        {
+            var zones = CageZones.Select(z => z.ToZone(t.Head)).ToList();
+            SavedPileType.ValidateZones(zones, t.Head, t.Tip);
+            var edited = t with { Zones = zones };
+            var r = typing with { Types = typing.Types.Select(x => x.Number == t.Number ? edited : x).ToList() };
+            await Busy("Проверка заданного каркаса…", token => Apply(r, token));
+        }
+        catch (InvalidOperationException ex) { Errors = ex.Message; }
+    }
+
     async Task CalculateTyping()
     {
         var p = project;
@@ -462,7 +531,9 @@ public partial class ProfileViewModel : ObservableObject
                 locked = [];
             }
             var d = demands;
-            var grouped = await Task.Run(() => PileTyping.Group(d, count, locked), token);
+            var grouped = await Task.Run(() => project.PileTypes.Count > 0
+                ? SavedPileType.Restore(d, project.PileTypes, check: false)
+                : PileTyping.Group(d, count, locked), token);
             await Apply(grouped, token);
         });
     }
@@ -475,15 +546,16 @@ public partial class ProfileViewModel : ObservableObject
     {
         // Checked types by their piles and the cage kind (one cage or zones).
         string Cached(PileType t) => t.Key + (project.Settings.UniformCage ? "|uniform" : "|zones");
-        r = r with { Types = r.Types.Select(t => verified.TryGetValue(Cached(t), out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
+        if (!IsCheck) r = r with { Types = r.Types.Select(t => verified.TryGetValue(Cached(t), out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
         var check = new Progress<(int Done, int Total)>(x =>
         {
             Progress = 100.0 * x.Done / x.Total;
             Status = $"Проверка зон ядром: {x.Done} из {x.Total}";
         });
-        r = await Task.Run(() => PileTyping.Verify(r, check, token, t => !t.Verified), token);
+        r = await Task.Run(() => PileTyping.Verify(r, check, token, t => !t.Verified, redesign: !IsCheck), token);
         foreach (var t in r.Types) verified[Cached(t)] = t;
         typing = r;
+        project.PileTypes = SavedPileType.Capture(r);
         result = null;
         resultKey = Key();
         ShowTyping();
@@ -499,7 +571,7 @@ public partial class ProfileViewModel : ObservableObject
         {
             Types.Add(new TypeRowViewModel(t));
             TypeTargets.Add($"Т{t.Number}");
-            foreach (var m in t.Members) PileRows.Add(new PileRowViewModel(m, t));
+            foreach (var m in t.Members) PileRows.Add(new PileRowViewModel(m, t, IsCheck));
         }
         HasResult = true; ResultIsStale = false;
         var d = typing.Demands;
@@ -509,7 +581,11 @@ public partial class ProfileViewModel : ObservableObject
             + $"проверка зон ядром: Kmax {ReportWriter.Utilization(k)}"
             + (d.Piles.Any(x => x.Exceeded.Any(e => e)) ? ". Есть сечения, где не хватает и полного кольца Ø40" : "")
             + (typing.Note is null ? "" : ". " + typing.Note);
-        Status = $"Типизация: {typing.Types.Count} типов (таблицы: {d.TablePoints} точек)";
+        if (IsCheck)
+            Summary = $"Проверка заданного армирования: {d.Piles.Count} свай, {typing.Types.Count} типов; "
+                + (k is null ? "проверка не завершена" : k > 1 ? $"НЕ обеспечено, Kmax {ReportWriter.Utilization(k)}" : $"запрошенные проверки выполнены, Kmax {ReportWriter.Utilization(k)}")
+                + (!project.Section.Conditions.ShearCheck ? ". Q не запрошен" : "");
+        Status = IsCheck ? "Проверка типов выполнена; арматура не изменялась" : $"Типизация: {typing.Types.Count} типов (таблицы: {d.TablePoints} точек)";
         Suggested = PileTyping.Suggested(typing.Curve) ?? 0;
         syncing = true;
         CurveCount = typing.Types.Count;
@@ -517,6 +593,11 @@ public partial class ProfileViewModel : ObservableObject
         OnPropertyChanged(nameof(Typing)); OnPropertyChanged(nameof(HasTyping)); OnPropertyChanged(nameof(HasNoTyping));
         SelectedTypeNumber = typing.Types.Any(t => t.Number == keep) ? keep : typing.Types.FirstOrDefault()?.Number ?? 0;
         SelectedPiles = SelectedPiles.Where(i => i < d.Piles.Count).ToList();
+        syncing = true;
+        SelectedType = Types.FirstOrDefault(t => t.Type.Number == SelectedTypeNumber);
+        TargetIndex = Math.Max(0, Types.ToList().FindIndex(t => t.Type.Number == SelectedTypeNumber));
+        syncing = false;
+        ShowTypeDetails();
         ShowSettings = false;
     }
 
@@ -558,22 +639,26 @@ public partial class ProfileViewModel : ObservableObject
 
     /// <summary>The knee of the steel curve: one more type saves less than 3 % of the steel.</summary>
     [ObservableProperty, NotifyPropertyChangedFor(nameof(SuggestedText), nameof(HasSuggestion))] int suggested;
-    public bool HasSuggestion => Suggested > 0 && typing is not null && Suggested != typing.Types.Count;
+    public bool HasSuggestion => IsTyping && Suggested > 0 && typing is not null && Suggested != typing.Types.Count;
     public string SuggestedText => $"Рекомендуется {Suggested}: следующий тип экономит меньше 3 % стали";
     [RelayCommand] void UseSuggested() { if (Suggested > 0) CurveCount = Suggested; }
 
     /// <summary>The steel curve: a click sets the number of types and gathers again.</summary>
     partial void OnCurveCountChanged(int value)
     {
-        if (syncing || value <= 0 || typing is null || IsBusy) return;
+        if (syncing || value <= 0 || typing is null || IsBusy || IsCheck) return;
         TypeCount = value.ToString(CultureInfo.InvariantCulture);
-        CalculateCommand.Execute(null);
+        RegroupCommand.Execute(null);
     }
 
     void ShowTypeDetails()
     {
         var t = typing?.Types.FirstOrDefault(x => x.Number == SelectedTypeNumber);
         if (t is null) { StationSketch = null; StationText = ""; return; }
+        CageZones.Clear();
+        foreach (var z in t.Zones) CageZones.Add(CageZoneRow.FromZone(z, t.Head, project.Section.Conditions.ShearPitchMm));
+        WatchCageEdits();
+        CageEditsPending = false;
         var strongest = t.Zones.MaxBy(z => z.Bars.AreaMm2)!;
         var section = ProjectStore.Deserialize(ProjectStore.Serialize(typing!.Demands.Project.Section));
         section.Pile.BarCount = strongest.Bars.Count; section.Pile.BarDiameterMm = strongest.Bars.DiameterMm;
@@ -581,7 +666,7 @@ public partial class ProfileViewModel : ObservableObject
         using (var stream = new MemoryStream(SectionSketch.Png(section, 520, 420, 22))) StationSketch = new Bitmap(stream);
         StationText = $"Тип {t.Number}{(t.Locked ? " (закреплён)" : "")}: {string.Join(", ", t.Members.Select(m => m.Info.Name))}\n"
             + string.Join("\n", t.Zones.Select(z => $"{z.Top.ToString("0.00", Ru)}…{z.Bottom.ToString("0.00", Ru)}: {z.Bars}"
-                + (z.SpiralMm is double d ? $", спираль Ø{d:0} шаг {typing.Demands.Project.Section.Conditions.ShearPitchMm:0}" : "")
+                + (z.SpiralMm is double d ? $", спираль Ø{d:0} шаг {z.PitchMm ?? typing.Demands.Project.Section.Conditions.ShearPitchMm:0}" : "")
                 + (z.K is double k ? $", K {ReportWriter.Utilization(k)}" + (k > 1 ? $" ({z.Governing})" : "") : ", K не определён")));
     }
 
@@ -599,7 +684,26 @@ public partial class ProfileViewModel : ObservableObject
         // Empty types disappear, the order of the others is kept.
         var keep = groups.Select((g, i) => (g, l: locked[i])).Where(x => x.g.Count > 0).ToList();
         TypingResult r;
-        try { r = PileTyping.Build(demands, keep.Select(x => (IReadOnlyList<int>)x.g).ToList(), keep.Select(x => x.l).ToList()) with { Curve = typing.Curve }; }
+        try
+        {
+            if (IsCheck)
+            {
+                var old = SavedPileType.Capture(typing);
+                var saved = groups.Select((g, i) => (g, i)).Where(x => x.g.Count > 0).Select(x =>
+                {
+                    var entry = x.i < old.Count ? old[x.i] : PileTyping.GivenType(demands, x.g);
+                    entry.Piles = x.g.Select(j => demands.Piles[j].Info.Name).ToList();
+                    entry.Locked = locked[x.i];
+                    // Assigning a pile uses the destination cage: its final zone continues to the new tip.
+                    double length = x.g.Max(j => demands.Piles[j].Length);
+                    entry.Zones = entry.Zones.Where(z => z.Top < length).Select(z => z with { Bottom = Math.Min(z.Bottom, length) }).ToList();
+                    if (entry.Zones.Count > 0) entry.Zones[^1] = entry.Zones[^1] with { Bottom = length };
+                    return entry;
+                }).ToList();
+                r = SavedPileType.Restore(demands, saved, check: true);
+            }
+            else r = PileTyping.Build(demands, keep.Select(x => (IReadOnlyList<int>)x.g).ToList(), keep.Select(x => x.l).ToList()) with { Curve = typing.Curve };
+        }
         catch (InvalidOperationException ex) { Errors = ex.Message; return; }
         await Busy(what, token => Apply(r, token));
     }
@@ -643,18 +747,21 @@ public partial class ProfileViewModel : ObservableObject
     {
         var inv = CultureInfo.InvariantCulture;
         var sb = new System.Text.StringBuilder();
+        string Csv(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
+        sb.AppendLine("Модель;" + Csv(r.Demands.Project.Source?.Info.Title ?? r.Demands.Project.Title));
+        sb.AppendLine("Расчёт;" + (r.Demands.Project.Settings.Mode == ProfileMode.Check ? "Проверка заданной арматуры" : "Подбор"));
         sb.AppendLine("Тип;Свая;X, м;Y, м;Оголовок, м;Низ, м");
         foreach (var t in r.Types)
             foreach (var m in t.Members)
-                sb.AppendLine(string.Join(";", $"Т{t.Number}", m.Info.Name, m.Info.X.ToString("0.000", inv), m.Info.Y.ToString("0.000", inv),
+                sb.AppendLine(string.Join(";", $"Т{t.Number}", Csv(m.Info.Name), m.Info.X.ToString("0.000", inv), m.Info.Y.ToString("0.000", inv),
                     m.Info.Head.ToString("0.000", inv), m.Info.Tip.ToString("0.000", inv)));
         sb.AppendLine();
-        sb.AppendLine("Тип;Свай;Зона от, м;Зона до, м;Стержней;Ø, мм;As, см²;Спираль Ø, мм;K");
+        sb.AppendLine("Тип;Свай;Зона от, м;Зона до, м;Стержней;Ø, мм;As, см²;Спираль Ø, мм;Шаг, мм;K;Проверка");
         foreach (var t in r.Types)
             foreach (var z in t.Zones)
                 sb.AppendLine(string.Join(";", $"Т{t.Number}", t.Members.Count, z.Top.ToString("0.00", inv), z.Bottom.ToString("0.00", inv),
                     z.Bars.Count, z.Bars.DiameterMm.ToString("0", inv), (z.Bars.AreaMm2 / 100).ToString("0.00", inv),
-                    z.SpiralMm?.ToString("0", inv) ?? "", z.K?.ToString("0.000", inv) ?? ""));
+                    z.SpiralMm?.ToString("0", inv) ?? "", (z.PitchMm ?? r.Demands.Project.Section.Conditions.ShearPitchMm).ToString("0", inv), z.K?.ToString("0.000", inv) ?? "", Csv(z.Governing ?? "не проверено")));
         return sb.ToString();
     }
 
@@ -710,10 +817,8 @@ public partial class ProfileViewModel : ObservableObject
         {
             // Progress of the script: the current step, so that a slow or stuck PLAXIS call is seen.
             var log = new Progress<string>(line => { lastStep = line; Status = "PLAXIS " + line; });
-            // An Output left open by the previous load is reused: opening it again loads the whole model.
-            int? reuse = int.TryParse(Port, NumberStyles.Integer, CultureInfo.InvariantCulture, out int last) ? last : null;
             var export = await PlaxisBridge.FromInput(PythonPath, port, Password, perPhase: ForcesIndex == 1, cancel: token,
-                log: ((IProgress<string>)log).Report, reuseOutputPort: reuse);
+                log: ((IProgress<string>)log).Report);
             if (export.OutputPort is int used) Port = used.ToString(CultureInfo.InvariantCulture);
             SaveSettings(input: port, output: export.OutputPort);
             Adopt(export);
@@ -779,7 +884,7 @@ public partial class ProfileViewModel : ObservableObject
         project.UseSource(export);
         // The task follows the model: a 3D group of piles — typing, otherwise the required reinforcement.
         int piles = export.Objects.Select(o => o.Pile).Distinct().Count();
-        project.Settings.Mode = export.Is3D && piles > 1 ? ProfileMode.Typing : ProfileMode.Required;
+        project.Settings.Mode = IsCheck ? ProfileMode.Check : export.Is3D && piles > 1 ? ProfileMode.Typing : ProfileMode.Required;
         project.Settings.Confirmed = false;
         loading = true; ModeIndex = (int)project.Settings.Mode; loading = false;
         ShowSource();
@@ -832,7 +937,7 @@ public partial class ProfileViewModel : ObservableObject
         int piles = s.Objects.Select(o => o.Pile).Distinct().Count();
         string selected = s.Is3D && piles > 1 ? $"группа {piles} свай: {string.Join(", ", s.Selection)}"
             : s.Selection.Count > 0 ? $"{string.Join(", ", s.Selection)} ({s.Objects.Count} уч.)" : string.Join(", ", s.Objects.Select(o => o.Name));
-        SourceText = $"{selected} · " + (s.IsEnvelope ? $"огибающие Output, веток {s.Phases.Count}" : $"фаз {s.Phases.Count}") + $" · PLAXIS {(s.Is3D ? "3D " : "")}{s.Info.Version} · {s.Info.UnitForce}, {s.Info.UnitLength}"
+        SourceText = $"{s.Info.Title ?? "Модель без названия"} · {selected} · " + (s.IsEnvelope ? $"огибающие Output, веток {s.Phases.Count}" : $"фаз {s.Phases.Count}") + $" · PLAXIS {(s.Is3D ? "3D " : "")}{s.Info.Version} · {s.Info.UnitForce}, {s.Info.UnitLength}"
             + (s.ExcludedPhases.Count > 0 ? $"\nИсключены (Safety): {string.Join(", ", s.ExcludedPhases.Select(p => p.Name))}" : "")
             + (s.InactivePhases.Count > 0 ? $"\nЭлемент не активен: {string.Join(", ", s.InactivePhases)}" : "");
     }
@@ -856,6 +961,7 @@ public partial class ProfileViewModel : ObservableObject
             RefreshForces();
             if (forces is null) return;
         }
+        if (IsCheck && Is3D) { await CalculatePileCheck(); return; }
         if (IsTyping) { await CalculateTyping(); return; }
         var p = project;
         bool check = IsCheck;
@@ -917,9 +1023,10 @@ public partial class ProfileViewModel : ObservableObject
         {
             // The given section: the largest K along the element and where it is.
             var worst = st.Where(s => s.K is not null).MaxBy(s => s.K);
-            Summary = worst is null ? "Проверка: нет усилий"
+            bool incomplete = st.Any(s => s.Status is "indeterminate" or "none");
+            Summary = worst is null ? "Проверка не завершена: нет определённого K"
                 : $"Проверка сечения{(f.IsGroup ? $" (группа {f.Piles.Count} свай)" : "")}: Kmax {ReportWriter.Utilization(worst.K)} на отм. {worst.Station.Level.ToString("0.00", Ru)} — "
-                  + (worst.K <= 1 ? "сечение обеспечено" : "НЕ обеспечено") + $" ({worst.Governing})";
+                  + (worst.K > 1 ? "НЕ обеспечено" : incomplete ? "проверка не завершена" : "запрошенные проверки выполнены") + $" ({worst.Governing})";
         }
         else
             Summary = wall
@@ -945,6 +1052,7 @@ public partial class ProfileViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRun))]
     async Task ExportRevit()
     {
+        if (CageEditsPending) { Errors = "Примените изменения арматуры перед выгрузкой"; return; }
         if (typing is not null && !ResultIsStale)
         {
             if (Storage?.Invoke() is not { } st) return;
@@ -978,9 +1086,11 @@ public partial class ProfileViewModel : ObservableObject
     [RelayCommand]
     async Task SaveProject()
     {
+        if (CageEditsPending) { Errors = "Примените изменения арматуры перед сохранением"; return; }
         if (project.Source is null) { Errors = "Нет данных для сохранения"; return; }
         if (main.TryBuild(out _, quiet: true) is { } section) project.Section = section;
-        ReadSettings([]);
+        var errors = new List<string>();
+        if (!ReadSettings(errors)) { Errors = string.Join("; ", errors); return; }
         if (Storage?.Invoke() is not { } storage) return;
         var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
         {
@@ -1111,6 +1221,7 @@ public partial class ProfileViewModel : ObservableObject
     internal void Confirm() => Confirmed = true;
     internal Task RunCalculation() => Calculate();
     internal ReinforcementProfile? Result => result;
+    internal string ProjectJson() => project.Serialize();
 }
 
 static class StationResultExtensions

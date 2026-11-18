@@ -116,6 +116,7 @@ public sealed class ProfileProject
     public PlaxisExport? Source { get; set; }
     public List<PhaseSetting> Phases { get; set; } = [];
     public ProfileSettings Settings { get; set; } = new();
+    public List<SavedPileType> PileTypes { get; set; } = [];
 
     static readonly JsonSerializerOptions Options = new() { WriteIndented = true, Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
 
@@ -147,11 +148,10 @@ public sealed class ProfileProject
     /// <summary>Adopts a new export: phase settings are kept by phase name; a new phase takes its kind from its name.</summary>
     public void UseSource(PlaxisExport export)
     {
-        var old = Phases.ToDictionary(p => p.Name);
+        // Phase_N and pile names are local to a model, not persistent cross-model IDs.
+        PileTypes.Clear();
         Source = export;
-        Phases = export.Phases.Select(ph => old.TryGetValue(ph.Name, out var s)
-            ? new PhaseSetting { Id = ph.Id, Name = ph.Name, Include = s.Include, ShortTerm = s.ShortTerm, Seismic = s.Seismic, Special = s.Special }
-            : KindByName(new PhaseSetting { Id = ph.Id, Name = ph.Name }, ph)).ToList();
+        Phases = export.Phases.Select(ph => KindByName(new PhaseSetting { Id = ph.Id, Name = ph.Name }, ph)).ToList();
         // The scenario follows the model: 3D — piles of the model; Embedded beam row — retaining piles; Plate — kept.
         if (export.Is3D) Settings.Scenario = ProfileScenario.Piles3D;
         else if (export.Objects.Any(o => o.Kind != "Plate")) Settings.Scenario = ProfileScenario.RetainingPiles;

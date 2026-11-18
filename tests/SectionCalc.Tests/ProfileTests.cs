@@ -609,7 +609,12 @@ public class ProfileTests(ITestOutputHelper output)
             var checkedTypes = PileTyping.Verify(three);
             output.WriteLine($"verify: {sw.Elapsed.TotalSeconds:0} s; " + string.Join(" | ", checkedTypes.Types.Select(t =>
                 $"T{t.Number} [{string.Join(", ", t.Members.Select(m => m.Info.Name))}] " + string.Join("; ", t.Zones.Select(z => $"{z.Top:0.0}…{z.Bottom:0.0} {z.Bars} K {z.K:0.000}")))));
-            Assert.All(checkedTypes.Types.SelectMany(t => t.Zones), z => Assert.True(z.K is double k && k <= 1.0, $"{z.Bars} K {z.K} {z.Governing}"));
+            Assert.All(checkedTypes.Types.SelectMany(t => t.Zones), z =>
+            {
+                if (z.K is double k) Assert.InRange(k, 0, 1);
+                else Assert.Contains("Требуется инженерная оценка: Ширина раскрытия трещин", z.Governing);
+            });
+            Assert.Contains(checkedTypes.Types, t => t.K is > 0 and <= 1);
         }
         finally { (PileTyping.GridN, PileTyping.GridM) = (gn, gm); }
     }
@@ -729,4 +734,67 @@ public class ProfileTests(ITestOutputHelper output)
         Assert.Empty(g.InactiveZeroN);
         Assert.Contains(g.Samples, x => x.Pile == 0 && x.N == 0);
     }
+    [Fact]
+    public void FullVerificationKeepsNonExtremeSimultaneousStates()
+    {
+        var p = Wall();
+        var f = ForceProfile.Build(p);
+        var quick = f.Stations(p);
+        var full = f.Stations(p, allStates: true);
+        Assert.True(full.Sum(s => s.Rsu.Count) > quick.Sum(s => s.Rsu.Count));
+        foreach (var sample in f.Samples)
+            Assert.Contains(full.SelectMany(s => s.Rsu), r => Math.Abs(r.N - sample.N) < 1e-6
+                && Math.Abs(r.Mx - sample.M) < 1e-6 && Math.Abs(r.Q - Math.Abs(sample.Q)) < 1e-6);
+    }
+
+    [Fact]
+    public void IncompleteShearCannotPassTheProfile()
+    {
+        CheckRow Row(string id, string status, double? k) => new(id, id, "c", "c", status, k, "test", "", null);
+        var assessment = RequiredReinforcement.Assess([Row("normal_strength", "passed", 0.5), Row("shear_inclined", "indeterminate", null)]);
+        Assert.Equal("indeterminate", assessment.Status);
+        Assert.Contains("shear_inclined", assessment.Note);
+        Assert.Equal("indeterminate", RequiredReinforcement.Assess([]).Status);
+        Assert.Equal("exceeded", RequiredReinforcement.Assess([Row("normal_strength", "failed", 1.5), Row("shear_inclined", "indeterminate", null)]).Status);
+    }
+
+    [Fact]
+    public void GivenCagesRoundTripAndCheckWithoutChangingBars()
+    {
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        p.UseSource(GroupExport(envelope: false));
+        p.Settings.Mode = ProfileMode.Check;
+        p.Settings.StationStepM = 6;
+        var d = PileTyping.ForCheck(p);
+        Assert.Equal(0, d.TablePoints);
+        p.PileTypes = [PileTyping.GivenType(d, [0]), PileTyping.GivenType(d, [1])];
+        p.PileTypes[0].Locked = true;
+        var weak = p.PileTypes[0].Zones[0] with { Bars = new BarSet(1, 6, 12), PitchMm = 150 };
+        p.PileTypes[0].Zones = [weak with { Bottom = 4 }, weak with { Top = 4, PitchMm = 250 }];
+        var reopened = ProfileProject.Deserialize(p.Serialize());
+        var restored = SavedPileType.Restore(PileTyping.ForCheck(reopened), reopened.PileTypes, true);
+        Assert.True(restored.Types[0].Locked);
+        Assert.Equal(2, restored.Types[0].Zones.Count);
+        Assert.All(restored.Types.SelectMany(t => t.Zones), z => Assert.Null(z.K));
+        var checkedTypes = PileTyping.Verify(restored, redesign: false);
+        Assert.Equal(restored.Types[0].Zones.Select(z => (z.Bars, z.PitchMm)), checkedTypes.Types[0].Zones.Select(z => (z.Bars, z.PitchMm)));
+        Assert.All(checkedTypes.Types, t => Assert.True(t.Verified));
+        Assert.True(checkedTypes.Types[0].K is null or > 1);
+        reopened.PileTypes[1].Piles = [reopened.PileTypes[0].Piles[0]];
+        Assert.Throws<InvalidOperationException>(() => SavedPileType.Restore(d, reopened.PileTypes, true));
+    }
+
+    [Fact]
+    public void CageZonesRejectGapsAndMissingPilesAreNotSilentlyDropped()
+    {
+        Assert.Throws<InvalidOperationException>(() => SavedPileType.ValidateZones([
+            new TypeZone(0, -2, new BarSet(1, 12, 20), 10, null, null),
+            new TypeZone(-3, -5, new BarSet(1, 12, 20), 10, null, null)], 0, -5));
+        var p = new ProfileProject { Section = SectionProject.Example(SectionKind.Pile) };
+        var export = GroupExport(false);
+        export.Data.RemoveAll(x => x.Object == 2);
+        p.UseSource(export);
+        Assert.Throws<InvalidOperationException>(() => ForceProfile.Build(p));
+    }
+
 }

@@ -562,7 +562,7 @@ class Group3DTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertEqual(len(result['data']), 6)
 
-    def test_open_output_is_reused(self):
+    def test_input_opens_its_own_output_even_when_a_port_is_remembered(self):
         g_i = tree_input(self.selection())
         output = WholeModel3DOutput()
         connections = {10000: g_i, 10002: output}
@@ -572,7 +572,7 @@ class Group3DTests(unittest.TestCase):
                                       connector=lambda port, program='Output': connections[port])
         result = json.loads(out.getvalue())
         self.assertEqual(code, 0, result)
-        self.assertIsNone(g_i.viewed)
+        self.assertIsNotNone(g_i.viewed)
         self.assertEqual(result['output_port'], 10002)
         # Nothing answers on the remembered port: Input opens Output as usual.
         out = io.StringIO()
@@ -582,24 +582,32 @@ class Group3DTests(unittest.TestCase):
         self.assertEqual(code, 0, out.getvalue())
         self.assertIsNotNone(g_i.viewed)
 
-    def test_phase_names_of_an_open_output_are_remembered(self):
-        cache = os.path.join(tempfile.mkdtemp(), 'phases.json')
-        old = plaxis_export.Output.PHASE_CACHE
-        plaxis_export.Output.PHASE_CACHE = cache
-        try:
-            output = Fake3DOutput()            # no lookup of phases by name: the names are read
-            code, result = self.run_tree(output, self.selection())
-            self.assertEqual(code, 0, result)
-            self.assertTrue(os.path.exists(cache))
-            # The same Output again: the names come from the cache.
-            err = io.StringIO()
-            from contextlib import redirect_stderr
-            with redirect_stderr(err):
-                code, result = self.run_tree(Fake3DOutput(), self.selection())
-            self.assertEqual(code, 0, result)
-            self.assertIn('из запомненного', err.getvalue())
-        finally:
-            plaxis_export.Output.PHASE_CACHE = old
+    def test_same_port_and_title_do_not_reuse_another_models_phase_names(self):
+        first = plaxis_export.Output(Fake3DOutput())
+        self.assertIn('Phase_1', first.phase_names())
+        other = Fake3DOutput()
+        other.Phases[1].Name = value('Phase_99')
+        second = plaxis_export.Output(other)
+        self.assertIn('Phase_99', second.phase_names())
+        self.assertNotIn('Phase_1', second.phase_names())
+
+    def test_old_output_with_identical_pile_names_is_not_connected(self):
+        g_i = tree_input(self.selection())
+        current = WholeModel3DOutput()
+        calls = []
+        def connect(port, program='Output'):
+            calls.append(port)
+            if port == 10000:
+                return g_i
+            if port == 10002:
+                return current
+            raise AssertionError('stale Output must not be connected')
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = plaxis_export.main(['input', '--port', '10000', '--reuse-output-port', '10009'], connector=connect)
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertNotIn(10009, calls)
+        self.assertIsNotNone(g_i.viewed)
 
     def test_walls_are_not_supported_in_3d(self):
         output = Fake3DOutput()
