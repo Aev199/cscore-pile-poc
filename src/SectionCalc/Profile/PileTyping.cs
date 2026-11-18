@@ -542,7 +542,7 @@ public static class PileTyping
     /// verification of accepted cages (redesign=false) never changes geometry or reinforcement.
     /// </summary>
     public static TypingResult Verify(TypingResult r, IProgress<(int Done, int Total)>? progress = null, CancellationToken cancel = default,
-        Func<PileType, bool>? only = null, bool redesign = true)
+        Func<PileType, bool>? only = null, bool redesign = true, Action<int, int, int, int, int>? batchProgress = null)
     {
         var d = r.Demands;
         var work = r.Types.Where(t => only?.Invoke(t) ?? true).SelectMany(t => t.Zones.Select((z, i) => (Type: t, Index: i))).ToList();
@@ -564,7 +564,8 @@ public static class PileTyping
                     rows.AddRange(st.Rsu);
                 }
             // All simultaneous states in every intersecting station, including both sides of a zone boundary.
-            var chosen = rows.Distinct().ToList();
+            var chosen = rows.DistinctBy(l => (l.N, l.Mx, l.My, l.Q, l.LoadFactor, l.SustainedShare, l.ShortTerm, l.Seismic, l.Special)).ToList();
+            void Report(int attempt, int done, int total) => batchProgress?.Invoke(type.Number, index + 1, attempt, done, total);
             for (int round = 0; round < 4 && chosen.Count > 0; round++)
             {
                 var section = ProjectStore.Deserialize(ProjectStore.Serialize(d.Project.Section));
@@ -572,7 +573,7 @@ public static class PileTyping
                 if (zone.PitchMm is double pitch) section.Conditions.ShearPitchMm = pitch;
                 section.Pile.BarCount = zone.Bars.Count; section.Pile.BarDiameterMm = zone.Bars.DiameterMm;
                 if (zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
-                var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel);
+                var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel, (n, total) => Report(round + 1, n, total));
                 double? before = zone.K;
                 zone = zone with { K = k, Governing = gov };
                 if (!redesign || k is null || k <= 1) break;
@@ -614,7 +615,7 @@ public static class PileTyping
                     if (zone.PitchMm is double pitch) section.Conditions.ShearPitchMm = pitch;
                     section.Pile.BarCount = thinner.Count; section.Pile.BarDiameterMm = thinner.DiameterMm;
                     if (zone.SpiralMm is double sd) section.Pile.SpiralDiameterMm = sd;
-                    var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel);
+                    var (k, gov) = RequiredReinforcement.KFor(section, chosen, cancel, (n, total) => Report(step + 1, n, total));
                     if (k is not double kk || kk > 0.97) break;
                     zone = zone with { Bars = thinner, K = kk, Governing = gov };
                 }

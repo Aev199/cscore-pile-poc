@@ -531,6 +531,8 @@ public partial class ProfileViewModel : ObservableObject
                 locked = [];
             }
             var d = demands;
+            Status = "Группировка свай по типам…";
+            Progress = 0;
             var grouped = await Task.Run(() => project.PileTypes.Count > 0
                 ? SavedPileType.Restore(d, project.PileTypes, check: false)
                 : PileTyping.Group(d, count, locked), token);
@@ -547,12 +549,17 @@ public partial class ProfileViewModel : ObservableObject
         // Checked types by their piles and the cage kind (one cage or zones).
         string Cached(PileType t) => t.Key + (project.Settings.UniformCage ? "|uniform" : "|zones");
         if (!IsCheck) r = r with { Types = r.Types.Select(t => verified.TryGetValue(Cached(t), out var v) ? v with { Number = t.Number, Locked = t.Locked } : t).ToList() };
-        var check = new Progress<(int Done, int Total)>(x =>
-        {
-            Progress = 100.0 * x.Done / x.Total;
-            Status = $"Проверка зон ядром: {x.Done} из {x.Total}";
-        });
-        r = await Task.Run(() => PileTyping.Verify(r, check, token, t => !t.Verified, redesign: !IsCheck), token);
+        Status = "Проверка каркасов…";
+        Progress = 0;
+        IProgress<(int Type, int Zone, int Attempt, int Done, int Total)> check =
+            new Progress<(int Type, int Zone, int Attempt, int Done, int Total)>(x =>
+            {
+                Progress = 100.0 * x.Done / Math.Max(1, x.Total);
+                Status = $"Тип {x.Type}, зона {x.Zone}, вариант {x.Attempt}: проверено {x.Done} из {x.Total} сочетаний";
+            });
+        bool redesign = !IsCheck;
+        r = await Task.Run(() => PileTyping.Verify(r, cancel: token, only: t => !t.Verified, redesign: redesign,
+            batchProgress: (t, z, a, n, total) => check.Report((t, z, a, n, total))), token);
         foreach (var t in r.Types) verified[Cached(t)] = t;
         typing = r;
         project.PileTypes = SavedPileType.Capture(r);

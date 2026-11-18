@@ -139,15 +139,27 @@ public static class RequiredReinforcement
     }
 
     /// <summary>The given section (bars, spiral) checked for the rows: the largest K of all checks.</summary>
-    internal static (double? K, string? Governing) KFor(SectionProject section, IReadOnlyList<LoadRow> rows, CancellationToken cancel)
+    internal static (double? K, string? Governing) KFor(SectionProject section, IReadOnlyList<LoadRow> rows, CancellationToken cancel, Action<int, int>? progress = null)
     {
         var normal = rows.Where(l => Math.Abs(l.N) > 1e-6 || Math.Abs(l.Mx) > 1e-6).ToList();
-        var shearOnly = rows.Except(normal).Where(l => l.Q > 0).ToList();
+        var shearOnly = section.Conditions.ShearCheck ? rows.Except(normal).Where(l => l.Q > 0).ToList() : [];
         var found = new List<CheckRow>();
-        if (normal.Count > 0)
-            found.AddRange(Engine.Check(WithLoads(section, normal), cancel).Rows.Where(x => Demand.Contains(x.CheckId) || Shears.Contains(x.CheckId)));
-        if (section.Conditions.ShearCheck && shearOnly.Count > 0)
-            found.AddRange(Engine.Check(WithLoads(section, shearOnly), cancel).Rows.Where(x => Shears.Contains(x.CheckId)));
+        int done = 0, total = normal.Count + shearOnly.Count;
+        progress?.Invoke(0, total);
+        void Check(List<LoadRow> loads, bool includeNormal)
+        {
+            foreach (var batch in loads.Chunk(24))
+            {
+                cancel.ThrowIfCancellationRequested();
+                foreach (var row in Engine.Check(WithLoads(section, batch), cancel).Rows)
+                    if (includeNormal && Demand.Contains(row.CheckId) || Shears.Contains(row.CheckId))
+                        found.Add(row with { Details = null });
+                done += batch.Length;
+                progress?.Invoke(done, total);
+            }
+        }
+        Check(normal, true);
+        Check(shearOnly, false);
         var assessment = Assess(found);
         return (assessment.Status == "indeterminate" ? null : assessment.K,
             assessment.Note ?? (assessment.Governing is { } gov ? $"{gov.Title} · {gov.Combination}" : null));
