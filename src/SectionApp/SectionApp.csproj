@@ -11,6 +11,7 @@
     <Product>Сечения ЖБ</Product>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="StartupMarker" Value="$(SectionAppStartupMarker)" />
     <InternalsVisibleTo Include="SectionApp.Tests" />
     <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
