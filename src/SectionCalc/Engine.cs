@@ -87,12 +87,13 @@ public static class Engine
         // ULS: one engine request per kind of combination (materials) and per sustained share (η).
         foreach (var group in project.Loads.GroupBy(r => (Kind: CombinationKind.Of(r),
                      Share: c.SecondOrder == SecondOrderMode.Cscore ? Math.Clamp(r.SustainedShare, 0, 1) : 1.0)))
+        foreach (var batch in group.Chunk(200)) // Up to four accidental-eccentricity cases per input row.
         {
             cancel.ThrowIfCancellationRequested();
             var kind = group.Key.Kind;
             // γn does not apply to special combinations (SP 296, as in ARBAT).
             double gn = kind.Special ? 1 : c.ReliabilityUls;
-            var source = group.Select(r => new UlsLoad(r.Name.Trim(), r.Name.Trim(), r.N * gn, r.Mx * gn, r.My * gn, r.Q * gn)).ToList();
+            var source = batch.Select(r => new UlsLoad(r.Name.Trim(), r.Name.Trim(), r.N * gn, r.Mx * gn, r.My * gn, r.Q * gn)).ToList();
             var (uls, ex, ey) = PrepareUls(project, source);
             eax ??= ex; eay ??= ey;
             foreach (var l in uls) normalByCase[l.Id] = l.N;

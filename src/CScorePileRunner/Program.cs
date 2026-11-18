@@ -227,10 +227,12 @@ internal static class Program
             ?? throw new ArgumentException("Missing member preparation input");
         if (!double.IsFinite(input.LengthM) || input.LengthM <= 0
             || !double.IsFinite(input.HeightXM) || input.HeightXM <= 0
-            || !double.IsFinite(input.HeightYM) || input.HeightYM <= 0
-            || input.Loads.Count == 0 || input.Loads.Count > 1000
-            || input.Loads.Select(l=>l.Id).Distinct().Count()!=input.Loads.Count)
-            throw new ArgumentException("Invalid member preparation geometry or loads");
+            || !double.IsFinite(input.HeightYM) || input.HeightYM <= 0)
+            throw new ArgumentException($"Недопустимые размеры элемента (м): L={input.LengthM}, hx={input.HeightXM}, hy={input.HeightYM}");
+        if (input.Loads.Count is 0 or > 1000)
+            throw new ArgumentException($"Число нагрузок в пакете {input.Loads.Count}, допустимо от 1 до 1000");
+        if (input.Loads.Select(l => l.Id).Distinct().Count() != input.Loads.Count)
+            throw new ArgumentException("Повторяются идентификаторы нагрузок");
         var scheme = input.StructuralScheme switch {
             "statically_determinate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyDeterminate,
             "statically_indeterminate" => CScore.Sp63.Normal.Sp63StructuralScheme.StaticallyIndeterminate,

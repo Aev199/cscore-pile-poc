@@ -1084,6 +1084,31 @@ public partial class ProfileViewModel : ObservableObject
     }
 
     [RelayCommand]
+    async Task SaveProtocol()
+    {
+        if (Storage?.Invoke() is not { } storage) return;
+        var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Сохранить протокол", SuggestedFileName = Safe(project.Title) + ".protocol.json",
+            DefaultExtension = "json",
+        });
+        if (file is null) return;
+        try
+        {
+            var snapshot = System.Text.Json.Nodes.JsonNode.Parse(project.Serialize())!.AsObject();
+            snapshot["Protocol"] = JsonSerializer.SerializeToNode(new
+            {
+                Time = DateTimeOffset.Now, Status, Errors, Summary, HasResult, ResultIsStale, CageEditsPending
+            });
+            await using var stream = await file.OpenWriteAsync();
+            if (stream.CanSeek) stream.SetLength(0);
+            await JsonSerializer.SerializeAsync(stream, snapshot);
+            Status = $"Сохранён протокол: {file.Name}";
+        }
+        catch (Exception ex) { Errors = "Не удалось сохранить протокол: " + ex.Message; }
+    }
+
+    [RelayCommand]
     async Task SaveProject()
     {
         if (CageEditsPending) { Errors = "Примените изменения арматуры перед сохранением"; return; }

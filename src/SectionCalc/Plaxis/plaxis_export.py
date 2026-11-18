@@ -308,15 +308,16 @@ def moment_sign(output, objects, phase):
             'excavation': excavation}
 
 
-def select_objects(output, kind, names):
+def select_objects(output, kind, names, labels=None):
     """Output objects of the selection: exact names if Output lists them, otherwise parents or segments."""
     same_kind = [(i, obj, t) for i, (k, obj, t) in enumerate(output.objects) if k == kind]
-    exact = [o for o in same_kind if name_of(o[1]) in names]
-    found = exact or [o for o in same_kind if any(matches(name_of(o[1]), n) for n in names)]
-    # A parent already contains its segments: keep the outermost objects only.
-    found = [o for o in found if not any(name_of(o[1]).startswith(name_of(p[1]) + '_') for p in found if p is not o)]
+    if labels is None:
+        labels = {i: name_of(obj) for i, obj, _ in same_kind}
+    exact = [o for o in same_kind if labels[o[0]] in names]
+    found = exact or [o for o in same_kind if any(matches(labels[o[0]], n) for n in names)]
+    found = [o for o in found if not any(labels[o[0]].startswith(labels[p[0]] + '_') for p in found if p is not o)]
     if not found:
-        listed = [name_of(obj) for _, obj, _ in same_kind]
+        listed = list(labels.values())
         shown = ', '.join(listed[:15]) + (' …' if len(listed) > 15 else '')
         raise ExportError('В Output не найдены выбранные элементы: ' + ', '.join(names[:5]) + (' …' if len(names) > 5 else '')
                           + f'. Output видит ({kind}): ' + (shown or 'ничего'))
@@ -345,9 +346,10 @@ def resolve(output, selected):
         raise ExportError('PLAXIS 3D: стены (Plate) пока не поддерживаются — выделите сваи (Embedded beam или Beam)')
     if kind == 'EmbeddedBeamRow':
         kind = 'EmbeddedBeam'
+    labels = {i: name_of(obj) for i, (k, obj, _) in enumerate(output.objects) if k == kind}
     found, seen = [], set()
     for _, name in selected:
-        for o in select_objects(output, kind, [name]):
+        for o in select_objects(output, kind, [name], labels):
             if o[0] in seen:
                 raise ExportError(f'Элемент {name_of(o[1])} Output относится к нескольким выделенным сваям')
             seen.add(o[0])

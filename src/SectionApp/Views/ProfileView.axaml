@@ -12,6 +12,7 @@
           <ToggleButton Classes="small" Content="Параметры" IsChecked="{Binding ShowSettings}" IsVisible="{Binding HasTyping}" Margin="0,0,8,0" />
           <Button Classes="tool" Content="Открыть…" Command="{Binding OpenExportCommand}" ToolTip.Tip="Сохранённая эпюра или выгрузка PLAXIS (*.json)" />
           <Button Classes="tool" Content="Сохранить…" Command="{Binding SaveProjectCommand}" />
+          <Button Classes="tool" Content="Протокол JSON…" Command="{Binding SaveProtocolCommand}" />
           <Button Classes="tool" Content="3D-вид" Command="{Binding Open3DCommand}" IsVisible="{Binding Is3D}"
                   ToolTip.Tip="Сваи в 3D в браузере: эпюры N, M, Q, армирование; после типизации — эпюра материалов" />
         </StackPanel>
