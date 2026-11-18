@@ -1,5 +1,6 @@
 import io
 import json
+import math
 import os
 import sys
 import tempfile
@@ -556,11 +557,34 @@ class Group3DTests(unittest.TestCase):
         self.assertEqual(sorted(len(d['nodes']) for d in result['data']), [3, 3, 6, 6])
         objects = {o['id']: o['pile'] for o in result['objects']}
         self.assertEqual({objects[d['object']] for d in result['data']}, {'EmbeddedBeam_1', 'EmbeddedBeam_2'})
-        # 13 result types × 2 branches, nothing per segment beyond the plan position of each pile.
-        self.assertEqual(output.whole, 26)
+        # 13 result types in the first branch, 11 in the second (X is the same: Y and Z are not asked again),
+        # nothing per segment beyond the plan position of each pile.
+        self.assertEqual(output.whole, 24)
         code, result = self.run_tree(WholeModel3DOutput(), self.selection(), '--per-phase')
         self.assertEqual(code, 0, result)
         self.assertEqual(len(result['data']), 6)
+
+    def test_changed_mesh_reads_coordinates_again(self):
+        output = WholeModel3DOutput()
+        one = output.one
+        def moved(obj, phase, rtype):
+            values = one(obj, phase, rtype)
+            # Phase_4: another mesh — the X of every node is shifted a little, so the piles are found again.
+            return [v + 0.01 for v in values] if phase.key == 'Phase_4' and rtype.split('_')[0] == 'X' else values
+        output.one = moved
+        code, result = self.run_tree(output, self.selection())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(output.whole, 26)
+        self.assertEqual(sorted(len(d['nodes']) for d in result['data']), [3, 3, 6, 6])
+
+    def test_nodes_of_piles_by_plan_grid(self):
+        xy = {'A': (0.0, 0.0), 'B': (0.049, 0.0), 'C': (10.0, -3.0)}
+        xs = [0.0, 0.03, 0.049, 0.1, 10.04, -0.04, 10.0]
+        ys = [0.0, 0.0, 0.0, 0.0, -3.0, 0.0, -2.951]
+        found = plaxis_export.nodes_of_piles(xs, ys, xy)
+        brute = {p: [i for i, (x, y) in enumerate(zip(xs, ys)) if math.hypot(x - px, y - py) <= plaxis_export.PILE_TOLERANCE]
+                 for p, (px, py) in xy.items()}
+        self.assertEqual(found, brute)
 
     def test_input_opens_its_own_output_even_when_a_port_is_remembered(self):
         g_i = tree_input(self.selection())

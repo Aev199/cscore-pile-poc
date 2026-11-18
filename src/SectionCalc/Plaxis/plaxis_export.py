@@ -346,7 +346,9 @@ def resolve(output, selected):
         raise ExportError('PLAXIS 3D: стены (Plate) пока не поддерживаются — выделите сваи (Embedded beam или Beam)')
     if kind == 'EmbeddedBeamRow':
         kind = 'EmbeddedBeam'
+    started = time.time()
     labels = {i: name_of(obj) for i, (k, obj, _) in enumerate(output.objects) if k == kind}
+    log(f'Output: имена {len(labels)} элементов ({kind}) за {time.time() - started:.1f} с')
     found, seen = [], set()
     for _, name in selected:
         for o in select_objects(output, kind, [name], labels):
@@ -577,18 +579,12 @@ def extremes_text(columns, nodes):
     return ', '.join(parts)
 
 
-def read_3d(output, phase_ids, resolved, rtypes, columns):
-    """
-    PLAXIS 3D: each result of the whole model in one request per phase (g_o.getresults(phase, type, 'node')),
-    the nodes of every selected pile taken by its axis in plan — instead of a request per Output segment and
-    result type. Returns the data rows, or None when Output does not give the whole model at once.
-    """
-    piles = {}
-    for o, pile in resolved:
-        piles.setdefault(pile, []).append(o)
-    xy, data = {}, []
+def pile_positions(output, phase_ids, piles):
+    """Plan position of every selected pile: X and Y of its first Output segment that has results (two requests per pile)."""
+    xy = {}
+    started = time.time()
     for pi in phase_ids:
-        phase, name = output.phases[pi], output.phase_label(pi)[0]
+        phase = output.phases[pi]
         for pile, objs in piles.items():
             for oi, obj, t in objs if pile not in xy else []:
                 try:
@@ -599,9 +595,57 @@ def read_3d(output, phase_ids, resolved, rtypes, columns):
                 if xs:
                     xy[pile] = (sum(xs) / len(xs), sum(ys) / len(ys))
                     break
+        if len(xy) == len(piles):
+            break
+    log(f'Положение свай в плане: {len(xy)} из {len(piles)} за {time.time() - started:.1f} с')
+    return xy
+
+
+def nodes_of_piles(xs, ys, xy):
+    """
+    Node indices of every pile: the nodes on its axis in plan (within PILE_TOLERANCE). A grid of cells of the tolerance
+    size: each node is compared with the piles of its own and the neighbouring cells only, not with every pile.
+    """
+    cell = PILE_TOLERANCE
+    grid = {}
+    for pile, (px, py) in xy.items():
+        grid.setdefault((math.floor(px / cell), math.floor(py / cell)), []).append((pile, px, py))
+    found = {pile: [] for pile in xy}
+    for i, (x, y) in enumerate(zip(xs, ys)):
+        cx, cy = math.floor(x / cell), math.floor(y / cell)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for pile, px, py in grid.get((cx + dx, cy + dy), ()):
+                    if math.hypot(x - px, y - py) <= PILE_TOLERANCE:
+                        found[pile].append(i)
+    return found
+
+
+def read_3d(output, phase_ids, resolved, rtypes, columns):
+    """
+    PLAXIS 3D: each result of the whole model in one request per phase (g_o.getresults(phase, type, 'node')),
+    the nodes of every selected pile taken by its axis in plan — instead of a request per Output segment and
+    result type. The coordinates are asked once while X of the model stays the same (the same mesh): then Y, Z and
+    the nodes of the piles are those of the previous phase. Returns the data rows, or None when Output does not
+    give the whole model at once.
+    """
+    piles = {}
+    for o, pile in resolved:
+        piles.setdefault(pile, []).append(o)
+    xy = pile_positions(output, phase_ids, piles)
+    data = []
+    last_x, coords, members = None, {}, {}
+    for pi in phase_ids:
+        phase, name = output.phases[pi], output.phase_label(pi)[0]
         started = time.time()
         try:
-            arrays = {c: [float(v) for v in output.g.getresults(phase, rtypes[c], 'node')] for c in columns}
+            xs = [float(v) for v in output.g.getresults(phase, rtypes['x'], 'node')]
+            if xs != last_x:
+                coords = {c: xs if c == 'x' else [float(v) for v in output.g.getresults(phase, rtypes[c], 'node')]
+                          for c in columns if c in COORDS}
+                last_x, members = xs, None
+            arrays = dict(coords)
+            arrays.update({c: [float(v) for v in output.g.getresults(phase, rtypes[c], 'node')] for c in columns if c not in COORDS})
         except Exception as exc:
             if not data:
                 log(f'Output не отдаёт результаты всей модели ({exc}) — чтение по элементам')
@@ -611,10 +655,12 @@ def read_3d(output, phase_ids, resolved, rtypes, columns):
         n = len(arrays['x'])
         if len({len(a) for a in arrays.values()}) != 1:
             raise ExportError(f'{name}: PLAXIS вернул массивы разной длины')
-        log(f'{name}: вся модель — {n} узлов за {time.time() - started:.1f} с')
-        for pile, (px, py) in xy.items():
-            nodes = [[arrays[c][i] for c in columns] for i in range(n)
-                     if math.hypot(arrays['x'][i] - px, arrays['y'][i] - py) <= PILE_TOLERANCE]
+        read = time.time() - started
+        if members is None:
+            members = nodes_of_piles(arrays['x'], arrays['y'], xy)
+        log(f'{name}: вся модель — {n} узлов, чтение {read:.1f} с, отбор свай {time.time() - started - read:.1f} с')
+        for pile in xy:
+            nodes = [[arrays[c][i] for c in columns] for i in members[pile]]
             if not nodes:
                 continue
             if not all(math.isfinite(v) for row in nodes for v in row):
