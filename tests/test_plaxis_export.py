@@ -513,6 +513,14 @@ class WholeModel3DOutput(Fake3DOutput):
 
 
 class Group3DTests(unittest.TestCase):
+    def setUp(self):
+        # The fakes have 3 elements: the whole-model route is taken from any number on.
+        self.saved_min = plaxis_export.WHOLE_MODEL_MIN_OBJECTS
+        plaxis_export.WHOLE_MODEL_MIN_OBJECTS = 0
+
+    def tearDown(self):
+        plaxis_export.WHOLE_MODEL_MIN_OBJECTS = self.saved_min
+
     def run_tree(self, output, selection, *extra):
         g_i = tree_input(selection)
         out = io.StringIO()
@@ -576,6 +584,49 @@ class Group3DTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertEqual(output.whole, 26)
         self.assertEqual(sorted(len(d['nodes']) for d in result['data']), [3, 3, 6, 6])
+
+    def test_phase_without_piles_does_not_abandon_the_whole_model(self):
+        output = WholeModel3DOutput()
+        whole = output.getresults
+        def strict(*args):
+            # Real Output: a phase before the piles gives no results at all for the whole model.
+            if len(args) == 3 and args[0].key == 'InitialPhase':
+                raise RuntimeError('The command did not deliver any results')
+            return whole(*args)
+        output.getresults = strict
+        one, tried = output.one, []
+        def recorded(obj, phase, rtype):
+            tried.append(phase.key)
+            return one(obj, phase, rtype)
+        output.one = recorded
+        code, result = self.run_tree(output, self.selection(), '--per-phase')
+        self.assertEqual(code, 0, result)
+        self.assertGreater(output.whole, 0)
+        self.assertEqual(len(result['data']), 6)
+        # The plan positions come from the last phase (2 requests per pile); InitialPhase is asked per element
+        # only once, to tell an empty phase from an Output without whole-model results.
+        self.assertEqual(tried[:4], ['Phase_4'] * 4)
+        self.assertEqual(tried.count('InitialPhase'), 2)
+
+    def test_output_without_whole_model_results_reads_elements(self):
+        output = WholeModel3DOutput()
+        one = output.getresults
+        def per_element_only(*args):
+            if len(args) == 3:
+                raise RuntimeError('not supported')
+            return one(*args)
+        output.getresults = per_element_only
+        code, result = self.run_tree(output, self.selection(), '--per-phase')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(len(result['data']), 9)  # per element: 3 segments × 3 phases with piles
+
+    def test_few_elements_are_read_one_by_one(self):
+        plaxis_export.WHOLE_MODEL_MIN_OBJECTS = 40
+        output = WholeModel3DOutput()
+        code, result = self.run_tree(output, self.selection(), '--per-phase')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(output.whole, 0)
+        self.assertEqual(len(result['data']), 9)
 
     def test_nodes_of_piles_by_plan_grid(self):
         xy = {'A': (0.0, 0.0), 'B': (0.049, 0.0), 'C': (10.0, -3.0)}

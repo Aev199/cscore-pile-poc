@@ -460,6 +460,7 @@ class Output:
         data = []
         for pi in phase_ids:
             phase = self.phases[pi]
+            started = time.time()
             for oi in object_ids:
                 kind, obj, types = self.objects[oi]
                 log(f'{self.phase_label(pi)[0]}: {name_of(obj)}')
@@ -481,6 +482,7 @@ class Output:
                 if not all(math.isfinite(v) for row in nodes for v in row):
                     raise ExportError(f'{name_of(obj)}, {self.phase_label(pi)[0]}: неконечные значения')
                 data.append({'object': oi, 'phase': pi, 'nodes': nodes})
+            log(f'{self.phase_label(pi)[0]}: {len(object_ids)} элементов за {time.time() - started:.1f} с')
         return {
             'info': self.info(),
             'objects': [self.object_row(i, piles) for i in object_ids],
@@ -566,6 +568,10 @@ def from_input(g_i, connector, output_port=None, per_phase=False, reuse_port=Non
 
 # A node belongs to a pile when it lies on the pile axis in plan.
 PILE_TOLERANCE = 0.05
+# Fewer selected Output elements: read them one by one. Once Output has loaded a phase (the first request of the
+# phase, tens of seconds in a large model), a request per element takes milliseconds, while a whole-model array of a
+# large model is long to transfer and the plan positions of the piles cost two more requests per pile.
+WHOLE_MODEL_MIN_OBJECTS = 40
 
 
 def extremes_text(columns, nodes):
@@ -580,10 +586,14 @@ def extremes_text(columns, nodes):
 
 
 def pile_positions(output, phase_ids, piles):
-    """Plan position of every selected pile: X and Y of its first Output segment that has results (two requests per pile)."""
+    """
+    Plan position of every selected pile: X and Y of its first Output segment that has results (two requests per pile).
+    The last phase first: Output was opened on it (it is loaded already) and the piles exist there; the first phases
+    (InitialPhase) have no piles yet, and every failed request in them is slow.
+    """
     xy = {}
     started = time.time()
-    for pi in phase_ids:
+    for pi in reversed(phase_ids):
         phase = output.phases[pi]
         for pile, objs in piles.items():
             for oi, obj, t in objs if pile not in xy else []:
@@ -621,6 +631,18 @@ def nodes_of_piles(xs, ys, xy):
     return found
 
 
+def any_result(output, phase, piles):
+    """Some selected element has results in the phase (one request per pile at most)."""
+    for objs in piles.values():
+        oi, obj, t = objs[0]
+        try:
+            if list(output.g.getresults(obj, phase, t['x'], 'node')):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def read_3d(output, phase_ids, resolved, rtypes, columns):
     """
     PLAXIS 3D: each result of the whole model in one request per phase (g_o.getresults(phase, type, 'node')),
@@ -629,6 +651,9 @@ def read_3d(output, phase_ids, resolved, rtypes, columns):
     the nodes of the piles are those of the previous phase. Returns the data rows, or None when Output does not
     give the whole model at once.
     """
+    if len(resolved) < WHOLE_MODEL_MIN_OBJECTS:
+        log(f'Выбрано элементов Output: {len(resolved)} — чтение по элементам')
+        return None
     piles = {}
     for o, pile in resolved:
         piles.setdefault(pile, []).append(o)
@@ -647,10 +672,12 @@ def read_3d(output, phase_ids, resolved, rtypes, columns):
             arrays = dict(coords)
             arrays.update({c: [float(v) for v in output.g.getresults(phase, rtypes[c], 'node')] for c in columns if c not in COORDS})
         except Exception as exc:
-            if not data:
+            # A phase before the piles (InitialPhase) has no results at all: that says nothing about Output.
+            # Only when a selected element has results in this phase, Output cannot give the whole model.
+            if any_result(output, phase, piles):
                 log(f'Output не отдаёт результаты всей модели ({exc}) — чтение по элементам')
                 return None
-            log(f'{name}: нет результатов ({exc})')
+            log(f'{name}: нет результатов выбранных свай ({exc})')
             continue
         n = len(arrays['x'])
         if len({len(a) for a in arrays.values()}) != 1:
