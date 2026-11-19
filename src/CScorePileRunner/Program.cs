@@ -1,4 +1,4 @@
-// Exploratory adapter to OpenCS CScore, pinned at 4ae6aa077be5b29145930ec093ba1c9eb7776222.
+// Exploratory adapter to OpenCS CScore, pinned at 96891bee405ca42899211b076c5bf4e1e5b5a0c8.
 // IMPORTANT: ULS checks are incomplete; experimental SLS crack probe is diagnostic only and unverified.
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -165,7 +165,7 @@ internal static class Program
             {
                 schema_version = 1,
                 engine = "OpenCS.CScore.LimitForceSolver",
-                engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
+                engine_commit = "96891bee405ca42899211b076c5bf4e1e5b5a0c8",
                 engine_patches = new[] { "sp63_phi_n_amendment2_v1" },
                 scope = input.ShearScreening?.Enabled == true
                     ? "uls_ndm_and_local_shear_research_screen_not_design_verified"
@@ -208,7 +208,7 @@ internal static class Program
         {
             schema_version = 1,
             engine = "OpenCS.CScore.BiaxialCurvatureCurveSolver",
-            engine_commit = "4ae6aa077be5b29145930ec093ba1c9eb7776222",
+            engine_commit = "96891bee405ca42899211b076c5bf4e1e5b5a0c8",
             status = r.Status,
             calc_type = mc.CalcType,
             cracked_at_zero_load = r.CrackedAtZeroLoad,

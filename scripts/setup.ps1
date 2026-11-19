@@ -6,9 +6,9 @@ if (!(Test-Path 'vendor/OpenCS/.git')) {
     git clone https://github.com/rumata-ap/OpenCS.git vendor/OpenCS
     if ($LASTEXITCODE -ne 0) { throw 'Git clone failed' }
 }
-git -C vendor/OpenCS fetch origin 4ae6aa077be5b29145930ec093ba1c9eb7776222
+git -C vendor/OpenCS fetch origin 96891bee405ca42899211b076c5bf4e1e5b5a0c8
 if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed' }
-git -C vendor/OpenCS checkout --detach 4ae6aa077be5b29145930ec093ba1c9eb7776222
+git -C vendor/OpenCS checkout --detach 96891bee405ca42899211b076c5bf4e1e5b5a0c8
 if ($LASTEXITCODE -ne 0) { throw 'Git checkout failed' }
 python tools/apply_opencs_patches.py
 if ($LASTEXITCODE -ne 0) { throw 'Pinned CScore patch failed' }

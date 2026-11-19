@@ -18,11 +18,12 @@ from workbench.connection import validate_report
 
 def run(runner):
     # T09/T10: partly sustained actions, SP63 8.2.6 split into sustained and total states.
-    cases=[('R300x500', 'T01', 'long', 1.0316302052621296),
-           ('R400x600', 'T02', 'long', 1.7392021983328885),
-           ('R400x600', 'T07', 'short', 1.4314045937550512),
-           ('C600', 'T09', 'short', 1.1458448068514773),
-           ('C600', 'T10', 'long', 0.5923435130783482)]
+    # OpenCS 96891be (before, at 4ae6aa0: 1.0316, 1.7392, 1.4314, 1.1458, 0.5923; 0.5-1.5 % lower now, closer to ARBAT).
+    cases=[('R300x500', 'T01', 'long', 1.0237417735974506),
+           ('R400x600', 'T02', 'long', 1.7313264056138782),
+           ('R400x600', 'T07', 'short', 1.4241825155738534),
+           ('C600', 'T09', 'short', 1.1386030504301259),
+           ('C600', 'T10', 'long', 0.5832925938449426)]
     for prefix,case,duration,expected in cases:
         section=next(s for s in matrix.section_definitions('arbat_stated') if s['id'].startswith(prefix))
         request=matrix.make_request(section,'arbat_conservative')

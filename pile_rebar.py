@@ -471,7 +471,7 @@ def run(input_path: Path, runner: Path, output_path: Path, csv_path: Path, *, ti
               'selected_preliminary_uls_sls_research_candidate': (
                   sls_candidates[0]['id'] if sls_candidates else None
               ) if eccentricity['eccentricity_accounted_for'] else None,
-              'engine_commit': '4ae6aa077be5b29145930ec093ba1c9eb7776222',
+              'engine_commit': '96891bee405ca42899211b076c5bf4e1e5b5a0c8',
               'cases': calculated, 'rejected_geometry': rejected,
               'note': 'pass_uls означает только прочность нормального сечения; SLS исследовательский; НЕ готовность КЖ'}
     output_path.parent.mkdir(parents=True, exist_ok=True)

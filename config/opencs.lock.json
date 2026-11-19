@@ -1,7 +1,7 @@
 {
   "repository": "rumata-ap/OpenCS",
   "branch": "master",
-  "commit": "4ae6aa077be5b29145930ec093ba1c9eb7776222",
+  "commit": "96891bee405ca42899211b076c5bf4e1e5b5a0c8",
   "policy": "manual review, version pinning, no automatic upgrades",
   "paths": [
     "CScore/",
@@ -11,9 +11,9 @@
   ],
   "patches": [
     {
-      "file": "patches/opencs-sp63-phi-n-amendment2.patch",
-      "sha256": "a27d6bf3b775637c733707b9399113485c40086751825292770cdad7b5c00c3f",
-      "purpose": "Native SP63 amendment 2 phiN branches and simplified stirrup term, with regression tests"
+      "file": "patches/opencs-sp63-stirrup-phi-n-amendment2.patch",
+      "sha256": "cc35e860a37014634faaff9d4213b6954a246b2ac3128cefaf67e070b4915bfe",
+      "purpose": "SP63 amendment 2: phiN applies to the concrete term (8.61), not to the stirrup term (8.62); the phiN values themselves are native since f184bc88"
     }
   ]
 }

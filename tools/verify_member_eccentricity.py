@@ -51,7 +51,8 @@ def run(runner,out):
     p['rows'][0]['my']=50 # 20 kNm on a 0.4 m panel, corresponding to N=1000 kN and e=20 mm.
     r=model.check_adopted(p,runner=runner,single_section=True)
     normal=next(c for c in r['stations'][0]['report']['checks'] if c['check_id']=='normal_member_strength')
-    assert math.isclose(normal['utilization'],6.346466288,rel_tol=1e-6),normal
+    # OpenCS 96891be (6.346466288 at 4ae6aa0: the equilibrium residual is checked separately for N and M now).
+    assert math.isclose(normal['utilization'],6.333403001,rel_tol=1e-6),normal
     summary.append(dict(case='L15_explicit_20mm_weak_plane',cscore_normal=normal['utilization'],arbat_recorded_normal=6.483,
                         reference_inputs_not_fully_reestablished=True))
     (out/'L15_explicit20.json').write_text(json.dumps(dict(project=p,result=r),ensure_ascii=False,indent=2),encoding='utf-8')

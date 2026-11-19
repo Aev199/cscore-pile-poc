@@ -3,8 +3,8 @@ using Xunit;
 
 public class EngineTests
 {
-    // ARBAT report 400x600 T2, already reproduced through the manual check
-    // (docs/research/data/arbat-seven-full-2026-10-19/comparison.csv): 0.8697 / 1.7392 / 1.3044.
+    // ARBAT report 400x600 T2 (docs/research/data/arbat-seven-full-2026-10-19/comparison.csv): ARBAT 0.867 / 1.69 / 1.268.
+    // CScore 96891be: 0.8678 / 1.7313 / 1.2985 (before, at 4ae6aa0: 0.8697 / 1.7392 / 1.3044) — closer to ARBAT.
     static SectionProject Arbat400x600()
     {
         var p = new SectionProject { Kind = SectionKind.Wall };
@@ -22,14 +22,14 @@ public class EngineTests
     {
         var r = Engine.Check(Arbat400x600());
         double Max(string id) => r.Rows.Where(x => x.CheckId == id).Max(x => x.Utilization ?? 0);
-        Assert.Equal(0.8697, Max("normal_member_strength"), 4);
-        Assert.Equal(1.7392, Max("crack_width_long"), 4);
-        Assert.Equal(1.3044, Max("crack_width_short"), 4);
+        Assert.Equal(0.8678, Max("normal_member_strength"), 4);
+        Assert.Equal(1.7313, Max("crack_width_long"), 4);
+        Assert.Equal(1.2985, Max("crack_width_short"), 4);
         Assert.Equal(Verdict.Failed, r.Verdict);
         Assert.Equal("crack_width_long", r.Governing!.CheckId);
     }
 
-    // Same report, T10: biaxial, compression, k = 0.5 (ARBAT My/Mz → our Mx/My).
+    // Same report, T10: biaxial, compression, k = 0.5 (ARBAT My/Mz → our Mx/My). ARBAT 0.71 / 1.035 / 0.751 / 0.018.
     [Fact]
     public void ReproducesArbatSustainedShareAndNcr()
     {
@@ -37,9 +37,9 @@ public class EngineTests
         p.Loads = [new LoadRow { Name = "T10", N = -250, Mx = 140, My = 80, SustainedShare = 0.5 }];
         var r = Engine.Check(p);
         double Max(string id) => r.Rows.Where(x => x.CheckId == id).Max(x => x.Utilization ?? 0);
-        Assert.Equal(0.7141, Max("normal_member_strength"), 3);
-        Assert.Equal(1.0581, Max("crack_width_short"), 3);
-        Assert.Equal(0.7923, Max("crack_width_long"), 3);
+        Assert.Equal(0.7131, Max("normal_member_strength"), 3);
+        Assert.Equal(1.0510, Max("crack_width_short"), 3);
+        Assert.Equal(0.7829, Max("crack_width_long"), 3);
         Assert.Equal(0.0181, Max("member_stability"), 3);
     }
 
@@ -49,8 +49,8 @@ public class EngineTests
         var p = Arbat400x600();
         p.Loads = [new LoadRow { Name = "T2", N = 0, Mx = 180 * 1.1, LoadFactor = 1.1 }];
         var r = Engine.Check(p);
-        Assert.Equal(1.7392, r.Rows.Where(x => x.CheckId == "crack_width_long").Max(x => x.Utilization ?? 0), 4);
-        Assert.True(r.Rows.Where(x => x.CheckId == "normal_member_strength").Max(x => x.Utilization ?? 0) > 0.8697 * 1.05);
+        Assert.Equal(1.7313, r.Rows.Where(x => x.CheckId == "crack_width_long").Max(x => x.Utilization ?? 0), 4);
+        Assert.True(r.Rows.Where(x => x.CheckId == "normal_member_strength").Max(x => x.Utilization ?? 0) > 0.8678 * 1.05);
     }
 
     // Refined ψs = the engine's own cracked-section σs,crc: the "native" column of the ARBAT comparison.
@@ -61,9 +61,9 @@ public class EngineTests
         p.Conditions.CrackMethod = CrackMethod.Refined;
         var r = Engine.Check(p);
         double Max(string id) => r.Rows.Where(x => x.CheckId == id).Max(x => x.Utilization ?? 0);
-        Assert.Equal(1.2771, Max("crack_width_long"), 3);
-        Assert.Equal(0.9578, Max("crack_width_short"), 3);
-        Assert.Equal(0.8697, Max("normal_member_strength"), 4);
+        Assert.Equal(1.2755, Max("crack_width_long"), 4);
+        Assert.Equal(0.9566, Max("crack_width_short"), 3);
+        Assert.Equal(0.8678, Max("normal_member_strength"), 4);
     }
 
     [Fact]

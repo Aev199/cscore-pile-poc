@@ -1,0 +1,34 @@
+diff --git a/CScore.Tests/Sp63Shear/ShearFormulasTests.cs b/CScore.Tests/Sp63Shear/ShearFormulasTests.cs
+index d9176c8e..5b875778 100644
+--- a/CScore.Tests/Sp63Shear/ShearFormulasTests.cs
++++ b/CScore.Tests/Sp63Shear/ShearFormulasTests.cs
+@@ -179,12 +179,12 @@ public sealed class ShearFormulasTests
+     }
+ 
+     [Fact]
+-    public void MinStirrupShear_AppliesPhiNToWholeRightSideOf861()
++    public void MinStirrupShear_DoesNotApplyPhiNTo862()
+     {
+         double value = ShearFormulas.MinStirrupShear(
+             Input(), supportDistance: 2.0, out _, appliedShear: 150.0, phiN: 1.4);
+ 
+-        Assert.Equal(1.4 * 200.0 * H0, value, 6);
++        Assert.Equal(200.0 * H0, value, 6);
+     }
+ 
+     [Fact]
+diff --git a/CScore/Sp63Shear/ShearFormulas.cs b/CScore/Sp63Shear/ShearFormulas.cs
+index 32931e9a..761e26a1 100644
+--- a/CScore/Sp63Shear/ShearFormulas.cs
++++ b/CScore/Sp63Shear/ShearFormulas.cs
+@@ -124,7 +124,9 @@ public static class ShearFormulas
+         double value = input.Qsw * input.H0;
+         if (supportDistance > 0.0 && supportDistance < input.H0)
+             value *= supportDistance / input.H0;
+-        return phiN * value;
++        // Amendment 2 applies phiN to concrete (8.61), not stirrups (8.62).
++        // Keep the optional argument for source compatibility.
++        return value;
+     }
+ 
+     /// <summary>Проверяет ограничение шага хомутов из п. 8.1.33 для заданной Q.</summary>

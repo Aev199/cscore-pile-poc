@@ -34,7 +34,7 @@ public sealed record CheckResult(SectionProject Project, BarLayout Layout, IRead
 /// <summary>Runs the pinned CScore through the in-process runner. All resistances come from CScore.</summary>
 public static class Engine
 {
-    public const string EngineCommit = "4ae6aa077be5b29145930ec093ba1c9eb7776222";
+    public const string EngineCommit = "96891bee405ca42899211b076c5bf4e1e5b5a0c8";
     internal static readonly HashSet<string> InfoOnly = ["anchorage", "detailing", "crack_formation", "member_stability", "sls_member_stability"];
     static readonly HashSet<string> ShearChecks = ["shear_strip", "shear_inclined", "inclined_moment"];
     static readonly HashSet<string> SlsChecks = ["crack_formation", "crack_width_long", "crack_width_short", "sls_member_stability"];
