@@ -54,6 +54,44 @@ public class AppTests
     }
 
     [AvaloniaFact]
+    public async Task Unpartitioned3DViewIncludesRequiredAndAcceptedAreas()
+    {
+        var (window, vm) = Open();
+        vm.ShowProfileCommand.Execute(null);
+        var profile = vm.Profile;
+        string root = AppContext.BaseDirectory;
+        while (!Directory.Exists(Path.Combine(root, "examples", "profile"))) root = Path.GetDirectoryName(root)!;
+        profile.UseExport(SectionCalc.Profile.PlaxisBridge.Parse(
+            File.ReadAllText(Path.Combine(root, "examples", "profile", "pile-group-3d.plaxis.json"))));
+        profile.ModeIndex = 0;
+        profile.StationStep = "3";
+        profile.Confirm();
+        string before = profile.ProjectJson();
+        string? opened = null;
+        profile.OpenFile = path => { opened = path; return true; };
+        var (gn, gm) = (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM);
+        (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM) = (2, 3);
+        try
+        {
+            await profile.Open3DCommand.ExecuteAsync(null);
+            Assert.True(opened is not null, profile.Errors);
+            string html = File.ReadAllText(opened!);
+            string json = html.Split("const DATA = ")[1].Split(";\n")[0];
+            using var scene = System.Text.Json.JsonDocument.Parse(json);
+            var pile = scene.RootElement.GetProperty("piles")[0];
+            Assert.True(pile.GetProperty("stations")[0].GetProperty("as").GetDouble() > 0);
+            Assert.True(pile.GetProperty("stations")[0].GetProperty("asp").GetDouble() > 0);
+            Assert.True(pile.GetProperty("steps").GetArrayLength() > 0);
+            Assert.Equal(before, profile.ProjectJson());
+        }
+        finally
+        {
+            (SectionCalc.Profile.PileTyping.GridN, SectionCalc.Profile.PileTyping.GridM) = (gn, gm);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public async Task StartsInArbitraryModeAndRecalculatesByItself()
     {
         var vm = new MainViewModel();

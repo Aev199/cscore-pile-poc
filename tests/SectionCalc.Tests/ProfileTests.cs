@@ -708,6 +708,25 @@ public class ProfileTests(ITestOutputHelper output)
             var cap = caps.Values.First();
             Assert.True(cap.NultCompression > 5000 && cap.NultTension > 500, $"{cap.NultCompression} {cap.NultTension}");
             Assert.NotNull(data["types"]![0]!["zones"]![0]!["mult"]);
+            // Ordinary 3D design has no type partition, but still needs a required-area diagram.
+            var untyped = SceneExport.Data(p, null, null, typing.Demands);
+            var untypedStation = untyped["piles"]![0]!["stations"]![0]!;
+            Assert.Equal(station["as"]!.GetValue<double>(), untypedStation["as"]!.GetValue<double>());
+            Assert.NotNull(untypedStation["asp"]);
+            Assert.NotEmpty(untyped["piles"]![0]!["steps"]!.AsArray());
+
+            // Given cages keep their own areas while the independent required demand remains available.
+            var checkProject = ProfileProject.Deserialize(p.Serialize());
+            checkProject.Settings.Mode = ProfileMode.Check;
+            var given = SavedPileType.Restore(PileTyping.ForCheck(checkProject), SavedPileType.Capture(typing), true);
+            string before = checkProject.Serialize();
+            var checkedScene = SceneExport.Data(checkProject, given, null, typing.Demands);
+            var checkStation = checkedScene["piles"]![0]!["stations"]![0]!;
+            Assert.Equal(station["as"]!.GetValue<double>(), checkStation["as"]!.GetValue<double>());
+            Assert.Equal(station["asp"]!.GetValue<double>(), checkStation["asp"]!.GetValue<double>());
+            Assert.Equal(before, checkProject.Serialize());
+            Assert.Contains("As расчётная", SceneExport.Html(checkedScene));
+            Assert.DoesNotContain("label: 'As принятая", SceneExport.Html(checkedScene));
             string html = SceneExport.Html(data);
             Assert.DoesNotContain("/*DATA*/", html);
             if (Environment.GetEnvironmentVariable("SECTION_APP_SCREENSHOTS") is { Length: > 0 } dir)
@@ -875,7 +894,7 @@ public class ProfileTests(ITestOutputHelper output)
         var stations = scene["piles"]!.AsArray().SelectMany(x => x!["stations"]!.AsArray()).ToList();
         Assert.All(stations, s => Assert.Null(s!["as"]));
         Assert.Contains(stations, s => s!["asp"] is not null && Math.Abs((double)s["asp"]! - 6 * Math.PI * 1.2 * 1.2 / 4) < 0.01);
-        Assert.Contains("'asp'", SceneExport.Html(scene));
+        Assert.Contains("As расчётная", SceneExport.Html(scene));
         reopened.PileTypes[1].Piles = [reopened.PileTypes[0].Piles[0]];
         Assert.Throws<InvalidOperationException>(() => SavedPileType.Restore(d, reopened.PileTypes, true));
     }

@@ -1010,23 +1010,25 @@ public partial class ProfileViewModel : ObservableObject
 
     // ---- calculation ----
 
+    async Task<bool> ConfirmCalculationForces()
+    {
+        if (project.Settings.Confirmed) return true;
+        if (ConfirmForces is null || !await ConfirmForces(ForcesSummary()))
+        {
+            Errors = "Сверьте с Output единицы, масштаб и знак момента";
+            return false;
+        }
+        Confirmed = true;
+        RefreshForces();
+        return forces is not null;
+    }
+
     [RelayCommand(CanExecute = nameof(CanRun))]
     async Task Calculate()
     {
         RefreshForces();
         if (forces is null) { if (Errors.Length == 0) Errors = "Загрузите усилия PLAXIS"; return; }
-        if (!project.Settings.Confirmed)
-        {
-            // Once per loaded model: the units, the scale and the sign of M are shown and confirmed.
-            if (ConfirmForces is null || !await ConfirmForces(ForcesSummary()))
-            {
-                Errors = "Сверьте с Output единицы, масштаб и знак момента";
-                return;
-            }
-            Confirmed = true;
-            RefreshForces();
-            if (forces is null) return;
-        }
+        if (!await ConfirmCalculationForces()) return;
         if (IsCheck && Is3D) { await CalculatePileCheck(); return; }
         if (IsTyping) { await CalculateTyping(); return; }
         var p = project;
@@ -1111,7 +1113,7 @@ public partial class ProfileViewModel : ObservableObject
     void ClearResult()
     {
         result = null; HasResult = false; ResultIsStale = false; Stations.Clear(); Summary = ""; SelectedStation = null;
-        typing = null; demands = null; Types.Clear(); PileRows.Clear(); verified.Clear(); ClearDrafts();
+        typing = null; demands = null; sceneDemands = null; Types.Clear(); PileRows.Clear(); verified.Clear(); ClearDrafts();
         OnPropertyChanged(nameof(Typing)); OnPropertyChanged(nameof(HasTyping)); OnPropertyChanged(nameof(HasNoTyping));
     }
 
@@ -1224,6 +1226,7 @@ public partial class ProfileViewModel : ObservableObject
         catch (Exception) { return false; }
     };
     (TypingResult Typing, Dictionary<(int Type, int Zone), ZoneCapacity> Caps)? capacities;
+    (PlaxisExport Source, string Key, PileDemands Demands)? sceneDemands;
 
     /// <summary>
     /// 3D view of the piles in the browser: diagrams of N, M, Q and reinforcement along each pile; with the typing —
@@ -1233,10 +1236,32 @@ public partial class ProfileViewModel : ObservableObject
     async Task Open3D()
     {
         if (project.Source is null || forces is null) { Errors = "Загрузите усилия PLAXIS"; return; }
-        var p = project;
-        var r = HasTyping && !ResultIsStale ? typing : null;
+        if (drafts.Count > 0) { Errors = PendingMessage; return; }
+        RefreshForces();
+        if (forces is null) return;
+        if (HasResult && ResultIsStale) { Errors = "Данные изменены — выполните расчёт перед открытием 3D"; return; }
+        if (!await ConfirmCalculationForces()) return;
+        var p = ProfileProject.Deserialize(project.Serialize());
+        var r = HasTyping ? typing : null;
+        string key = Key();
         await Busy("3D-вид…", async token =>
         {
+            PileDemands? required = r?.Demands.TablePoints > 0 ? r.Demands : null;
+            if (required is null && p.Section.Kind == SectionKind.Pile)
+            {
+                if (sceneDemands is { } saved && ReferenceEquals(saved.Source, project.Source) && saved.Key == key)
+                    required = saved.Demands;
+                else
+                {
+                    var progress = new Progress<(int Done, int Total)>(x =>
+                    {
+                        Progress = 100.0 * x.Done / Math.Max(1, x.Total);
+                        Status = $"Расчётная As для 3D: {x.Done} из {x.Total}";
+                    });
+                    required = await Task.Run(() => PileTyping.Demand(p, progress, token), token);
+                    sceneDemands = (project.Source!, key, required);
+                }
+            }
             Dictionary<(int Type, int Zone), ZoneCapacity>? caps = null;
             if (r is not null)
             {
@@ -1252,7 +1277,7 @@ public partial class ProfileViewModel : ObservableObject
                     capacities = (r, caps);
                 }
             }
-            string html = await Task.Run(() => SceneExport.Html(SceneExport.Data(p, r, caps)), token);
+            string html = await Task.Run(() => SceneExport.Html(SceneExport.Data(p, r, caps, required)), token);
             string path = Path.Combine(Path.GetTempPath(), $"section-app-3d-{DateTime.Now:yyyyMMdd-HHmmss}.html");
             await File.WriteAllTextAsync(path, html, token);
             LastScene = path;

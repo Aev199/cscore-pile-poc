@@ -40,7 +40,7 @@
     <div class="row"><span class="muted">Масштаб</span><input type="range" id="scale" min="0.2" max="4" step="0.1" value="1"></div>
     <h2>Показать</h2>
     <div class="row"><select id="typeFilter"></select></div>
-    <label class="row"><input type="checkbox" id="overlay" checked> наложить несущую способность</label>
+    <label class="row"><input type="checkbox" id="overlay" checked> <span id="overlayLabel">наложить несущую способность</span></label>
     <label class="row"><input type="checkbox" id="labels" checked> подписи свай</label>
     <label class="row"><input type="checkbox" id="solid"> объём свай (иначе — ось)</label>
     <div class="legend" id="legend"></div>
@@ -76,13 +76,11 @@ const QUANTITIES = [
     cap: s => s.mult, over: s => s.mult != null && s.m > s.mult, capLabel: z => z.mult != null ? `Mult ${ru(z.mult)}` : '' },
   { id: 'q', label: '|Q|, кН', unit: 'кН', color: 0x1fa3b8, get: s => s.q,
     cap: s => s.qult, over: s => s.qult != null && s.q > s.qult, capLabel: z => z.qult != null ? `Qult ${ru(z.qult)}` : '' },
-  { id: 'as', label: 'As требуемая, см²', unit: 'см²', color: 0xe07a1f, get: s => s.as, needs: 'as',
+  { id: 'as', label: 'As расчётная, см²', unit: 'см²', color: 0xe07a1f, get: s => s.as, needs: 'as',
     cap: s => s.asp, over: s => s.asp != null && s.as > s.asp * 1.001, capLabel: z => `As ${ru(z.as, 1)}` },
-  // The check of given cages has no required area: the given one is the reinforcement diagram itself.
-  { id: 'asp', label: 'As принятая, см²', unit: 'см²', color: 0x3a9a4a, get: s => s.asp, needs: 'asp', unless: 'as',
-    capLabel: z => `As ${ru(z.as, 1)}` },
+
 ];
-const capName = { n: 'Nult', m: 'Mult', q: 'Qult', as: 'As принятая', asp: 'As принятая' };
+const capName = { n: 'Nult', m: 'Mult', q: 'Qult', as: 'As принятая' };
 document.getElementById('title').textContent = DATA.title || 'Сваи';
 document.getElementById('section').textContent = `${DATA.section} · свай: ${DATA.piles.length}` + (typed ? ` · типов: ${DATA.types.length}` : '');
 
@@ -145,14 +143,14 @@ function textSprite(text, color) {
 }
 
 // ---- diagrams ----
-let quantity = QUANTITIES[1];
 const present = key => P.some(p => p.stations.some(s => s[key] != null));
-function available(q) { return (!q.needs || present(q.needs)) && !(q.unless && present(q.unless)); }
+function available(q) { return !q.needs || present(q.needs); }
+let quantity = QUANTITIES.find(q => q.id === 'as' && available(q)) ?? QUANTITIES[1];
 const overlayOn = () => document.getElementById('overlay').checked;
 function absMax(v) { return v == null ? 0 : Array.isArray(v) ? Math.max(Math.abs(v[0] ?? 0), Math.abs(v[1] ?? 0)) : Math.abs(v); }
 function maxOf(q) {
   let m = 0;
-  for (const p of P) for (const s of p.stations) {
+  for (const p of P) for (const s of diagramStations(p, q)) {
     m = Math.max(m, absMax(q.get(s)));
     if (overlayOn() && q.cap) m = Math.max(m, absMax(q.cap(s)));
   }
@@ -190,11 +188,12 @@ function dots(group, pts) {
 function rebuild() {
   const scale = spacing * 0.7 * parseFloat(document.getElementById('scale').value) / maxOf(quantity);
   const q = quantity, overlay = overlayOn() && q.cap;
+  document.getElementById('overlayLabel').textContent = q.id === 'as' ? 'наложить As принятую' : 'наложить несущую способность';
   for (const pile of piles) {
     clear(pile.group);
     // The diagram starts at the surface of the pile, not at its axis hidden inside.
     const o = solid() ? pile.data.d / 2 + 0.05 : 0;
-    const st = pile.data.stations.filter(s => q.get(s) != null).sort((a, b) => b.z - a.z);
+    const st = diagramStations(pile.data, q);
     if (st.length < 2) continue;
     const y = s => s.z - zc;
     // N: compression (minus) on the left of the pile, tension on the right.
@@ -290,8 +289,23 @@ function valuesAt(d, z) {
   const sh = d.shift ?? 0;  // zones of the type are at the levels of its longest pile
   const zone = type?.zones.find(zz => z + sh <= zz.top + 1e-6 && z + sh >= zz.bottom - 1e-6);
   const step = d.steps?.find(st => z <= st.top + 1e-6 && z > st.bottom + 1e-6) ?? d.steps?.[d.steps.length - 1];
-  return { z, nmin: lerp('nmin'), nmax: lerp('nmax'), m: lerp('m'), q: lerp('q'), as: step?.as ?? near.as, asw: step?.asw ?? near.asw, zone,
-           asp: zone?.as, mult: zone?.mult, qult: zone?.qult, nultc: zone?.nultc, nultt: zone?.nultt };
+  return { z, nmin: lerp('nmin'), nmax: lerp('nmax'), m: lerp('m'), q: lerp('q'), as: step ? step.as : near.as, asw: step ? step.asw : near.asw, as_exceeded: step?.as_exceeded ?? near.as_exceeded, zone,
+           asp: zone?.as ?? near.asp, mult: zone?.mult, qult: zone?.qult, nultc: zone?.nultc, nultt: zone?.nultt };
+}
+// Required and accepted reinforcement are constant within their own intervals.
+function diagramStations(d, q) {
+  if (q.id !== 'as' || !d.steps?.length)
+    return d.stations.filter(s => q.get(s) != null).sort((a, b) => b.z - a.z);
+  const type = DATA.types.find(t => t.number === d.type), shift = d.shift ?? 0;
+  const levels = [...new Set([d.head, d.tip, ...d.steps.flatMap(s => [s.top, s.bottom]),
+    ...(type?.zones ?? []).flatMap(z => [z.top - shift, z.bottom - shift])])]
+    .filter(z => z <= d.head && z >= d.tip).sort((a, b) => b - a);
+  const points = [];
+  for (let i = 1; i < levels.length; i++) {
+    const top = levels[i - 1], bottom = levels[i], v = valuesAt(d, (top + bottom) / 2);
+    if (v.as != null) points.push({ ...v, z: top }, { ...v, z: bottom });
+  }
+  return points;
 }
 const marker = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0.004), new THREE.Vector3(1, 0, 0.004)]),
   new THREE.LineBasicMaterial({ color: 0x263640 }));
@@ -317,7 +331,9 @@ renderer.domElement.addEventListener('mousemove', ev => {
     const zone = v.zone;
     let text = `${d.name}${d.type ? ' · Т' + d.type : ''} · отм. ${ru(v.z, 2)}\n`
       + `N ${ru(v.nmin)}…${ru(v.nmax)} кН · |M| ${ru(v.m)} кН·м · |Q| ${ru(v.q)} кН`;
-    if (v.as != null) text += `\nAs треб. ${ru(v.as, 1)} см²` + (v.asw != null ? ` · Asw/sw ${ru(v.asw, 2)} см²/м` : '');
+    if (v.as != null) text += `\nAs расч. ${v.as_exceeded ? '≥ ' : ''}${ru(v.as, 1)} см²` + (v.asw != null ? ` · Asw/sw ${ru(v.asw, 2)} см²/м` : '');
+    if (v.asp != null) text += `\nAs принятая ${ru(v.asp, 1)} см²`;
+    if (v.as_exceeded) text += '\nТребуемая As превышает предел подбора';
     if (zone) text += `\nКаркас: ${zone.bars} (${ru(zone.as, 1)} см²)` + (zone.spiral ? `, спираль Ø${zone.spiral}` : '') + (zone.k != null ? ` · K ${ru(zone.k, 2)}` : '');
     if (v.mult != null) text += `\nMult ${ru(v.mult)} кН·м` + (v.qult != null ? ` · Qult ${ru(v.qult)} кН` : '') + ` · Nult −${ru(v.nultc)} / +${ru(v.nultt)} кН`;
     tip.textContent = text;
@@ -351,7 +367,7 @@ function showDetail(p) {
   const d = p.data, panel = document.getElementById('detail'), q = quantity;
   if (panel.style.display !== 'block') { panel.style.display = 'block'; resize(); }
   document.getElementById('dname').textContent = d.name + (d.type ? ` · тип Т${d.type}` : '');
-  const st = d.stations.filter(s => q.get(s) != null).sort((a, b) => b.z - a.z);
+  const st = diagramStations(d, q);
   const overlay = overlayOn() && q.cap && st.some(s => q.cap(s) != null);
   const over = overlay ? st.filter(q.over) : [];
   document.getElementById('dinfo').innerHTML = `${q.label} по длине сваи` + (overlay

@@ -103,10 +103,13 @@ public static class SceneExport
     }
 
     /// <summary>Data of the scene: piles with diagrams along them, types with zones (when typed).</summary>
-    public static JsonObject Data(ProfileProject p, TypingResult? r, IReadOnlyDictionary<(int Type, int Zone), ZoneCapacity>? capacities)
+    public static JsonObject Data(ProfileProject p, TypingResult? r, IReadOnlyDictionary<(int Type, int Zone), ZoneCapacity>? capacities,
+        PileDemands? required = null)
     {
+        required ??= r?.Demands.TablePoints > 0 ? r.Demands : null;
         ForceProfile forces;
-        if (r is not null) forces = r.Demands.Forces;
+        if (required is not null) forces = required.Forces;
+        else if (r is not null) forces = r.Demands.Forces;
         else
         {
             // Model elevations: every pile at its own level.
@@ -115,7 +118,7 @@ public static class SceneExport
             forces = ForceProfile.Build(new ProfileProject { Section = p.Section, Source = p.Source, Phases = p.Phases, Settings = settings });
         }
         var typeOf = r?.Types.SelectMany(t => t.Members.Select(m => (m.Pile, t))).ToDictionary(x => x.Pile, x => x.t) ?? [];
-        var demandOf = r?.Demands.Piles.ToDictionary(x => x.Pile) ?? [];
+        var demandOf = required?.Piles.ToDictionary(x => x.Pile) ?? [];
         double diameter = p.Section.Kind == SectionKind.Pile ? p.Section.Pile.DiameterMm / 1000 : p.Section.Wall.ThicknessMm / 1000;
         var piles = new JsonArray();
         for (int i = 0; i < forces.Piles.Count; i++)
@@ -124,7 +127,7 @@ public static class SceneExport
             var type = typeOf.GetValueOrDefault(i);
             var demand = demandOf.GetValueOrDefault(i);
             // Level of the type = level of this pile + shift.
-            double shift = type is not null && demand is not null ? type.Shift(demand) : 0;
+            double shift = type is not null ? type.Head - info.Head : 0;
             var stations = new JsonArray();
             foreach (var e in forces.EnvelopeOfPile(i))
             {
@@ -133,12 +136,16 @@ public static class SceneExport
                     ["z"] = R(e.Level, 3), ["nmin"] = R(e.NMin, 1), ["nmax"] = R(e.NMax, 1),
                     ["m"] = R(Math.Max(Math.Abs(e.MMin), Math.Abs(e.MMax)), 1), ["q"] = R(e.QAbsMax, 1),
                 };
-                if (demand is not null && p.Settings.Mode != ProfileMode.Check)
+                if (demand is not null)
                 {
                     int k = Containing(demand.Stations, e.Level);
-                    o["as"] = R(demand.As[k] / 100, 2);
+                    o["as"] = double.IsFinite(demand.As[k]) ? R(demand.As[k] / 100, 2) : null;
+                    o["as_exceeded"] = demand.Exceeded[k];
                     o["asw"] = double.IsFinite(demand.Asw[k]) ? R(demand.Asw[k], 2) : null;
                 }
+                // Without a partition, the accepted cage is the section entered by the engineer.
+                if (type is null && demand is not null)
+                    o["asp"] = R(p.Section.Pile.BarCount * Math.PI * Math.Pow(p.Section.Pile.BarDiameterMm, 2) / 400, 2);
                 if (type is not null)
                 {
                     int zi = type.Zones.ToList().FindIndex(z => e.Level + shift <= z.Top + 1e-6 && e.Level + shift >= z.Bottom - 1e-6);
@@ -162,9 +169,10 @@ public static class SceneExport
                 ["type"] = type?.Number, ["color"] = type is null ? "#9aa7b0" : Hex(type.Number), ["d"] = diameter, ["shift"] = R(shift, 3),
                 ["stations"] = stations,
                 // The intervals of the search: the required area holds over each of them.
-                ["steps"] = demand is null || p.Settings.Mode == ProfileMode.Check ? null : new JsonArray(demand.Stations.Select((st, k) => (JsonNode)new JsonObject
+                ["steps"] = demand is null ? null : new JsonArray(demand.Stations.Select((st, k) => (JsonNode)new JsonObject
                 {
-                    ["top"] = R(st.Top, 3), ["bottom"] = R(st.Bottom, 3), ["as"] = R(demand.As[k] / 100, 2),
+                    ["top"] = R(st.Top, 3), ["bottom"] = R(st.Bottom, 3), ["as"] = double.IsFinite(demand.As[k]) ? R(demand.As[k] / 100, 2) : null,
+                    ["as_exceeded"] = demand.Exceeded[k],
                     ["asw"] = double.IsFinite(demand.Asw[k]) ? R(demand.Asw[k], 2) : null,
                 }).ToArray()),
             });
