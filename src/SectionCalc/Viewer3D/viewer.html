@@ -78,8 +78,11 @@ const QUANTITIES = [
     cap: s => s.qult, over: s => s.qult != null && s.q > s.qult, capLabel: z => z.qult != null ? `Qult ${ru(z.qult)}` : '' },
   { id: 'as', label: 'As требуемая, см²', unit: 'см²', color: 0xe07a1f, get: s => s.as, needs: 'as',
     cap: s => s.asp, over: s => s.asp != null && s.as > s.asp * 1.001, capLabel: z => `As ${ru(z.as, 1)}` },
+  // The check of given cages has no required area: the given one is the reinforcement diagram itself.
+  { id: 'asp', label: 'As принятая, см²', unit: 'см²', color: 0x3a9a4a, get: s => s.asp, needs: 'asp', unless: 'as',
+    capLabel: z => `As ${ru(z.as, 1)}` },
 ];
-const capName = { n: 'Nult', m: 'Mult', q: 'Qult', as: 'As принятая' };
+const capName = { n: 'Nult', m: 'Mult', q: 'Qult', as: 'As принятая', asp: 'As принятая' };
 document.getElementById('title').textContent = DATA.title || 'Сваи';
 document.getElementById('section').textContent = `${DATA.section} · свай: ${DATA.piles.length}` + (typed ? ` · типов: ${DATA.types.length}` : '');
 
@@ -143,7 +146,8 @@ function textSprite(text, color) {
 
 // ---- diagrams ----
 let quantity = QUANTITIES[1];
-function available(q) { return !q.needs || P.some(p => p.stations.some(s => s[q.needs] != null)); }
+const present = key => P.some(p => p.stations.some(s => s[key] != null));
+function available(q) { return (!q.needs || present(q.needs)) && !(q.unless && present(q.unless)); }
 const overlayOn = () => document.getElementById('overlay').checked;
 function absMax(v) { return v == null ? 0 : Array.isArray(v) ? Math.max(Math.abs(v[0] ?? 0), Math.abs(v[1] ?? 0)) : Math.abs(v); }
 function maxOf(q) {

@@ -870,6 +870,12 @@ public class ProfileTests(ITestOutputHelper output)
         // The given bars are checked as they are: the head zone governs (the moment decreases with depth).
         Assert.True(checkedTypes.Types[0].Zones[0].K is double top && top > checkedTypes.Types[0].Zones[1].K);
         Assert.Contains("z=0", checkedTypes.Types[0].Zones[0].Governing);
+        // 3D view of the check: no required area, the given one is there for the reinforcement diagram.
+        var scene = SceneExport.Data(reopened, checkedTypes, null);
+        var stations = scene["piles"]!.AsArray().SelectMany(x => x!["stations"]!.AsArray()).ToList();
+        Assert.All(stations, s => Assert.Null(s!["as"]));
+        Assert.Contains(stations, s => s!["asp"] is not null && Math.Abs((double)s["asp"]! - 6 * Math.PI * 1.2 * 1.2 / 4) < 0.01);
+        Assert.Contains("'asp'", SceneExport.Html(scene));
         reopened.PileTypes[1].Piles = [reopened.PileTypes[0].Piles[0]];
         Assert.Throws<InvalidOperationException>(() => SavedPileType.Restore(d, reopened.PileTypes, true));
     }
