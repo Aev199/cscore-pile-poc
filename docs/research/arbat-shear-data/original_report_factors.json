@@ -1,0 +1,87 @@
+{
+  "source": "Original user RTF reports read again 2026-10-18; ARBAT 23.1.1.1, SP63.13330.2018 amendments 1,2; no new ARBAT execution",
+  "groups": [
+    {
+      "group": "P800",
+      "file": "отчет_800.rtf",
+      "nonzero_q_cases": [
+        {
+          "id": "P800_E01",
+          "shear_strip_utilization": 0.051,
+          "shear_inclined_utilization": 0.285
+        },
+        {
+          "id": "P800_E02",
+          "shear_strip_utilization": 0.106,
+          "shear_inclined_utilization": 0.609
+        },
+        {
+          "id": "P800_E03",
+          "shear_strip_utilization": 0.139,
+          "shear_inclined_utilization": 0.814
+        },
+        {
+          "id": "P800_E04",
+          "shear_strip_utilization": 0.223,
+          "shear_inclined_utilization": 1.247
+        },
+        {
+          "id": "P800_E05",
+          "shear_strip_utilization": 0.069,
+          "shear_inclined_utilization": 0.34
+        },
+        {
+          "id": "P800_E06",
+          "shear_strip_utilization": 0.107,
+          "shear_inclined_utilization": 0.613
+        },
+        {
+          "id": "P800_E08",
+          "shear_strip_utilization": 0.264,
+          "shear_inclined_utilization": 1.523
+        }
+      ]
+    },
+    {
+      "group": "P1000",
+      "file": "отчет_1000.rtf",
+      "nonzero_q_cases": [
+        {
+          "id": "P1000_E01",
+          "shear_strip_utilization": 0.036,
+          "shear_inclined_utilization": 0.227
+        },
+        {
+          "id": "P1000_E02",
+          "shear_strip_utilization": 0.066,
+          "shear_inclined_utilization": 0.427
+        },
+        {
+          "id": "P1000_E03",
+          "shear_strip_utilization": 0.112,
+          "shear_inclined_utilization": 0.735
+        },
+        {
+          "id": "P1000_E04",
+          "shear_strip_utilization": 180266.5,
+          "shear_inclined_utilization": 6.811
+        },
+        {
+          "id": "P1000_E05",
+          "shear_strip_utilization": 0.038,
+          "shear_inclined_utilization": 0.22
+        },
+        {
+          "id": "P1000_E06",
+          "shear_strip_utilization": 0.061,
+          "shear_inclined_utilization": 0.392
+        },
+        {
+          "id": "P1000_E08",
+          "shear_strip_utilization": 0.197,
+          "shear_inclined_utilization": 1.282
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1650 @@
+[
+  {
+    "file": "300x500(2)",
+    "case": 1,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 1,
+      "n": 0,
+      "my": 60,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.529,
+        "width_short": 0.74,
+        "width_long": 0.987
+      }
+    },
+    "normal": 0.5309208290859667,
+    "normal_status": "passed",
+    "width_long": 1.0316302052621296,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 0.7737226539465971,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "300x500(2)",
+    "case": 2,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 2,
+      "n": 0,
+      "my": 180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.588
+      }
+    },
+    "normal": 1.5927624872579003,
+    "normal_status": "failed",
+    "width_long": null,
+    "width_long_status": "not_evaluated",
+    "width_short": null,
+    "width_short_status": "not_evaluated"
+  },
+  {
+    "file": "300x500(2)",
+    "case": 3,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 3,
+      "n": 0,
+      "my": -180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.588
+      }
+    },
+    "normal": 1.5927624872579003,
+    "normal_status": "failed",
+    "width_long": null,
+    "width_long_status": "not_evaluated",
+    "width_short": null,
+    "width_short_status": "not_evaluated"
+  },
+  {
+    "file": "300x500(2)",
+    "case": 4,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 4,
+      "n": 0,
+      "my": 0,
+      "qz": 0,
+      "mz": 110,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.759
+      }
+    }
+  },
+  {
+    "file": "300x500(2)",
+    "case": 5,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 5,
+      "n": 0,
+      "my": 120,
+      "qz": 0,
+      "mz": 75,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.362
+      }
+    }
+  },
+  {
+    "file": "300x500(2)",
+    "case": 6,
+    "status": "RAW_LOADS_COMPRESSION_ECCENTRICITY_NOT_REPRODUCED",
+    "reference": {
+      "case": 6,
+      "n": -500,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.8,
+        "deflection": 0.059,
+        "width_short": 0.964,
+        "width_long": 1.285
+      }
+    },
+    "normal": 0.7386309917746053,
+    "normal_status": "passed",
+    "width_long": 1.3855961867735098,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 1.039197140080132,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "300x500(2)",
+    "case": 7,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 7,
+      "n": 150,
+      "my": 130,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.409
+      }
+    },
+    "normal": 1.4132597684515196,
+    "normal_status": "failed",
+    "width_long": null,
+    "width_long_status": "not_evaluated",
+    "width_short": null,
+    "width_short_status": "not_evaluated"
+  },
+  {
+    "file": "300x500(2)",
+    "case": 8,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 8,
+      "n": 0,
+      "my": 10,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.088
+      }
+    },
+    "normal": 0.08848680484766111,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "300x500(2)",
+    "case": 9,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 9,
+      "n": 0,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 1.412
+      }
+    },
+    "normal": 1.4158209496194272,
+    "normal_status": "failed",
+    "width_long": null,
+    "width_long_status": "not_evaluated",
+    "width_short": null,
+    "width_short_status": "not_evaluated"
+  },
+  {
+    "file": "300x500(2)",
+    "case": 10,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 10,
+      "n": -250,
+      "my": 140,
+      "qz": 0,
+      "mz": 80,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 1.428,
+        "deflection": 0.054
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 1,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 1,
+      "n": 0,
+      "my": 60,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.541,
+        "width_short": 0.841,
+        "width_long": 1.121
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 2,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 2,
+      "n": 0,
+      "my": 180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.622
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 3,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 3,
+      "n": 0,
+      "my": -180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.622
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 4,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 4,
+      "n": 0,
+      "my": 0,
+      "qz": 0,
+      "mz": 110,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.953,
+        "width_short": 1.414,
+        "width_long": 1.885
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 5,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 5,
+      "n": 0,
+      "my": 120,
+      "qz": 0,
+      "mz": 75,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.16
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 6,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 6,
+      "n": -500,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.006,
+        "deflection": 0.051
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 7,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 7,
+      "n": 150,
+      "my": 130,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 1.36
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 8,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 8,
+      "n": 0,
+      "my": 10,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.09
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 9,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 9,
+      "n": 0,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 1.441
+      }
+    }
+  },
+  {
+    "file": "400x400(3)",
+    "case": 10,
+    "status": "UNSUPPORTED_TWO_LAYER_LAYOUT",
+    "reference": {
+      "case": 10,
+      "n": -250,
+      "my": 140,
+      "qz": 0,
+      "mz": 80,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 1.175,
+        "deflection": 0.027
+      }
+    }
+  },
+  {
+    "file": "400x600(2)",
+    "case": 1,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 1,
+      "n": 0,
+      "my": 60,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.289
+      }
+    },
+    "normal": 0.28991557658409867,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "400x600(2)",
+    "case": 2,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 2,
+      "n": 0,
+      "my": 180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.867,
+        "width_short": 1.268,
+        "width_long": 1.69
+      }
+    },
+    "normal": 0.8697467297522964,
+    "normal_status": "passed",
+    "width_long": 1.7392021983328885,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 1.3044016487496661,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "400x600(2)",
+    "case": 3,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 3,
+      "n": 0,
+      "my": -180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.867,
+        "width_short": 1.268,
+        "width_long": 1.69
+      }
+    },
+    "normal": 0.8697467297522964,
+    "normal_status": "passed",
+    "width_long": 1.7392033750813456,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 1.304402531311009,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "400x600(2)",
+    "case": 4,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 4,
+      "n": 0,
+      "my": 0,
+      "qz": 0,
+      "mz": 110,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.841,
+        "width_short": 1.509,
+        "width_long": 2.011
+      }
+    }
+  },
+  {
+    "file": "400x600(2)",
+    "case": 5,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 5,
+      "n": 0,
+      "my": 120,
+      "qz": 0,
+      "mz": 75,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.741,
+        "width_short": 1.552,
+        "width_long": 2.07
+      }
+    }
+  },
+  {
+    "file": "400x600(2)",
+    "case": 6,
+    "status": "RAW_LOADS_COMPRESSION_ECCENTRICITY_NOT_REPRODUCED",
+    "reference": {
+      "case": 6,
+      "n": -500,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.392,
+        "deflection": 0.022,
+        "width_short": 0.382,
+        "width_long": 0.51
+      }
+    },
+    "normal": 0.3610295986506158,
+    "normal_status": "passed",
+    "width_long": 0.5407111339716607,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.40553335047874545,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "400x600(2)",
+    "case": 7,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 7,
+      "n": 150,
+      "my": 130,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.803,
+        "width_short": 1.408,
+        "width_long": 1.877
+      }
+    },
+    "normal": 0.8057446369636964,
+    "normal_status": "passed",
+    "width_long": 1.9085394583400683,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 1.4314045937550512,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "400x600(2)",
+    "case": 8,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 8,
+      "n": 0,
+      "my": 10,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.048
+      }
+    },
+    "normal": 0.048318515655199075,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "400x600(2)",
+    "case": 9,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 9,
+      "n": 0,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.771,
+        "width_short": 0.943,
+        "width_long": 0.68
+      }
+    },
+    "normal": 0.7731321128154379,
+    "normal_status": "passed",
+    "width_long": 0.8168121725634162,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 1.045967904339209,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "400x600(2)",
+    "case": 10,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 10,
+      "n": -250,
+      "my": 140,
+      "qz": 0,
+      "mz": 80,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.71,
+        "deflection": 0.018,
+        "width_short": 1.035,
+        "width_long": 0.751
+      }
+    }
+  },
+  {
+    "file": "500x700(2)",
+    "case": 1,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 1,
+      "n": 0,
+      "my": 60,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.122
+      }
+    },
+    "normal": 0.12183710865920702,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "500x700(2)",
+    "case": 2,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 2,
+      "n": 0,
+      "my": 180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.364,
+        "width_short": 0.498,
+        "width_long": 0.664
+      }
+    },
+    "normal": 0.365514176101806,
+    "normal_status": "passed",
+    "width_long": 0.680961824457069,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.5107213683428017,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "500x700(2)",
+    "case": 3,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 3,
+      "n": 0,
+      "my": -180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.364,
+        "width_short": 0.498,
+        "width_long": 0.664
+      }
+    },
+    "normal": 0.365514176101806,
+    "normal_status": "passed",
+    "width_long": 0.6809628702119707,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.5107221526589779,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "500x700(2)",
+    "case": 4,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 4,
+      "n": 0,
+      "my": 0,
+      "qz": 0,
+      "mz": 110,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.337,
+        "width_short": 0.602,
+        "width_long": 0.802
+      }
+    }
+  },
+  {
+    "file": "500x700(2)",
+    "case": 5,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 5,
+      "n": 0,
+      "my": 120,
+      "qz": 0,
+      "mz": 75,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.326,
+        "width_short": 0.635,
+        "width_long": 0.846
+      }
+    }
+  },
+  {
+    "file": "500x700(2)",
+    "case": 6,
+    "status": "RAW_LOADS_COMPRESSION_ECCENTRICITY_NOT_REPRODUCED",
+    "reference": {
+      "case": 6,
+      "n": -500,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.198,
+        "deflection": 0.009
+      }
+    },
+    "normal": 0.1849922451250844,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "500x700(2)",
+    "case": 7,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 7,
+      "n": 150,
+      "my": 130,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.348,
+        "width_short": 0.549,
+        "width_long": 0.732
+      }
+    },
+    "normal": 0.3492088324691579,
+    "normal_status": "passed",
+    "width_long": 0.7664928863957498,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.5748696647968122,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "500x700(2)",
+    "case": 8,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 8,
+      "n": 0,
+      "my": 10,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.02
+      }
+    },
+    "normal": 0.0203061847765345,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "500x700(2)",
+    "case": 9,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 9,
+      "n": 0,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.324,
+        "width_short": 0.371,
+        "width_long": 0.284
+      }
+    },
+    "normal": 0.3249048678546922,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "engineering_review",
+    "width_short": 0.3666330916072766,
+    "width_short_status": "engineering_review"
+  },
+  {
+    "file": "500x700(2)",
+    "case": 10,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 10,
+      "n": -250,
+      "my": 140,
+      "qz": 0,
+      "mz": 80,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.322,
+        "deflection": 0.007,
+        "width_short": 0.398,
+        "width_long": 0.296
+      }
+    }
+  },
+  {
+    "file": "d1000(2)",
+    "case": 1,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 1,
+      "n": 0,
+      "my": 60,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.032
+      }
+    },
+    "normal": 0.03252565623764025,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d1000(2)",
+    "case": 2,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 2,
+      "n": 0,
+      "my": 180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.097
+      }
+    },
+    "normal": 0.09757696871292075,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d1000(2)",
+    "case": 3,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 3,
+      "n": 0,
+      "my": -180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.097
+      }
+    },
+    "normal": 0.09757696871292075,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d1000(2)",
+    "case": 4,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 4,
+      "n": 0,
+      "my": 0,
+      "qz": 0,
+      "mz": 110,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.059
+      }
+    }
+  },
+  {
+    "file": "d1000(2)",
+    "case": 5,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 5,
+      "n": 0,
+      "my": 120,
+      "qz": 0,
+      "mz": 75,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.076
+      }
+    }
+  },
+  {
+    "file": "d1000(2)",
+    "case": 6,
+    "status": "RAW_LOADS_COMPRESSION_ECCENTRICITY_NOT_REPRODUCED",
+    "reference": {
+      "case": 6,
+      "n": -500,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.076
+      }
+    },
+    "normal": 0.07101949911367665,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d1000(2)",
+    "case": 7,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 7,
+      "n": 150,
+      "my": 130,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.092
+      }
+    },
+    "normal": 0.09274483151602927,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d1000(2)",
+    "case": 8,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 8,
+      "n": 0,
+      "my": 10,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.005
+      }
+    },
+    "normal": 0.0054209427062733755,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d1000(2)",
+    "case": 9,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 9,
+      "n": 0,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.086
+      }
+    },
+    "normal": 0.08673520366813586,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d1000(2)",
+    "case": 10,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 10,
+      "n": -250,
+      "my": 140,
+      "qz": 0,
+      "mz": 80,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.072
+      }
+    }
+  },
+  {
+    "file": "d600(2)",
+    "case": 1,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 1,
+      "n": 0,
+      "my": 60,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.252
+      }
+    },
+    "normal": 0.2528890039814845,
+    "normal_status": "passed",
+    "width_long": 0.6240100104680893,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.46800750785106693,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d600(2)",
+    "case": 2,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 2,
+      "n": 0,
+      "my": 180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.756,
+        "width_short": 1.476,
+        "width_long": 1.968
+      }
+    },
+    "normal": 0.7586792910900704,
+    "normal_status": "passed",
+    "width_long": 2.0298947787652346,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 1.5224210840739256,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "d600(2)",
+    "case": 3,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 3,
+      "n": 0,
+      "my": -180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.756,
+        "width_short": 1.476,
+        "width_long": 1.968
+      }
+    },
+    "normal": 0.7586792910900704,
+    "normal_status": "passed",
+    "width_long": 2.029894778765237,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 1.5224210840739274,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "d600(2)",
+    "case": 4,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 4,
+      "n": 0,
+      "my": 0,
+      "qz": 0,
+      "mz": 110,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.462,
+        "width_short": 0.862,
+        "width_long": 1.149
+      }
+    }
+  },
+  {
+    "file": "d600(2)",
+    "case": 5,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 5,
+      "n": 0,
+      "my": 120,
+      "qz": 0,
+      "mz": 75,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.59,
+        "width_short": 1.119,
+        "width_long": 1.492
+      }
+    }
+  },
+  {
+    "file": "d600(2)",
+    "case": 6,
+    "status": "RAW_LOADS_COMPRESSION_ECCENTRICITY_NOT_REPRODUCED",
+    "reference": {
+      "case": 6,
+      "n": -500,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.464,
+        "deflection": 0.012,
+        "width_short": 0.597,
+        "width_long": 0.796
+      }
+    },
+    "normal": 0.43341377492996036,
+    "normal_status": "passed",
+    "width_long": 0.8443199783063514,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.6332399837297634,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d600(2)",
+    "case": 7,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 7,
+      "n": 150,
+      "my": 130,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.666,
+        "width_short": 1.567,
+        "width_long": 2.089
+      }
+    },
+    "normal": 0.6685349991442752,
+    "normal_status": "passed",
+    "width_long": 2.126562728733352,
+    "width_long_status": "preliminary_exceeds_limit",
+    "width_short": 1.594922046550014,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "d600(2)",
+    "case": 8,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 8,
+      "n": 0,
+      "my": 10,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.042
+      }
+    },
+    "normal": 0.042147712559343985,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d600(2)",
+    "case": 9,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 9,
+      "n": 0,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.672,
+        "width_short": 1.1,
+        "width_long": 0.798
+      }
+    },
+    "normal": 0.6743634009495038,
+    "normal_status": "passed",
+    "width_long": 0.9469121874265651,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 1.212285843533191,
+    "width_short_status": "preliminary_exceeds_limit"
+  },
+  {
+    "file": "d600(2)",
+    "case": 10,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 10,
+      "n": -250,
+      "my": 140,
+      "qz": 0,
+      "mz": 80,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.549,
+        "deflection": 0.007,
+        "width_short": 0.774,
+        "width_long": 0.556
+      }
+    }
+  },
+  {
+    "file": "d800(2)",
+    "case": 1,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 1,
+      "n": 0,
+      "my": 60,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.063
+      }
+    },
+    "normal": 0.06371101905010439,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d800(2)",
+    "case": 2,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 2,
+      "n": 0,
+      "my": 180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.19
+      }
+    },
+    "normal": 0.1911338364995291,
+    "normal_status": "passed",
+    "width_long": 0.44399243925350357,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.33299432944012763,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d800(2)",
+    "case": 3,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 3,
+      "n": 0,
+      "my": -180,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.19
+      }
+    },
+    "normal": 0.1911338364995291,
+    "normal_status": "passed",
+    "width_long": 0.44399243925350323,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0.33299432944012736,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d800(2)",
+    "case": 4,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 4,
+      "n": 0,
+      "my": 0,
+      "qz": 0,
+      "mz": 110,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.116
+      }
+    }
+  },
+  {
+    "file": "d800(2)",
+    "case": 5,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 5,
+      "n": 0,
+      "my": 120,
+      "qz": 0,
+      "mz": 75,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.15
+      }
+    }
+  },
+  {
+    "file": "d800(2)",
+    "case": 6,
+    "status": "RAW_LOADS_COMPRESSION_ECCENTRICITY_NOT_REPRODUCED",
+    "reference": {
+      "case": 6,
+      "n": -500,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.141,
+        "deflection": 0.002
+      }
+    },
+    "normal": 0.1328543491199728,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d800(2)",
+    "case": 7,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 7,
+      "n": 150,
+      "my": 130,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.171
+      }
+    },
+    "normal": 0.1719451536226781,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d800(2)",
+    "case": 8,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 8,
+      "n": 0,
+      "my": 10,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 1,
+      "ratios": {
+        "normal": 0.011
+      }
+    },
+    "normal": 0.010618474310427783,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "preliminary_below_limit",
+    "width_short": 0,
+    "width_short_status": "preliminary_below_limit"
+  },
+  {
+    "file": "d800(2)",
+    "case": 9,
+    "status": "NUMERIC_COMPARISON_GEOMETRY_HYPOTHESIS",
+    "reference": {
+      "case": 9,
+      "n": 0,
+      "my": 160,
+      "qz": 0,
+      "mz": 0,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.169
+      }
+    },
+    "normal": 0.16989605080027836,
+    "normal_status": "passed",
+    "width_long": 0,
+    "width_long_status": "engineering_review",
+    "width_short": 0.2559405711601752,
+    "width_short_status": "engineering_review"
+  },
+  {
+    "file": "d800(2)",
+    "case": 10,
+    "status": "UNSUPPORTED_SECOND_BENDING_COMPONENT",
+    "reference": {
+      "case": 10,
+      "n": -250,
+      "my": 140,
+      "qz": 0,
+      "mz": 80,
+      "qy": 0,
+      "t": 0,
+      "gamma": 1,
+      "psi": 0.5,
+      "ratios": {
+        "normal": 0.144,
+        "deflection": 0.001
+      }
+    }
+  }
+]

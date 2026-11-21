@@ -1,0 +1,315 @@
+using System.Text.Json.Serialization;
+
+namespace SectionCalc;
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SectionKind
+{
+    /// <summary>Bored pile (БНС), geotechnical mode.</summary>
+    Pile,
+    /// <summary>Diaphragm wall (СВГ), geotechnical mode.</summary>
+    Wall,
+    /// <summary>Any section: template or polygon outline, any bars.</summary>
+    Custom,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SecondOrderMode { SectionOnly, InLoads, Cscore }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum EccentricityMode { InLoads, Sp63 }
+
+/// <summary>What the concrete cover is measured to from the concrete face.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CoverReference
+{
+    /// <summary>Outer surface of the spiral or stirrup (earlier files).</summary>
+    Transverse,
+    /// <summary>Surface of the longitudinal bar, clear distance (as a1 in ARBAT).</summary>
+    Bar,
+    /// <summary>Axis of the longitudinal bar.</summary>
+    Axis,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CrackCategory { LimitedWidth, NoCracks }
+
+/// <summary>
+/// ψs of SP 63 8.2.15: Conservative — σs,crc by the uncracked section at M = Mcrc (agreed with ARBAT, on the safe side);
+/// Refined — σs,crc and σs by the cracked section, as the engine computes them.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CrackMethod { Conservative, Refined }
+
+/// <summary>Bored pile (БНС): circular section with a ring of equal bars inside a spiral.</summary>
+public sealed class PileGeometry
+{
+    public double DiameterMm { get; set; } = 800;
+    public double CoverMm { get; set; } = 50;
+    public CoverReference CoverReference { get; set; } = CoverReference.Transverse;
+    public double SpiralDiameterMm { get; set; } = 10;
+    public int BarCount { get; set; } = 12;
+    public double BarDiameterMm { get; set; } = 25;
+    public double MinClearSpacingMm { get; set; } = 25;
+
+    /// <summary>Cover to the outer surface of the spiral, whatever reference the input uses.</summary>
+    public double SpiralCoverMm => FixedAxisMm is double a ? a - SpiralDiameterMm - BarDiameterMm / 2
+        : Geometry.TransverseCover(CoverMm, CoverReference, SpiralDiameterMm, BarDiameterMm);
+    /// <summary>Distance from the concrete face to the bar axis.</summary>
+    public double AxisDistanceMm => FixedAxisMm ?? SpiralCoverMm + SpiralDiameterMm + BarDiameterMm / 2;
+    /// <summary>Bar axis kept independently of the diameter (reinforcement-area search).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? FixedAxisMm { get; set; }
+}
+
+/// <summary>One face of a diaphragm-wall section.</summary>
+public sealed class WallFace
+{
+    /// <summary>Bars in one row.</summary>
+    public int BarCount { get; set; } = 5;
+    public double BarDiameterMm { get; set; } = 25;
+    /// <summary>Rows of bars at this face, 1–3; the next row lies deeper by d + RowGapMm.</summary>
+    public int Rows { get; set; } = 1;
+    /// <summary>Clear distance between rows.</summary>
+    public double RowGapMm { get; set; } = 25;
+    /// <summary>Distance from the face to the axis of the first row, when it is fixed independently of the diameter
+    /// (the reinforcement-area search keeps the bar axes while the area changes).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? FixedAxisMm { get; set; }
+    /// <summary>Distance between row axes, when fixed independently of the diameter.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? FixedRowPitchMm { get; set; }
+    public double RowPitchMm => FixedRowPitchMm ?? BarDiameterMm + RowGapMm;
+}
+
+/// <summary>Diaphragm wall (СВГ): rectangular section b × h with bars on two faces.</summary>
+public sealed class WallGeometry
+{
+    /// <summary>Width of the checked section (along the wall), b.</summary>
+    public double WidthMm { get; set; } = 1000;
+    /// <summary>Wall thickness, h (direction of the main moment Mx).</summary>
+    public double ThicknessMm { get; set; } = 600;
+    public double CoverMm { get; set; } = 50;
+    public CoverReference CoverReference { get; set; } = CoverReference.Transverse;
+    public double StirrupDiameterMm { get; set; } = 10;
+    /// <summary>Face tensioned by a positive Mx.</summary>
+    public WallFace PositiveFace { get; set; } = new();
+    /// <summary>Face tensioned by a negative Mx.</summary>
+    public WallFace NegativeFace { get; set; } = new();
+    public double MinClearSpacingMm { get; set; } = 25;
+
+    /// <summary>Cover to the outer surface of the stirrup at a face with the given bar diameter.</summary>
+    public double StirrupCoverMm(double barDiameterMm) => Geometry.TransverseCover(CoverMm, CoverReference, StirrupDiameterMm, barDiameterMm);
+    /// <summary>Distance from the face to the bar axis of the first (outer) row of the face.</summary>
+    public double AxisDistanceMm(WallFace face) => face.FixedAxisMm ?? StirrupCoverMm(face.BarDiameterMm) + StirrupDiameterMm + face.BarDiameterMm / 2;
+    /// <summary>Distance from the face to the axis of row k (0 — outer row).</summary>
+    public double RowAxisMm(WallFace face, int row) => AxisDistanceMm(face) + row * face.RowPitchMm;
+    /// <summary>Distance from the face to the centroid of all rows of the face.</summary>
+    public double CentroidMm(WallFace face) => AxisDistanceMm(face) + (face.Rows - 1) / 2.0 * face.RowPitchMm;
+}
+
+/// <summary>Gross concrete sizes used by the slenderness and the accidental eccentricity.</summary>
+/// <param name="HxMm">Height in the plane of Mx (along y).</param>
+/// <param name="HyMm">Height in the plane of My (along x).</param>
+/// <param name="IxMm">Radius of gyration in the plane of Mx.</param>
+/// <param name="IyMm">Radius of gyration in the plane of My.</param>
+public sealed record GrossSection(double HxMm, double HyMm, double IxMm, double IyMm, double AreaMm2);
+
+public static class Geometry
+{
+    public static GrossSection Gross(SectionProject p)
+    {
+        switch (p.Kind)
+        {
+            case SectionKind.Pile:
+                double d = p.Pile.DiameterMm;
+                return new GrossSection(d, d, d / 4, d / 4, Math.PI * d * d / 4);
+            case SectionKind.Wall:
+                var w = p.Wall;
+                return new GrossSection(w.ThicknessMm, w.WidthMm, w.ThicknessMm / Math.Sqrt(12), w.WidthMm / Math.Sqrt(12), w.ThicknessMm * w.WidthMm);
+            default:
+                var g = p.Custom.Properties();
+                return new GrossSection(g.HeightMm, g.WidthMm, g.RadiusXMm, g.RadiusYMm, g.AreaMm2);
+        }
+    }
+
+    /// <summary>Cover to the transverse bar surface from a cover measured to the given reference.</summary>
+    public static double TransverseCover(double cover, CoverReference reference, double transverse, double bar) => reference switch
+    {
+        CoverReference.Bar => cover - transverse,
+        CoverReference.Axis => cover - transverse - bar / 2,
+        _ => cover,
+    };
+}
+
+/// <summary>
+/// One load combination in the ARBAT "simple form": design actions with the load factor γf and the
+/// sustained share k. Normative actions are design / γf, sustained ones k × normative.
+/// CScore sign convention: N &lt; 0 is compression.
+/// </summary>
+public sealed class LoadRow
+{
+    public string Name { get; set; } = "";
+    public double N { get; set; }
+    public double Mx { get; set; }
+    public double My { get; set; }
+    /// <summary>Shear force in the plane of Mx.</summary>
+    public double Q { get; set; }
+    public double LoadFactor { get; set; } = 1;
+    public double SustainedShare { get; set; } = 1;
+    /// <summary>Short-term combination: γb1 = 1.</summary>
+    public bool ShortTerm { get; set; }
+    /// <summary>Seismic combination (SP 14.13330): m_tr to the resistances.</summary>
+    public bool Seismic { get; set; }
+    /// <summary>Special (accidental, non-seismic) combination (SP 296.1325800).</summary>
+    public bool Special { get; set; }
+}
+
+/// <summary>Concrete working-condition factors of SP 63 6.1.12 and the hardening factor to Eb.</summary>
+public sealed class ConcreteFactors
+{
+    /// <summary>γb1 for sustained loads: 0.9 or 1.0; short-term combinations use 1.0.</summary>
+    public double Gb1 { get; set; } = 0.9;
+    public double Gb2 { get; set; } = 1;
+    public double Gb3 { get; set; } = 1;
+    public double Gb5 { get; set; } = 1;
+    public double HardeningFactor { get; set; } = 1;
+}
+
+public sealed class SeismicSettings
+{
+    /// <summary>m_tr for normal sections of bar-reinforced concrete (SP 14 table 5.4, line 2).</summary>
+    public double NormalSectionFactor { get; set; } = 1.2;
+    /// <summary>m_tr for inclined sections (SP 14 table 5.4, line 3).</summary>
+    public double InclinedSectionFactor { get; set; } = 1.0;
+    /// <summary>Crack checks for seismic combinations (SP 14 5.18 — only when justified).</summary>
+    public bool CheckCracks { get; set; }
+}
+
+public sealed class SpecialSettings
+{
+    /// <summary>Normative material properties for special combinations (ARBAT default).</summary>
+    public bool NormativeProperties { get; set; } = true;
+    /// <summary>Working-condition factors of SP 296 appendix B.</summary>
+    public double ConcreteFactor { get; set; } = 1;
+    public double LongitudinalFactor { get; set; } = 1;
+    public double TransverseFactor { get; set; } = 1;
+    /// <summary>Additional factor reducing the resistances (SP 296 5.11, appendix B).</summary>
+    public double AdditionalFactor { get; set; } = 1;
+}
+
+public sealed class Conditions
+{
+    public double ElementLengthM { get; set; } = 6;
+    /// <summary>Effective length factor in the plane of Mx (ARBAT plane XoZ).</summary>
+    public double MuX { get; set; } = 1;
+    /// <summary>Effective length factor in the plane of My (ARBAT plane XoY).</summary>
+    public double MuY { get; set; } = 1;
+    public double SlendernessLimit { get; set; } = 200;
+    public bool StaticallyDeterminate { get; set; }
+
+    public EccentricityMode Eccentricity { get; set; } = EccentricityMode.Sp63;
+    /// <summary>Given accidental eccentricities, mm; 0 = by SP 63 (CScore).</summary>
+    public double EaXMm { get; set; }
+    public double EaYMm { get; set; }
+
+    public SecondOrderMode SecondOrder { get; set; } = SecondOrderMode.Cscore;
+
+    public double ReliabilityUls { get; set; } = 1;
+    public double ReliabilitySls { get; set; } = 1;
+
+    public CrackCategory CrackCategory { get; set; } = CrackCategory.LimitedWidth;
+    /// <summary>Limits from the permeability requirement instead of reinforcement preservation.</summary>
+    public bool PermeabilityLimits { get; set; }
+    public double CrackLimitLongMm { get; set; } = 0.3;
+    public double CrackLimitShortMm { get; set; } = 0.4;
+    public CrackMethod CrackMethod { get; set; } = CrackMethod.Conservative;
+
+    public bool ShearCheck { get; set; }
+    /// <summary>Wall: stirrup pitch; pile: full pitch of the spiral turn.</summary>
+    public double ShearPitchMm { get; set; } = 200;
+    /// <summary>Wall only: effective stirrup legs in the section.</summary>
+    public int StirrupLegs { get; set; } = 4;
+    /// <summary>Pile only: distance a from the face to the reinforcement centroid for b = 0.885D, h0 = b − a.</summary>
+    public double PileShearAMm { get; set; } = 85;
+    /// <summary>Engineer confirms constructive requirements (wall) or the accepted equivalent model (pile).</summary>
+    public bool ShearModelConfirmed { get; set; }
+
+    public bool InclinedMoment { get; set; }
+    public double AnchorageFactor { get; set; } = 1;
+    public double SupportDistanceDownM { get; set; } = 3;
+    public double SupportDistanceUpM { get; set; } = 3;
+
+    /// <summary>
+    /// Bending only in the plane of Mx (a strip of a wall from a plane-strain model): no accidental eccentricity,
+    /// no η and no slenderness check out of that plane.
+    /// </summary>
+    public bool OnePlane { get; set; }
+
+    /// <summary>Coarser section mesh for the reinforcement search; the result is verified with the normal mesh.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool CoarseMesh { get; set; }
+
+    public double L0xM => MuX * ElementLengthM;
+    public double L0yM => MuY * ElementLengthM;
+}
+
+/// <summary>Candidate ranges for the reinforcement selection.</summary>
+public sealed class SelectionSettings
+{
+    public int PileCountMin { get; set; } = 8;
+    public int PileCountMax { get; set; } = 24;
+    public int PileCountStep { get; set; } = 2;
+    public int WallCountMin { get; set; } = 3;
+    public int WallCountMax { get; set; } = 10;
+    /// <summary>Arbitrary section, contour arrangement: candidate spacings of the bars along the contour, mm.</summary>
+    public List<double> CustomSpacings { get; set; } = [100, 150, 200, 250, 300];
+    public bool WallSymmetric { get; set; } = true;
+    public List<double> Diameters { get; set; } = [16, 20, 25, 28, 32];
+}
+
+public sealed class SectionProject
+{
+    public const int CurrentVersion = 2;
+    public int Version { get; set; } = CurrentVersion;
+    public string Title { get; set; } = "Новое сечение";
+    public SectionKind Kind { get; set; } = SectionKind.Pile;
+    public PileGeometry Pile { get; set; } = new();
+    public WallGeometry Wall { get; set; } = new();
+    public CustomGeometry Custom { get; set; } = new();
+    public string ConcreteClass { get; set; } = "B30";
+    public string RebarClass { get; set; } = "A500";
+    public string TransverseClass { get; set; } = "A240";
+    public ConcreteFactors Concrete { get; set; } = new();
+    /// <summary>γs of the longitudinal and transverse reinforcement.</summary>
+    public double LongitudinalFactor { get; set; } = 1;
+    public double TransverseFactor { get; set; } = 1;
+    /// <summary>
+    /// Rsc of table 6.14 on the compression branch of the bar diagram (A500: 435, 400 in short-term
+    /// combinations); otherwise Rsc = Rs, as the engine's own diagram.
+    /// </summary>
+    public bool RscByTable { get; set; } = true;
+    public List<LoadRow> Loads { get; set; } = [];
+    public Conditions Conditions { get; set; } = new();
+    public SeismicSettings Seismic { get; set; } = new();
+    public SpecialSettings Special { get; set; } = new();
+    public SelectionSettings Selection { get; set; } = new();
+
+    public static SectionProject Example(SectionKind kind)
+    {
+        var p = new SectionProject { Kind = kind, Title = kind switch { SectionKind.Pile => "БНС Ø800", SectionKind.Wall => "СВГ 600 мм", _ => "Сечение 400×600" } };
+        // New sections: cover to the longitudinal bars, as in ARBAT (50 mm to the spiral + Ø10 = 60 mm).
+        p.Pile.CoverReference = CoverReference.Bar; p.Pile.CoverMm = 60;
+        p.Wall.CoverReference = CoverReference.Bar; p.Wall.CoverMm = 60;
+        if (kind == SectionKind.Custom)
+        {
+            p.Conditions.ElementLengthM = 4;
+            p.Loads.Add(new LoadRow { Name = "1", N = -1800, Mx = 160, My = 40, Q = 90, LoadFactor = 1.15, SustainedShare = 0.8 });
+            p.Loads.Add(new LoadRow { Name = "2", N = -900, Mx = -120, Q = 60, LoadFactor = 1.15, SustainedShare = 0.8 });
+            return p;
+        }
+        p.Loads.Add(new LoadRow { Name = "1", N = -1500, Mx = 250, Q = 120, LoadFactor = 1.15, SustainedShare = 0.8 });
+        p.Loads.Add(new LoadRow { Name = "2", N = -900, Mx = -180, Q = 90, LoadFactor = 1.15, SustainedShare = 0.8 });
+        return p;
+    }
+}

@@ -8,5 +8,12 @@
     "CScore.Tests/",
     "CSmath/",
     "CSTriangulation/"
+  ],
+  "patches": [
+    {
+      "file": "patches/opencs-sp63-phi-n-amendment2.patch",
+      "sha256": "a27d6bf3b775637c733707b9399113485c40086751825292770cdad7b5c00c3f",
+      "purpose": "Native SP63 amendment 2 phiN branches and simplified stirrup term, with regression tests"
+    }
   ]
 }

@@ -98,7 +98,7 @@ class ResearchMatrixTests(unittest.TestCase):
     def test_identical_full_sustained_crack_width_identity(self):
         good = {
             "cscore_status": "research_calculated",
-            "method": "arbat_conservative",
+            "method": "native_refined",
             "Mx_total_kNm": 180, "Mx_long_kNm": 180,
             "My_total_kNm": 0, "My_long_kNm": 0,
             "preliminary_width_mm": 0.252,
@@ -144,8 +144,8 @@ class ResearchMatrixTests(unittest.TestCase):
                 "error":None if status=="research_calculated" else "crack_not_converged",
                 "preliminary_is_final_approval":False,
                 "verified_for_design":False,
-                "preliminary_method":"arbat_conservative",
-                "preliminary_basis":"precrack_compatibility_envelope_with_native",
+                "preliminary_method":"native_refined",
+                "preliminary_basis":"native_refined_postcrack",
                 "preliminary_decision":"engineering_review" if status=="research_calculated" else "indeterminate",
                 "preliminary_utilization_long":preliminary if status=="research_calculated" else None,
                 "preliminary_utilization_short":0.40 if status=="research_calculated" else None,

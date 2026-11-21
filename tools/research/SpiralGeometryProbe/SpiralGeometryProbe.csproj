@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <!-- Research readout of the already-built pinned engine, not another solver. -->
+  <ItemGroup>
+    <Reference Include="CScore"><HintPath>../../../src/CScorePileRunner/bin/Release/net10.0/CScore.dll</HintPath></Reference>
+    <Reference Include="CSmath"><HintPath>../../../src/CScorePileRunner/bin/Release/net10.0/CSmath.dll</HintPath></Reference>
+    <Reference Include="CSTriangulation"><HintPath>../../../src/CScorePileRunner/bin/Release/net10.0/CSTriangulation.dll</HintPath></Reference>
+    <Reference Include="Triangle"><HintPath>../../../src/CScorePileRunner/bin/Release/net10.0/Triangle.dll</HintPath></Reference>
+    <Reference Include="ExcelDataReader"><HintPath>../../../src/CScorePileRunner/bin/Release/net10.0/ExcelDataReader.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

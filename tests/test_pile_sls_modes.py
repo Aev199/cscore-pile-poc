@@ -128,11 +128,11 @@ class PileSlsOptionTests(unittest.TestCase):
         with self.assertRaises(main.InputError):
             main.validate_input(data)
 
-    def fake_rows(self, utilization=.989, native=.95, mode="arbat_conservative"):
+    def fake_rows(self, utilization=.989, native=.95, mode="native_refined"):
         return [{
             "id":l["id"],"status":"research_calculated","error":None,
             "verified_for_design":False,"preliminary_is_final_approval":False,
-            "preliminary_method":mode,"preliminary_basis":"precrack_compatibility_envelope_with_native",
+            "preliminary_method":mode,"preliminary_basis":"native_refined_postcrack",
             "preliminary_decision":(
                 "engineering_review" if abs(utilization-1)<=.03
                 else "preliminary_exceeds_limit" if utilization>1
@@ -141,8 +141,8 @@ class PileSlsOptionTests(unittest.TestCase):
             "preliminary_utilization_long":utilization,
             "preliminary_utilization_short":0.5,
             "preliminary_governing_utilization":max(utilization, 0.5),
-            "utilization_long":native,
-            "utilization_short":0.4
+            "utilization_long":utilization,
+            "utilization_short":0.5
         } for l in self.example["sls_probe"]["loads"]]
 
     def test_short_only_supplement_is_mandatory_engineering_review(self):
@@ -160,22 +160,18 @@ class PileSlsOptionTests(unittest.TestCase):
             "preliminary_governing_utilization":0.72,
             "preliminary_decision":"engineering_review",
         })
-        checked=main.check_sls_results(rows,sample,"arbat_conservative",0.03)
-        self.assertEqual(checked[0]["preliminary_decision"],"engineering_review")
-        self.assertEqual(checked[0]["design_status"],"NOT_VERIFIED")
-        target["preliminary_decision"]="preliminary_below_limit"
-        with self.assertRaises(main.InputError):
-            main.check_sls_results(rows,sample,"arbat_conservative",0.03)
+        with self.assertRaisesRegex(main.InputError,'исходным CScore'):
+            main.check_sls_results(rows,sample,"native_refined",0.03)
 
     def test_short_crack_check_also_controls_candidate(self):
         rows=self.fake_rows(utilization=.80,native=.70)
         for r in rows:
             r["preliminary_utilization_short"]=1.014
-            r["utilization_short"]=1.01
+            r["utilization_short"]=1.014
             r["preliminary_governing_utilization"]=1.014
             r["preliminary_decision"]="engineering_review"
         validated=main.check_sls_results(
-            rows,self.example["sls_probe"],"arbat_conservative",.03
+            rows,self.example["sls_probe"],"native_refined",.03
         )
         self.assertTrue(all(v["preliminary_decision"]=="engineering_review"
                             for v in validated))
@@ -184,31 +180,27 @@ class PileSlsOptionTests(unittest.TestCase):
         for utilization in (.989,1.014):
             rows=main.check_sls_results(
                 self.fake_rows(utilization), self.example["sls_probe"],
-                "arbat_conservative", .03
+                "native_refined", .03
             )
             self.assertTrue(all(r["preliminary_decision"]=="engineering_review" for r in rows))
             self.assertTrue(all(r["design_status"]=="NOT_VERIFIED" for r in rows))
 
-    def test_default_can_never_be_less_conservative_than_native(self):
-        with self.assertRaisesRegex(main.InputError,"менее консервативен"):
-            main.check_sls_results(
-                self.fake_rows(utilization=.92,native=.99),
-                self.example["sls_probe"],"arbat_conservative",.03
-            )
+    def test_native_result_cannot_be_modified_up_or_down(self):
+        for native in (.8,1.1):
+            rows=self.fake_rows(utilization=.9)
+            rows[0]['utilization_long']=native
+            with self.assertRaisesRegex(main.InputError,'исходным CScore'):
+                main.check_sls_results(rows,self.example['sls_probe'],'native_refined',.03)
 
     def test_native_user_selection_remains_non_approved(self):
-        source=copy.deepcopy(self.example["sls_probe"])
-        source["preliminary_method"]="native_refined"
-        rows=main.check_sls_results(
-            self.fake_rows(utilization=.90,native=.98,mode="native_refined"),
-            source,"native_refined",.03
-        )
-        self.assertTrue(all(r["design_status"]=="NOT_VERIFIED" for r in rows))
+        rows=main.check_sls_results(self.fake_rows(utilization=.90),
+                                    self.example['sls_probe'],'native_refined',.03)
+        self.assertTrue(all(r['design_status']=='NOT_VERIFIED' for r in rows))
 
     def test_missing_sls_results_are_rejected(self):
         with self.assertRaisesRegex(main.InputError,"неполный"):
             main.check_sls_results(
-                self.fake_rows()[:2],self.example["sls_probe"],"arbat_conservative",.03
+                self.fake_rows()[:2],self.example["sls_probe"],"native_refined",.03
             )
 
     def test_failed_upstream_solver_is_indeterminate(self):
@@ -216,7 +208,7 @@ class PileSlsOptionTests(unittest.TestCase):
         rows[0]={"id":rows[0]["id"],"status":"indeterminate","error":"solver_no_convergence",
                  "verified_for_design":False}
         result=main.check_sls_results(
-            rows,self.example["sls_probe"],"arbat_conservative",.03
+            rows,self.example["sls_probe"],"native_refined",.03
         )
         self.assertEqual(result[0]["design_status"],"NOT_VERIFIED")
         self.assertEqual(result[0]["status"],"indeterminate")
@@ -229,7 +221,9 @@ class PileSlsOptionTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temp:
                 folder=Path(temp)
                 inp=folder/"input.json"
-                inp.write_text(json.dumps(self.example),encoding="utf-8")
+                data=copy.deepcopy(self.example)
+                data["eccentricity"]={"mode":"already_in_loads"}
+                inp.write_text(json.dumps(data),encoding="utf-8")
                 def fake_run(argv, **kwargs):
                     req=json.loads(kwargs["input"])
                     sls = self.fake_rows(
@@ -264,7 +258,7 @@ class PileSlsOptionTests(unittest.TestCase):
         rows[0]["verified_for_design"]=True
         with self.assertRaisesRegex(main.InputError,"утверждённый"):
             main.check_sls_results(
-                rows,self.example["sls_probe"],"arbat_conservative",.03
+                rows,self.example["sls_probe"],"native_refined",.03
             )
 
 

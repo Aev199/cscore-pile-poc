@@ -1,0 +1,52 @@
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Validation;
+using SectionCalc;
+using Xunit;
+
+public class ReportTests
+{
+    [Fact]
+    public void ReportIsValidWordWithInputsResultsAndSelection()
+    {
+        var p = SectionProject.Example(SectionKind.Pile);
+        p.Conditions.ShearCheck = true; p.Conditions.ShearModelConfirmed = true;
+        p.Selection = new SelectionSettings { PileCountMin = 10, PileCountMax = 14, PileCountStep = 2, Diameters = [20, 25] };
+        var selection = Selection.Run(p);
+        var result = Engine.Check(selection.Best?.Candidate.Project ?? p);
+        string path = Path.Combine(Path.GetTempPath(), $"section-report-{Guid.NewGuid():N}.docx");
+        try
+        {
+            ReportWriter.Write(path, result, selection, new DateTime(2026, 10, 19));
+            using var doc = WordprocessingDocument.Open(path, false);
+            var errors = new OpenXmlValidator().Validate(doc).Select(e => e.Path?.XPath + " :: " + e.Description).Distinct().ToList();
+            Assert.True(errors.Count == 0, string.Join("\n", errors.Take(12)));
+            string text = doc.MainDocumentPart!.Document.Body!.InnerText;
+            foreach (var expected in new[] { "Расчёт железобетонного сечения", "Исходные данные", "Расчётные усилия", "Результаты расчёта",
+                         "Подбор армирования", "Примечания", "Прочность нормального сечения", "19.10.2026" })
+                Assert.Contains(expected, text);
+            Assert.Single(doc.MainDocumentPart.ImageParts);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ReportListsCoefficientsAndCombinationKinds()
+    {
+        foreach (var (p, expected) in new[] { (ExampleFiles.Pile(), new[] { "сейсмическое", "m_tr", "kдл", "γf", "ηx = 1/(1 − N/Ncr,x)", "Qsw = 0,75·qsw·C0", "kult" }),
+                     (ExampleFiles.Wall(), new[] { "γb3 = 0,85", "особое", "кратковременное", "СП 296", "γn", "ψs = 1 − 0,8·σs,crc/σs", "acrc,1 + acrc,2 − acrc,3" }) })
+        {
+            var result = Engine.Check(p);
+            string path = Path.Combine(Path.GetTempPath(), $"section-report-{Guid.NewGuid():N}.docx");
+            try
+            {
+                ReportWriter.Write(path, result);
+                using var doc = WordprocessingDocument.Open(path, false);
+                var errors = new OpenXmlValidator().Validate(doc).Select(e => e.Description).Distinct().ToList();
+                Assert.True(errors.Count == 0, string.Join("\n", errors.Take(12)));
+                string text = doc.MainDocumentPart!.Document.Body!.InnerText;
+                foreach (var e in expected) Assert.Contains(e, text);
+            }
+            finally { File.Delete(path); }
+        }
+    }
+}

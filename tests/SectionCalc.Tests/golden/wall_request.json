@@ -1,0 +1,170 @@
+{
+ "schema_version": 1,
+ "pile": {
+  "diameter_mm": 0,
+  "polygon_sides": 0,
+  "mesh_resolution": 41
+ },
+ "research_rectangle": {
+  "width_mm": 1000,
+  "height_mm": 600,
+  "mesh_resolution": 41,
+  "bars": [
+   {
+    "x_mm": -430.0,
+    "y_mm": -230.0,
+    "diameter_mm": 20
+   },
+   {
+    "x_mm": -143.33333333333331,
+    "y_mm": -230.0,
+    "diameter_mm": 20
+   },
+   {
+    "x_mm": 143.33333333333337,
+    "y_mm": -230.0,
+    "diameter_mm": 20
+   },
+   {
+    "x_mm": 430.0,
+    "y_mm": -230.0,
+    "diameter_mm": 20
+   },
+   {
+    "x_mm": -427.5,
+    "y_mm": 227.5,
+    "diameter_mm": 25
+   },
+   {
+    "x_mm": -213.75,
+    "y_mm": 227.5,
+    "diameter_mm": 25
+   },
+   {
+    "x_mm": 0.0,
+    "y_mm": 227.5,
+    "diameter_mm": 25
+   },
+   {
+    "x_mm": 213.75,
+    "y_mm": 227.5,
+    "diameter_mm": 25
+   },
+   {
+    "x_mm": 427.5,
+    "y_mm": 227.5,
+    "diameter_mm": 25
+   }
+  ]
+ },
+ "materials": {
+  "concrete_rb_kpa": 15300,
+  "concrete_rbt_kpa": 1035,
+  "concrete_e_kpa": 32500000,
+  "concrete_ec1": -0.0015,
+  "concrete_ec2": -0.0035,
+  "concrete_et1": 8e-05,
+  "concrete_et2": 0.00015,
+  "rebar_rs_kpa": 435000,
+  "rebar_e_kpa": 200000000,
+  "rebar_ec2": -0.025,
+  "rebar_et2": 0.025
+ },
+ "loads": [
+  {
+   "id": "ULS:U #1 [ea -1,-1]",
+   "n_kn": -800,
+   "mx_knm": -350,
+   "q_kn": 200.0,
+   "my_knm": -26.666666666666668,
+   "source_mx_knm": -350.0,
+   "source_my_knm": 0.0
+  },
+  {
+   "id": "ULS:U #1 [ea -1,+1]",
+   "n_kn": -800,
+   "mx_knm": -350,
+   "q_kn": 200.0,
+   "my_knm": 26.666666666666668,
+   "source_mx_knm": -350.0,
+   "source_my_knm": 0.0
+  }
+ ],
+ "candidates": [
+  {
+   "id": "1c_neg4d20_pos5d25",
+   "bar_count": 9,
+   "bar_diameter_mm": 25,
+   "rotation_deg": 0,
+   "bar_axis_radius_mm": 0,
+   "steel_area_mm2": 3711.006322052943,
+   "clearance_mm": 188.75
+  }
+ ],
+ "sls_execution_policy": "uls_pass_only",
+ "shear_screening": {
+  "enabled": true,
+  "diameter_mm": 10,
+  "spacing_mm": 200,
+  "effective_legs_per_cage": 4,
+  "cage_count": 1,
+  "rsw_kpa": 170000,
+  "constructive_confirmed": true
+ },
+ "sls_probe": {
+  "short_materials": {
+   "concrete_rb_kpa": 22000,
+   "concrete_rbt_kpa": 1750,
+   "concrete_e_kpa": 32500000,
+   "concrete_ec1": -0.0015,
+   "concrete_ec2": -0.0035,
+   "concrete_et1": 8e-05,
+   "concrete_et2": 0.00015,
+   "rebar_rs_kpa": 500000,
+   "rebar_e_kpa": 200000000,
+   "rebar_ec2": -0.025,
+   "rebar_et2": 0.025
+  },
+  "long_materials": {
+   "concrete_rb_kpa": 22000,
+   "concrete_rbt_kpa": 1750,
+   "concrete_e_kpa": 32500000,
+   "concrete_ec1": -0.0015,
+   "concrete_ec2": -0.0035,
+   "concrete_et1": 8e-05,
+   "concrete_et2": 0.00015,
+   "rebar_rs_kpa": 500000,
+   "rebar_e_kpa": 200000000,
+   "rebar_ec2": -0.025,
+   "rebar_et2": 0.025
+  },
+  "phi2": 0.5,
+  "acrc_ult_long_mm": 0.3,
+  "acrc_ult_short_mm": 0.4,
+  "preliminary_method": "arbat_conservative",
+  "review_band": 0.03,
+  "loads": [
+   {
+    "id": "S #1",
+    "n_kn": -600.0,
+    "mx_total_knm": -260.0,
+    "mx_long_knm": -200.0,
+    "my_total_knm": 0.0,
+    "my_long_knm": 0.0
+   }
+  ]
+ },
+ "connection_context": {
+  "second_order_mode": "cscore_member",
+  "l0_x_m": 7,
+  "l0_y_m": 6.5,
+  "psi": 0.8,
+  "inclined_moment_requested": true,
+  "anchorage_confirmed": true,
+  "anchorage_factor": 0.8,
+  "circular_shear": null,
+  "support_distance_positive_m": 2.5,
+  "support_distance_negative_m": 3.5,
+  "eccentricity_in_loads": true
+ }
+}

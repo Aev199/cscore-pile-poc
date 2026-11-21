@@ -1,0 +1,280 @@
+{
+  "version": 1,
+  "title": "Контроль Q БНС Ø800 — навивка шаг 300",
+  "kind": "pile",
+  "force_scale": "per_member",
+  "spacing_m": 1.5,
+  "moment_sign": 1,
+  "materials_confirmed": true,
+  "eccentricity_confirmed": true,
+  "background": [
+    4,
+    4
+  ],
+  "pile_background": 12,
+  "diameters": [
+    25,
+    25
+  ],
+  "pile_diameter": 25,
+  "max_tier": 1,
+  "q_allowed_steps_mm": [
+    100,
+    150,
+    200,
+    300
+  ],
+  "transverse_layout": {
+    "mode": "proposed",
+    "positions_mm": [],
+    "geometry_confirmed": false
+  },
+  "profile_options": {
+    "orientation": "same",
+    "axes_confirmed": false
+  },
+  "transverse": {
+    "mode": "screen",
+    "diameter_mm": 12,
+    "spacing_mm": 300,
+    "effective_legs_per_cage": 2,
+    "rsw_kpa": 170000,
+    "constructive_confirmed": true
+  },
+  "wall": {
+    "panel_width_mm": 3000,
+    "thickness_mm": 800,
+    "cage_count": 3,
+    "cage_width_mm": 900,
+    "end_cover_mm": 50,
+    "cover_mm": 60,
+    "ties_diameter_mm": 10,
+    "min_clear_spacing_mm": 25,
+    "min_cage_gap_mm": 50,
+    "mesh_resolution": 41
+  },
+  "pile": {
+    "diameter_mm": 800,
+    "cover_mm": 45.5,
+    "ties_diameter_mm": 12,
+    "min_clear_spacing_mm": 40,
+    "mesh_resolution": 41,
+    "polygon_sides": 96
+  },
+  "materials": {
+    "concrete_rb_kpa": 17000,
+    "concrete_rbt_kpa": 1150,
+    "concrete_e_kpa": 32500000,
+    "concrete_ec1": -0.0015,
+    "concrete_ec2": -0.0035,
+    "concrete_et1": 8e-05,
+    "concrete_et2": 0.00015,
+    "rebar_rs_kpa": 435000,
+    "rebar_e_kpa": 200000000,
+    "rebar_ec2": -0.025,
+    "rebar_et2": 0.025
+  },
+  "sls_settings": {
+    "short_materials": {
+      "concrete_rb_kpa": 22000,
+      "concrete_rbt_kpa": 1750,
+      "concrete_e_kpa": 32500000,
+      "concrete_ec1": -0.0015,
+      "concrete_ec2": -0.0035,
+      "concrete_et1": 8e-05,
+      "concrete_et2": 0.00015,
+      "rebar_rs_kpa": 500000,
+      "rebar_e_kpa": 200000000,
+      "rebar_ec2": -0.025,
+      "rebar_et2": 0.025
+    },
+    "long_materials": {
+      "concrete_rb_kpa": 22000,
+      "concrete_rbt_kpa": 1750,
+      "concrete_e_kpa": 32500000,
+      "concrete_ec1": -0.0015,
+      "concrete_ec2": -0.0035,
+      "concrete_et1": 8e-05,
+      "concrete_et2": 0.00015,
+      "rebar_rs_kpa": 500000,
+      "rebar_e_kpa": 200000000,
+      "rebar_ec2": -0.025,
+      "rebar_et2": 0.025
+    },
+    "phi2": 0.5,
+    "acrc_ult_long_mm": 0.3,
+    "acrc_ult_short_mm": 0.4,
+    "preliminary_method": "native_refined",
+    "review_band": 0.03
+  },
+  "rows": [
+    {
+      "z": 0,
+      "case": "Q01",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 150,
+      "m_long": null
+    },
+    {
+      "z": 0,
+      "case": "Q02",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": 0,
+      "case": "Q03",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 400,
+      "m_long": null
+    },
+    {
+      "z": 0,
+      "case": "Q04",
+      "basis": "ULS",
+      "n": 0,
+      "m": -40,
+      "q": -300,
+      "m_long": null
+    },
+    {
+      "z": 0,
+      "case": "Q05",
+      "basis": "ULS",
+      "n": -200,
+      "m": 40,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": 0,
+      "case": "Q06",
+      "basis": "ULS",
+      "n": 200,
+      "m": 40,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": 0,
+      "case": "Q07",
+      "basis": "ULS",
+      "n": 0,
+      "m": 0,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": 0,
+      "case": "Q08",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 5000,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q01",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 150,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q02",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q03",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 400,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q04",
+      "basis": "ULS",
+      "n": 0,
+      "m": -40,
+      "q": -300,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q05",
+      "basis": "ULS",
+      "n": -200,
+      "m": 40,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q06",
+      "basis": "ULS",
+      "n": 200,
+      "m": 40,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q07",
+      "basis": "ULS",
+      "n": 0,
+      "m": 0,
+      "q": 300,
+      "m_long": null
+    },
+    {
+      "z": -2,
+      "case": "Q08",
+      "basis": "ULS",
+      "n": 0,
+      "m": 40,
+      "q": 5000,
+      "m_long": null
+    }
+  ],
+  "zones": [],
+  "transverse_zones": [],
+  "source": {
+    "type": "manual",
+    "note": "Контрольный пример. a=80 и χ=0.8 — условные входные данные для сравнения, не проектная рекомендация."
+  },
+  "calculation_context": {
+    "second_order_mode": "section_only",
+    "l0_x_m": null,
+    "l0_y_m": null,
+    "psi": 1.0,
+    "inclined_moment_requested": false,
+    "anchorage_confirmed": false,
+    "anchorage_factor": null,
+    "sections": [],
+    "circular_shear": {
+      "method": "vniigs_1984_user_spiral",
+      "a_mm": 80,
+      "winding_diameter_mm": 697,
+      "circular_efficiency": 0.8,
+      "efficiency_basis": "CONTROL TEST ONLY: prescribed a=80mm and chi=0.8, not a normative derivation or ARBAT fit",
+      "confirmed": true
+    }
+  }
+}

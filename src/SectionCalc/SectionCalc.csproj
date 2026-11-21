@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SectionCalc</AssemblyName>
+    <RootNamespace>SectionCalc</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SectionCalc.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The same adapter sources as the command-line runner, called in process (Program.Execute). -->
+    <Compile Include="../CScorePileRunner/*.cs" Link="Runner/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Plaxis/plaxis_export.py" LogicalName="SectionCalc.Plaxis.plaxis_export.py" />
+    <EmbeddedResource Include="Viewer3D/three.min.js" LogicalName="SectionCalc.Viewer3D.three.min.js" />
+    <EmbeddedResource Include="Viewer3D/OrbitControls.js" LogicalName="SectionCalc.Viewer3D.OrbitControls.js" />
+    <EmbeddedResource Include="Viewer3D/viewer.html" LogicalName="SectionCalc.Viewer3D.viewer.html" />
+    <ProjectReference Include="../../vendor/OpenCS/CScore/CScore.csproj" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+  </ItemGroup>
+  <Target Name="ApplyPinnedCScoreCorrections" BeforeTargets="ResolveProjectReferences">
+    <Exec Command="python &quot;$(MSBuildThisFileDirectory)../../tools/apply_opencs_patches.py&quot;" />
+  </Target>
+</Project>

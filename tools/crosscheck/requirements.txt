@@ -1,0 +1,4 @@
+structuralcodes>=0.7
+concreteproperties>=0.8
+structural-materials>=0.3
+matplotlib

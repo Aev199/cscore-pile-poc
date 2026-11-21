@@ -1,0 +1,145 @@
+{
+  "Version": 2,
+  "Title": "БНС Ø800",
+  "Kind": "Pile",
+  "Pile": {
+    "DiameterMm": 800,
+    "CoverMm": 60,
+    "CoverReference": "Bar",
+    "SpiralDiameterMm": 10,
+    "BarCount": 12,
+    "BarDiameterMm": 25,
+    "MinClearSpacingMm": 25,
+    "SpiralCoverMm": 50,
+    "AxisDistanceMm": 72.5
+  },
+  "Wall": {
+    "WidthMm": 1000,
+    "ThicknessMm": 600,
+    "CoverMm": 60,
+    "CoverReference": "Bar",
+    "StirrupDiameterMm": 10,
+    "PositiveFace": {
+      "BarCount": 5,
+      "BarDiameterMm": 25,
+      "Rows": 1,
+      "RowGapMm": 25,
+      "RowPitchMm": 50
+    },
+    "NegativeFace": {
+      "BarCount": 5,
+      "BarDiameterMm": 25,
+      "Rows": 1,
+      "RowGapMm": 25,
+      "RowPitchMm": 50
+    },
+    "MinClearSpacingMm": 25
+  },
+  "ConcreteClass": "B30",
+  "RebarClass": "A500",
+  "TransverseClass": "A240",
+  "Concrete": {
+    "Gb1": 0.9,
+    "Gb2": 1,
+    "Gb3": 1,
+    "Gb5": 1,
+    "HardeningFactor": 1
+  },
+  "LongitudinalFactor": 1,
+  "TransverseFactor": 1,
+  "Loads": [
+    {
+      "Name": "1",
+      "N": -1500,
+      "Mx": 250,
+      "My": 0,
+      "Q": 120,
+      "LoadFactor": 1.15,
+      "SustainedShare": 0.8,
+      "ShortTerm": false,
+      "Seismic": false,
+      "Special": false
+    },
+    {
+      "Name": "2",
+      "N": -900,
+      "Mx": -180,
+      "My": 0,
+      "Q": 90,
+      "LoadFactor": 1.15,
+      "SustainedShare": 0.8,
+      "ShortTerm": false,
+      "Seismic": false,
+      "Special": false
+    },
+    {
+      "Name": "3",
+      "N": -1300,
+      "Mx": 330,
+      "My": 0,
+      "Q": 160,
+      "LoadFactor": 1,
+      "SustainedShare": 0.6,
+      "ShortTerm": false,
+      "Seismic": true,
+      "Special": false
+    }
+  ],
+  "Conditions": {
+    "ElementLengthM": 8,
+    "MuX": 0.7,
+    "MuY": 0.7,
+    "SlendernessLimit": 200,
+    "StaticallyDeterminate": false,
+    "Eccentricity": "Sp63",
+    "EaXMm": 0,
+    "EaYMm": 0,
+    "SecondOrder": "Cscore",
+    "ReliabilityUls": 1,
+    "ReliabilitySls": 1,
+    "CrackCategory": "LimitedWidth",
+    "PermeabilityLimits": false,
+    "CrackLimitLongMm": 0.3,
+    "CrackLimitShortMm": 0.4,
+    "CrackMethod": "Conservative",
+    "ShearCheck": true,
+    "ShearPitchMm": 200,
+    "StirrupLegs": 4,
+    "PileShearAMm": 85,
+    "ShearModelConfirmed": true,
+    "InclinedMoment": false,
+    "AnchorageFactor": 1,
+    "SupportDistanceDownM": 3,
+    "SupportDistanceUpM": 3,
+    "OnePlane": false,
+    "L0xM": 5.6,
+    "L0yM": 5.6
+  },
+  "Seismic": {
+    "NormalSectionFactor": 1.2,
+    "InclinedSectionFactor": 1,
+    "CheckCracks": false
+  },
+  "Special": {
+    "NormativeProperties": true,
+    "ConcreteFactor": 1,
+    "LongitudinalFactor": 1,
+    "TransverseFactor": 1,
+    "AdditionalFactor": 1
+  },
+  "Selection": {
+    "PileCountMin": 8,
+    "PileCountMax": 24,
+    "PileCountStep": 2,
+    "WallCountMin": 3,
+    "WallCountMax": 10,
+    "WallSymmetric": true,
+    "Diameters": [
+      16,
+      20,
+      25,
+      28,
+      32
+    ]
+  }
+}

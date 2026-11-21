@@ -1,0 +1,155 @@
+[
+ {
+  "case": "slab_example43",
+  "method": "arbat_conservative",
+  "quantity": "long_mm",
+  "reference": 0.2,
+  "product": 0.3095,
+  "dev_pct": 54.7,
+  "source": "Posobie SP52-101 ex.43, force method, psi_s=1-0.8Mcrc/M"
+ },
+ {
+  "case": "slab_example43",
+  "method": "arbat_conservative",
+  "quantity": "long_mm",
+  "reference": 0.306,
+  "product": 0.3095,
+  "dev_pct": 1.1,
+  "source": "SCAD/ARBAT test 10, NDM theory"
+ },
+ {
+  "case": "slab_example43",
+  "method": "arbat_conservative",
+  "quantity": "long_mm",
+  "reference": 0.292,
+  "product": 0.3095,
+  "dev_pct": 6.0,
+  "source": "ARBAT 21 (test 10, 0.974 x 0.3 mm)"
+ },
+ {
+  "case": "slab_example43",
+  "method": "arbat_conservative",
+  "quantity": "sigma_long_mpa",
+  "reference": 235.9,
+  "product": 237.3325,
+  "dev_pct": 0.6,
+  "source": "Posobie ex.43"
+ },
+ {
+  "case": "slab_example43",
+  "method": "arbat_conservative",
+  "quantity": "sigma_long_mpa",
+  "reference": 236.692,
+  "product": 237.3325,
+  "dev_pct": 0.3,
+  "source": "SCAD NDM"
+ },
+ {
+  "case": "slab_example43",
+  "method": "arbat_conservative",
+  "quantity": "sigma_crc_mpa",
+  "reference": 22.651,
+  "product": 20.3526,
+  "dev_pct": -10.1,
+  "source": "SCAD NDM at Mcrc (8.2.14)"
+ },
+ {
+  "case": "slab_example43",
+  "method": "arbat_conservative",
+  "quantity": "ls_mm",
+  "reference": 400,
+  "product": 400.0,
+  "dev_pct": 0.0,
+  "source": "Posobie ex.43"
+ },
+ {
+  "case": "column_example44",
+  "method": "arbat_conservative",
+  "quantity": "short_mm",
+  "reference": 0.36,
+  "product": 0.36,
+  "dev_pct": -0.0,
+  "source": "Posobie SP52-101 ex.44, acrc1+acrc2-acrc3"
+ },
+ {
+  "case": "column_example44",
+  "method": "arbat_conservative",
+  "quantity": "long_mm",
+  "reference": 0.174,
+  "product": 0.1828,
+  "dev_pct": 5.1,
+  "source": "Posobie ex.44 acrc1 from its sigma_s,l=144.3, psi_s=0.861"
+ },
+ {
+  "case": "column_example44",
+  "method": "arbat_conservative",
+  "quantity": "sigma_long_mpa",
+  "reference": 144.3,
+  "product": 141.4151,
+  "dev_pct": -2.0,
+  "source": "Posobie ex.44"
+ },
+ {
+  "case": "column_example44",
+  "method": "arbat_conservative",
+  "quantity": "sigma_total_mpa",
+  "reference": 331.2,
+  "product": 318.5381,
+  "dev_pct": -3.8,
+  "source": "Posobie ex.44"
+ },
+ {
+  "case": "column_example44",
+  "method": "arbat_conservative",
+  "quantity": "ls_mm",
+  "reference": 400,
+  "product": 400.0,
+  "dev_pct": 0.0,
+  "source": "Posobie ex.44"
+ },
+ {
+  "case": "slab_example43",
+  "method": "native_refined",
+  "quantity": "long_mm",
+  "reference": 0.2,
+  "product": 0.188,
+  "dev_pct": -6.0,
+  "source": "Posobie SP52-101 ex.43, force method, psi_s=1-0.8Mcrc/M"
+ },
+ {
+  "case": "slab_example43",
+  "method": "native_refined",
+  "quantity": "long_mm",
+  "reference": 0.306,
+  "product": 0.188,
+  "dev_pct": -38.6,
+  "source": "SCAD/ARBAT test 10, NDM theory"
+ },
+ {
+  "case": "slab_example43",
+  "method": "native_refined",
+  "quantity": "long_mm",
+  "reference": 0.292,
+  "product": 0.188,
+  "dev_pct": -35.6,
+  "source": "ARBAT 21 (test 10, 0.974 x 0.3 mm)"
+ },
+ {
+  "case": "column_example44",
+  "method": "native_refined",
+  "quantity": "short_mm",
+  "reference": 0.36,
+  "product": 0.3447,
+  "dev_pct": -4.2,
+  "source": "Posobie SP52-101 ex.44, acrc1+acrc2-acrc3"
+ },
+ {
+  "case": "column_example44",
+  "method": "native_refined",
+  "quantity": "long_mm",
+  "reference": 0.174,
+  "product": 0.1676,
+  "dev_pct": -3.7,
+  "source": "Posobie ex.44 acrc1 from its sigma_s,l=144.3, psi_s=0.861"
+ }
+]
